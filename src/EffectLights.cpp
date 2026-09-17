@@ -110,6 +110,7 @@ namespace Plugin
 	{
 		const auto started = std::chrono::steady_clock::now();
 		ApplyLightStrength(false);
+		ApplyStreamLights(false);
 		ApplyCastingLights(false);
 		ApplyEffectLights(false);
 		SKSE::log::info("lights refreshed for the settings in {:.1f} ms",
