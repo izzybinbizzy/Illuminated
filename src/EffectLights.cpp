@@ -2,7 +2,9 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Pass 2: projectiles, explosions and hazards whose model is lit lose the game's own light.
+// Pass 2: projectiles, explosions and hazards whose model is lit lose the game's own light - for as long as the
+// menu's settings keep that model lit. Each one's own light is remembered, so switching an option off gives it back.
+// Also RefreshLights, which runs passes 1 and 2 again whenever a setting changes.
 
 #include "Plugin.h"
 
@@ -17,10 +19,45 @@ namespace Plugin
 		return Contains(a_model, "spray") && (Contains(id, "poison") || Contains(id, "poision"));
 	}
 
+	struct EffectTarget
+	{
+		RE::TESObjectLIGH** slot;  // the form's light
+		RE::TESObjectLIGH*  own;
+		std::string         model;
+		std::string         label;
+		bool                always;  // named or a poison spray: dark whatever the settings say
+	};
+	std::vector<EffectTarget> gEffectTargets;
+	const Coverage*           gEffectCoverage = nullptr;
+
+	void ApplyEffectLights(bool a_log)
+	{
+		std::size_t nulled = 0, restored = 0;
+		for (auto& t : gEffectTargets) {
+			const bool lit = t.always || (gEffectCoverage && gEffectCoverage->ModelLit(t.model));
+			if (lit && *t.slot) {
+				*t.slot = nullptr;
+				++nulled;
+				if (a_log) {
+					SKSE::log::info("[FX-NULLED] {} | {}", t.label, t.model);
+				}
+			} else if (!lit && *t.slot != t.own) {
+				*t.slot = t.own;
+				++restored;
+				if (a_log) {
+					SKSE::log::info("[FX-KEPT] {} | {} | no setting lights it now", t.label, t.model);
+				}
+			}
+		}
+		SKSE::log::info("projectile, explosion and hazard lights for the settings as they are: {} taken off, {} given back, {} followed",
+			nulled, restored, gEffectTargets.size());
+	}
+
 	template <class T>
 	void EffectLights(const Coverage& a_cov, std::string_view a_kind)
 	{
-		std::size_t scanned = 0, clean = 0, nulled = 0, coneKept = 0, poison = 0, forced = 0;
+		gEffectCoverage = &a_cov;
+		std::size_t scanned = 0, clean = 0, followed = 0, coneKept = 0, poison = 0, forced = 0;
 		for (auto* form : RE::TESDataHandler::GetSingleton()->GetFormArray<T>()) {
 			if (!form) {
 				continue;
@@ -56,17 +93,25 @@ namespace Plugin
 				SKSE::log::info("[FX-CLEAN] {} {} | {}", a_kind, Label(form), model);
 				continue;
 			}
-			form->data.light = nullptr;
-			++nulled;
-			SKSE::log::info("[FX-NULLED] {} {} | {}", a_kind, Label(form), model);
+			gEffectTargets.push_back({ &form->data.light, form->data.light, model, std::string(a_kind) + " " + Label(form), force || poisonSpray });
+			++followed;
 		}
-		SKSE::log::info("{} lights: {} lit or named seen; {} nulled, {} already had none, {} cone/flame kept on purpose, "
+		SKSE::log::info("{} lights: {} lit or named seen; {} followed, {} already had none, {} cone/flame kept on purpose, "
 						"{} poison sprays, {} named",
-			a_kind, scanned, nulled, clean, coneKept, poison, forced);
+			a_kind, scanned, followed, clean, coneKept, poison, forced);
 	}
 
 	// the three kinds main.cpp runs this pass for
 	template void EffectLights<RE::BGSProjectile>(const Coverage& a_cov, std::string_view a_kind);
 	template void EffectLights<RE::BGSExplosion>(const Coverage& a_cov, std::string_view a_kind);
 	template void EffectLights<RE::BGSHazard>(const Coverage& a_cov, std::string_view a_kind);
+
+	void RefreshLights()
+	{
+		const auto started = std::chrono::steady_clock::now();
+		ApplyCastingLights(false);
+		ApplyEffectLights(false);
+		SKSE::log::info("lights refreshed for the settings in {:.1f} ms",
+			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+	}
 }

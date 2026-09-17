@@ -12,11 +12,16 @@ Luminous Arcana configs under `Data\LightPlacer\Luminous Arcana\` (at any depth)
 2. does the same for projectiles, explosions and hazards whose model is lit, keeping cone and flame
    projectiles lit and always removing poison spray lights;
 3. gives the Dragonborn poison rune the casting art its lit hand needs;
-4. with the Spray Lights option installed, gives each spray projectile a stretched copy of its light,
-   colored from the installer's marker files;
+4. with the Spray Lights setting on, gives each spray projectile a stretched copy of its light,
+   colored from the spray markers in its settings file;
 5. leaves only the first light on an enchantment that carries two or more lit shaders (the originals are
    restored while the Crafting Menu is open and while a save is written, so a save never stores an
    in-memory copy).
+
+Every choice is a setting: a game global each light's conditions read (`GetGlobalValue`), so a change
+shows in game within a second. The settings come from `Data\SKSE\Plugins\Luminous Arcana\*.txt`,
+the picks are saved to `Data\MCM\Settings\Luminous Arcana.ini`, and the pages are added to SKSE Menu
+Framework's Mod Control Panel (the MCM uses the same INI). Passes 1 and 2 run again on every change.
 
 It changes nothing if Let There Be Glow's plugin (`LetThereBeGlow.dll`) is loaded - the two mods are
 never used together. Every change, and how long the load pass took, is written
@@ -34,7 +39,10 @@ The source is generated from the Let There Be Glow plugin's source by the mod's 
 | `src/Text.cpp` | small text helpers |
 | `src/EditorIDs.cpp` | editor IDs, recorded as each form loads because the game throws most of them away |
 | `src/Configs.cpp` | reads the Light Placer configs and collects the models and shaders they light |
-| `src/SprayMarkers.cpp` | reads the installer's spray marker files |
+| `src/SprayMarkers.cpp` | reads the spray markers from the settings file |
+| `src/Settings.cpp` | the settings: their globals, the INI, and the call the MCM makes when one changes |
+| `src/Menu.cpp` | the Luminous Arcana pages in SKSE Menu Framework |
+| `src/SKSEMenuFramework.h` | SKSE Menu Framework's own header (Thiago099/SKSE-Menu-Framework-3, GPL-3.0) |
 | `src/FormCopies.cpp` | in-memory copies of lights, effect shaders and magic effects |
 | `src/LightSettings.cpp` | pass 0 |
 | `src/CastingLights.cpp` | pass 1 |

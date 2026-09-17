@@ -2,7 +2,8 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Pass 1: a magic effect whose casting art is lit loses the game's own casting light.
+// Pass 1: a magic effect whose casting art is lit loses the game's own casting light - for as long as the menu's
+// settings keep that art lit. Each effect's own light is remembered, so switching an option off gives it back.
 
 #include "Plugin.h"
 
@@ -32,9 +33,43 @@ namespace Plugin
 		return (std::max)(listed, declared);
 	}
 
+	struct CastingTarget
+	{
+		RE::EffectSetting* effect;
+		RE::TESObjectLIGH* own;  // the light the effect had before this plugin touched it (after pass 0)
+		std::string        model;
+	};
+	std::vector<CastingTarget> gCastingTargets;
+	const Coverage*            gCastingCoverage = nullptr;
+
+	void ApplyCastingLights(bool a_log)
+	{
+		std::size_t nulled = 0, restored = 0;
+		for (auto& t : gCastingTargets) {
+			const bool lit = gCastingCoverage && gCastingCoverage->ModelLit(t.model);
+			if (lit && t.effect->data.light) {
+				t.effect->data.light = nullptr;
+				++nulled;
+				if (a_log) {
+					SKSE::log::info("[CAST-NULLED] {} | {}", Label(t.effect), t.model);
+				}
+			} else if (!lit && t.effect->data.light != t.own) {
+				t.effect->data.light = t.own;
+				++restored;
+				if (a_log) {
+					SKSE::log::info("[CAST-KEPT] {} | {} | no setting lights it now", Label(t.effect), t.model);
+				}
+			}
+		}
+		SKSE::log::info("casting lights for the settings as they are: {} taken off, {} given back, {} effects followed", nulled, restored,
+			gCastingTargets.size());
+	}
+
 	void CastingLights(const Coverage& a_cov)
 	{
-		std::size_t scanned = 0, constant = 0, archetype = 0, prefix = 0, clean = 0, bloated = 0, nulled = 0;
+		gCastingCoverage = &a_cov;
+		gCastingTargets.clear();
+		std::size_t scanned = 0, constant = 0, archetype = 0, prefix = 0, clean = 0, bloated = 0;
 		for (auto* effect : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::EffectSetting>()) {
 			if (!effect || !effect->data.castingArt) {
 				continue;
@@ -65,12 +100,11 @@ namespace Plugin
 				++bloated;
 				continue;
 			}
-			effect->data.light = nullptr;
-			++nulled;
-			SKSE::log::info("[CAST-NULLED] {} | {}", Label(effect), model);
+			gCastingTargets.push_back({ effect, effect->data.light, model });
 		}
-		SKSE::log::info("casting lights: {} lit effects seen; {} nulled, {} already had none, skipped: {} constant effect, "
+		SKSE::log::info("casting lights: {} lit effects seen; {} followed, {} already had none, skipped: {} constant effect, "
 						"{} light archetype, {} editor ID prefix, {} oversized",
-			scanned, nulled, clean, constant, archetype, prefix, bloated);
+			scanned, gCastingTargets.size(), clean, constant, archetype, prefix, bloated);
+		ApplyCastingLights(true);
 	}
 }

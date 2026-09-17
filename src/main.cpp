@@ -13,15 +13,18 @@
 //   2. the same for projectiles, explosions and hazards whose model is lit - except cone and flame
 //      projectiles, which keep their light, and poison sprays, which lose it whether lit or not;
 //   3. the Dragonborn poison rune gets the casting art its lit hand needs;
-//   4. with the Spray Lights option installed, each spray projectile gets a private copy of its own
-//      light, stretched to cover the spray and colored from the installer's markers;
+//   4. with the Spray Lights setting on, each spray projectile gets a private copy of its own
+//      light, stretched to cover the spray and colored from the settings' markers;
 //   5. an enchantment carrying two or more lit shaders keeps the light of its first one only - the ones
 //      plugins define and the ones made at the enchanting table, never letting a save hold a copy.
 // If Let There Be Glow's own plugin is loaded, nothing is changed at all: the two mods are never
 // installed together.
+// Every choice is a setting in the menu (SKSE Menu Framework, and the MCM when Luminous Arcana.esp is
+// installed). Passes 1 and 2 follow the settings live; pass 4 reads them when the game loads.
 //
 // Where each part lives: main.cpp (this file) runs the passes in order; Plugin.h lists what the files
 // share; Text.cpp, EditorIDs.cpp, Configs.cpp, SprayMarkers.cpp and FormCopies.cpp are the helpers;
+// Settings.cpp holds the settings and Menu.cpp the menu pages (SKSEMenuFramework.h is that mod's own header);
 // CastingLights.cpp, EffectLights.cpp, PoisonRune.cpp, SprayLights.cpp and Enchantments.cpp are passes 1 to 5;
 // LightSettings.cpp is pass 0.
 
@@ -49,8 +52,10 @@ namespace
 				kOtherPluginDll);
 			return;
 		}
+		LoadSettings();  // first: Light Placer reads the settings' globals in its conditions
+		RegisterMenu();
 		LightSettings();
-		const auto cov = ReadCoverage();
+		const auto& cov = ReadCoverage();
 		SKSE::log::info("configs: {} file(s), {} lit model(s), {} shader name(s)", cov.files, cov.models.size(), cov.shaders.size());
 		if (cov.files == 0) {
 			SKSE::log::warn("no Luminous Arcana configs were found under Data\\LightPlacer; nothing was changed");
@@ -60,6 +65,7 @@ namespace
 		EffectLights<RE::BGSProjectile>(cov, "projectile");
 		EffectLights<RE::BGSExplosion>(cov, "explosion");
 		EffectLights<RE::BGSHazard>(cov, "hazard");
+		ApplyEffectLights(true);
 		PoisonRuneArt();
 		SprayLights();
 		DoubledEnchantments(cov);
@@ -93,6 +99,8 @@ namespace
 			break;
 		case SKSE::MessagingInterface::kPostLoadGame:
 		case SKSE::MessagingInterface::kNewGame:
+			// a save holds the plugin's globals as they were when it was made; the settings file is the truth
+			ApplyGlobals();
 			if (AnyLitShaders()) {
 				UseQuiet("game loaded");
 			}
@@ -114,6 +122,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	EditorIDHook<RE::TESEffectShader>::Install();
 	EditorIDHook<RE::EnchantmentItem>::Install();
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
+	InstallPapyrus();
 	SKSE::log::info("Luminous Arcana plugin loaded; waiting for the game's data");
 	return true;
 }

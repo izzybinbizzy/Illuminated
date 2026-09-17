@@ -47,16 +47,65 @@ namespace Plugin
 		}
 	};
 
+	// ------------------------------------------------------------------ Settings.cpp: the menu's settings (Luminous Arcana only)
+	struct Clause
+	{
+		std::string global;  // lower case
+		int         value{ 0 };
+	};
+
+	struct Setting
+	{
+		std::string              id, ini, page, group, label;
+		bool                     isChoice{ false }, restart{ false }, autoAll{ false };
+		std::vector<std::string> choices, tips, needs, autoPlugins;
+		int                      defaultValue{ 0 }, value{ 0 };
+		RE::TESGlobal*           global{ nullptr };
+	};
+
+	struct MenuNote
+	{
+		std::string page, group, label, text;
+	};
+
+	struct SprayMarker
+	{
+		std::string                      name;
+		std::vector<std::vector<Clause>> when;
+		std::string                      values;  // key=value;key=value
+	};
+
+	std::vector<std::vector<Clause>> ParseConditions(const std::vector<std::string>& a_conditions);
+	bool                             ConditionsHold(const std::vector<std::vector<Clause>>& a_tests);
+	void                             LoadSettings();
+	void                             ApplyGlobals();
+	bool                             ReloadSettingsIni();
+	void                             SaveSettings();
+	void                             SetSetting(std::size_t a_index, int a_value);
+	std::vector<Setting>&            Settings();
+	const std::vector<MenuNote>&     Notes();
+	const std::vector<SprayMarker>&  SprayMarkers();
+	std::size_t                      GlobalsFromPlugin();
+	std::size_t                      GlobalsMadeInMemory();
+	bool                             PluginLoaded(std::string_view a_plugin);
+	bool                             SettingAvailable(const Setting& a_setting);
+	void                             InstallPapyrus();
+	void                             RegisterMenu();   // Menu.cpp
+	void                             RefreshLights();  // CastingLights.cpp: passes 1 and 2 again, for the settings as they are now
+
 	// ------------------------------------------------------------------ Configs.cpp: what the configs light
 	struct Coverage
 	{
 		std::set<std::string> models;   // lowercased .nif paths
 		std::set<std::string> shaders;  // lowercased tokens from "formIDs" arrays
 		std::size_t           files{ 0 };
+		// every light row's settings tests, per model: a model is lit while the tests of any of its rows hold
+		std::unordered_map<std::string, std::vector<std::vector<std::vector<Clause>>>> modelTests;
+		bool ModelLit(const std::string& a_model) const;
 	};
 
-	fs::path LightPlacerDir(std::string_view a_folder);
-	Coverage ReadCoverage();
+	fs::path        LightPlacerDir(std::string_view a_folder);
+	const Coverage& ReadCoverage();
 
 	// ------------------------------------------------------------------ SprayMarkers.cpp: the installer's spray markers
 	struct Rgb
@@ -99,6 +148,8 @@ namespace Plugin
 	void EffectLights(const Coverage& a_cov, std::string_view a_kind);  // EffectLights.cpp
 	void PoisonRuneArt();  // PoisonRune.cpp
 	void SprayLights();  // SprayLights.cpp
+	void ApplyCastingLights(bool a_log);  // CastingLights.cpp: pass 1 again, for the settings as they are now
+	void ApplyEffectLights(bool a_log);   // EffectLights.cpp: pass 2 again
 
 	// ------------------------------------------------------------------ Enchantments.cpp
 	void DoubledEnchantments(const Coverage& a_cov);

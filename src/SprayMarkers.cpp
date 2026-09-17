@@ -2,28 +2,29 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Reads the installer's spray marker files: whether spray lights are on, and their settings.
+// The spray settings: whether spray lights are on, and their reach, fade and colors. They were marker files an
+// installer put down; now they are marker rows in the settings file, each on while the menu's settings say so.
+// Read once when the game loads its data: the spray lights are copied then, so a change shows after a restart.
 
 #include "Plugin.h"
 
 namespace Plugin
 {
-	// ------------------------------------------------------------------ the installer's spray markers
-	std::map<std::string, std::string> ReadMarker(const fs::path& a_file)
+	// ------------------------------------------------------------------ the spray markers
+	std::map<std::string, std::string> ReadMarkerValues(std::string_view a_values)
 	{
 		std::map<std::string, std::string> out;
-		std::ifstream                      in(a_file);
-		std::string                        line;
-		while (std::getline(in, line)) {
-			const auto t = Trim(line);
-			if (t.empty() || t[0] == '#') {
-				continue;
+		std::size_t                        start = 0;
+		while (start <= a_values.size()) {
+			const auto end = a_values.find(';', start);
+			const auto t = Trim(a_values.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start));
+			if (const auto eq = t.find('='); !t.empty() && t[0] != '#' && eq != std::string::npos && eq > 0) {
+				out[Lower(Trim(t.substr(0, eq)))] = Trim(t.substr(eq + 1));
 			}
-			const auto eq = t.find('=');
-			if (eq == std::string::npos || eq == 0) {
-				continue;
+			if (end == std::string_view::npos) {
+				break;
 			}
-			out[Lower(Trim(t.substr(0, eq)))] = Trim(t.substr(eq + 1));
+			start = end + 1;
 		}
 		return out;
 	}
@@ -41,29 +42,21 @@ namespace Plugin
 
 	SprayChoice ReadSprayChoice()
 	{
-		SprayChoice                                   sc;
-		std::vector<std::pair<std::string, fs::path>> markers;
-		for (const auto folder : { kOurFolder, kCSFolder }) {
-			std::error_code ec;
-			const auto      dir = LightPlacerDir(folder);
-			if (!fs::is_directory(dir, ec)) {
-				continue;
-			}
-			for (const auto& entry : fs::recursive_directory_iterator(dir, ec)) {
-				if (entry.is_regular_file() && Lower(entry.path().extension().string()) == ".txt") {
-					markers.emplace_back(Lower(entry.path().filename().string()), entry.path());
-				}
+		SprayChoice                                                     sc;
+		std::vector<std::pair<std::string, std::map<std::string, std::string>>> markers;
+		for (const auto& m : SprayMarkers()) {
+			if (ConditionsHold(m.when)) {
+				markers.emplace_back(m.name, ReadMarkerValues(m.values));
 			}
 		}
-		// the base marker first, so every axis marker wins over it whatever order the folder lists them
-		for (const auto& [name, path] : markers) {
+		// the base marker first, so every axis marker wins over it whatever order the file lists them
+		for (auto& [name, kv] : markers) {
 			if (name != "luminous arcana sprays.txt") {
 				continue;
 			}
 			sc.on = true;
 			sc.found += "on ";
-			auto kv = ReadMarker(path);
-			int  n = 0;
+			int   n = 0;
 			float f = 0.0f;
 			if (ParseInt(kv["radiuspc"], n) && n > 0) sc.radiusPc = n;
 			if (ParseInt(kv["radius"], n) && n >= 0) sc.radiusAbs = n;
@@ -71,8 +64,7 @@ namespace Plugin
 			if (ParseFloat(kv["frostfade"], f)) sc.frostFade = f;
 			if (ParseFloat(kv["falloff"], f)) sc.falloff = f;
 		}
-		for (const auto& [name, path] : markers) {
-			auto kv = ReadMarker(path);
+		for (auto& [name, kv] : markers) {
 			float f = 0.0f;
 			if (name == "luminous arcana sprays - reduced.txt") {
 				sc.found += "reduced ";
