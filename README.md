@@ -27,7 +27,9 @@ The Brightness and Reach sliders set the fade and radius of in-memory copies of 
 
 With the `Stream lights` setting on, a cone or beam projectile (a spray, a shock stream) gets up to three
 lights hung on its own 3D by `src/StreamLights.cpp`, so the light travels with the stream rather than
-sitting at the caster's hand, and the projectile's own light is taken off while that setting is on.
+sitting at the caster's hand, and the projectile's own light is taken off while that setting is on. How
+those lights are made and registered follows ReLight by Truman (https://github.com/TrumanGIT/ReLight),
+GPL-3.0-or-later, used with his permission and kept under the same license.
 
 It changes nothing if Let There Be Glow's plugin (`LetThereBeGlow.dll`) is loaded - the two mods are
 never used together. Every change, and how long the load pass took, is written
@@ -48,7 +50,7 @@ The source is generated from the Let There Be Glow plugin's source by the mod's 
 | `src/SprayMarkers.cpp` | reads the spray markers from the settings file |
 | `src/Settings.cpp` | the settings: their globals, the INI, and the call the MCM makes when one changes |
 | `src/LightCopies.cpp` | the light copies the Brightness and Reach sliders set |
-| `src/StreamLights.cpp` | pass 6: the lights that travel with a spray or a bolt |
+| `src/StreamLights.cpp` | pass 6: the lights that travel with a spray or a bolt (follows ReLight, GPL-3.0, with permission) |
 | `src/Menu.cpp` | the Luminous Arcana pages in SKSE Menu Framework |
 | `src/SKSEMenuFramework.h` | SKSE Menu Framework's own header (Thiago099/SKSE-Menu-Framework-3, GPL-3.0) |
 | `src/FormCopies.cpp` | in-memory copies of lights, effect shaders and magic effects |

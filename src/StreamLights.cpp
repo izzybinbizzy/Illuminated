@@ -6,8 +6,14 @@
 //
 // A spray or a shock stream is one projectile whose light record sits at the caster's hand, so the game lights the
 // hand and not the stream. Light Placer does not light these at all (it attaches to a model, and these have none it
-// can hold). ReLight showed that a stream CAN be lit safely, by giving the projectile's own 3D a light of its own.
-// This is our own reading of the same idea, written here from the game's interfaces; none of its code is used.
+// can hold). ReLight lights them by giving the projectile's own 3D a light of its own.
+//
+// CREDIT: how a light is made and registered here follows ReLight by Truman (github.com/TrumanGIT/ReLight),
+// GPL-3.0-or-later, with his permission and kept under the same license. From it: one master NiPointLight made
+// once and cloned for every use (a freshly made light attached straight away crashes), the light's size carried
+// in the radius' z, the create parameters a non-shadow light needs (field of view 90, portal-strict, never
+// fades), and handing the light to the shadow scene node, which is what renders it. Which projectiles get lights,
+// where they sit along the stream, and how the settings drive them is ours.
 //
 // How it works. When the game builds a cone or beam projectile's 3D, this hooks the call and hangs one to three
 // NiPointLights off that 3D at fixed steps along its forward axis, then hands each one to the shadow scene node,
@@ -32,6 +38,28 @@ namespace Plugin
 		constexpr float            kRadiusOfStep = 1.4f;  // each light reaches a little past the next step
 		constexpr float            kShortestStream = 120.0f;
 		constexpr const char*      kLightName = "LuminousArcanaStream";
+		constexpr float            kLightSize = 1.414f;   // the light's size, which lives in the radius' z (from ReLight)
+		constexpr float            kFieldOfView = 90.0f;  // what a light that casts no shadow is given (from ReLight)
+
+		// one master light, made once and cloned for every use: ReLight found that a freshly made light, attached
+		// straight away, crashes
+		RE::NiPointer<RE::NiPointLight> gMaster;
+
+		RE::NiPointLight* CloneMaster()
+		{
+			if (!gMaster) {
+				auto* fresh = RE::NiPointLight::Create();
+				if (!fresh) {
+					return nullptr;
+				}
+				auto* clone = netimmerse_cast<RE::NiPointLight*>(fresh->Clone());
+				if (!clone) {
+					return nullptr;
+				}
+				gMaster.reset(clone);
+			}
+			return netimmerse_cast<RE::NiPointLight*>(gMaster->Clone());
+		}
 
 		struct Recipe
 		{
@@ -112,15 +140,17 @@ namespace Plugin
 			const float fade = r.fade * Percent("LuminousArcanaBrightness");
 			std::vector<RE::NiPointer<RE::BSLight>> made;
 			for (std::size_t i = 0; i < r.lights; ++i) {
-				auto* light = RE::NiPointLight::Create();
+				auto* light = CloneMaster();
 				if (!light) {
 					break;
 				}
 				light->name = kLightName;
-				light->diffuse = r.color;
-				light->fade = fade;
-				light->radius = { radius, radius, radius };
-				light->SetLightAttenuation(radius);
+				auto& data = light->GetLightRuntimeData();
+				data.diffuse = r.color;
+				data.fade = fade;
+				// x and y are the reach; z carries the light's SIZE, not a third radius (ReLight and Light Placer both do this)
+				data.radius = { radius, radius, kLightSize };
+				// no ambient on purpose: Community Shaders' inverse square lighting reuses those fields
 				light->local.translate = { 0.0f, r.gap * static_cast<float>(i + 1), 0.0f };
 				light->local.scale = 1.0f;
 				root->AttachChild(light, true);
@@ -130,8 +160,8 @@ namespace Plugin
 				params.portalStrict = true;
 				params.affectLand = true;
 				params.affectWater = true;
-				params.neverFades = false;
-				params.fov = 0.0f;
+				params.neverFades = true;
+				params.fov = kFieldOfView;
 				params.falloff = r.falloff;
 				params.nearDistance = 5.0f;
 				params.depthBias = 1.0f;
