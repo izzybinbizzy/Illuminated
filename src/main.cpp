@@ -7,7 +7,7 @@
 // GNU General Public License in LICENSE.txt for details.
 //
 // What it does, once, when the game has finished loading its plugins:
-//   0. the magic lights Luminous Arcana was made against get their settings (see pass 0);
+//   0. its own copies of the game's magic lights, carrying the look its lights were made with (see pass 0);
 //   1. a magic effect whose casting art Luminous Arcana or CS Light lights loses the game's own
 //      casting light, so the hand does not carry two lights;
 //   2. the same for projectiles, explosions and hazards whose model is lit - except cone and flame
@@ -17,8 +17,8 @@
 //      light, stretched to cover the spray and colored from the installer's markers;
 //   5. an enchantment carrying two or more lit shaders keeps the light of its first one only - the ones
 //      plugins define and the ones made at the enchanting table, never letting a save hold a copy.
-// If Let There Be Glow's own plugin or its patch is active, nothing is changed at all: the two
-// mods are never installed together.
+// If Let There Be Glow's own plugin is loaded, nothing is changed at all: the two mods are never
+// installed together.
 //
 // Where each part lives: main.cpp (this file) runs the passes in order; Plugin.h lists what the files
 // share; Text.cpp, EditorIDs.cpp, Configs.cpp, SprayMarkers.cpp and FormCopies.cpp are the helpers;
@@ -31,17 +31,10 @@ using namespace Plugin;
 
 namespace
 {
-	// ------------------------------------------------------------------ rules (the patcher's defaults)
-	constexpr std::string_view kPatchPlugin = "GlowifiedSkyrim.esp";
+	// ------------------------------------------------------------------ rules
 	constexpr std::string_view kOtherPluginDll = "LetThereBeGlow.dll";
 
 	// ------------------------------------------------------------------ order of work
-	bool PatcherActive()
-	{
-		auto* dh = RE::TESDataHandler::GetSingleton();
-		return dh->GetLoadedModIndex(kPatchPlugin).has_value() || dh->GetLoadedLightModIndex(kPatchPlugin).has_value();
-	}
-
 	bool OtherPluginLoaded()
 	{
 		return REX::W32::GetModuleHandleA(kOtherPluginDll.data()) != nullptr;
@@ -50,10 +43,10 @@ namespace
 	void OnDataLoaded()
 	{
 		const auto loadStarted = std::chrono::steady_clock::now();
-		if (PatcherActive() || OtherPluginLoaded()) {
-			SKSE::log::info("Let There Be Glow is installed ({} or {}): this plugin changes nothing. "
+		if (OtherPluginLoaded()) {
+			SKSE::log::info("Let There Be Glow's plugin ({}) is loaded: this plugin changes nothing. "
 							"Luminous Arcana and Let There Be Glow are never used together.",
-				kPatchPlugin, kOtherPluginDll);
+				kOtherPluginDll);
 			return;
 		}
 		LightSettings();

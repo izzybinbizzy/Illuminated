@@ -5,10 +5,9 @@ Copyright (C) 2026 izzydoingit. GPL-3.0-or-later, see `../LICENSE`.
 Ships with Luminous Arcana and is required by it. When the game has loaded its plugins it reads the
 Luminous Arcana configs under `Data\LightPlacer\Luminous Arcana\` (at any depth) and, in memory:
 
-0. writes the settings Luminous Arcana's lights were made against onto twenty of the game's own magic
-   light records - radius, color, flags (inverse square among them), falloff, size, near distance,
-   flicker and fade - leaving alone any of them whose winning version comes from `CS Light.esp`, which
-   carries the same values;
+0. makes its own copies of twenty of the game's magic lights, carrying the look Luminous Arcana's lights
+   were made with, and points every magic effect, projectile, explosion and hazard that used one at the
+   copy (the Light Placer configs state their own colors, so the game's light records keep theirs);
 1. removes the game's own casting light from magic effects whose casting art those configs light;
 2. does the same for projectiles, explosions and hazards whose model is lit, keeping cone and flame
    projectiles lit and always removing poison spray lights;
@@ -19,12 +18,11 @@ Luminous Arcana configs under `Data\LightPlacer\Luminous Arcana\` (at any depth)
    restored while the Crafting Menu is open and while a save is written, so a save never stores an
    in-memory copy).
 
-It changes nothing if Let There Be Glow's plugin (`LetThereBeGlow.dll`) or `GlowifiedSkyrim.esp` is
-loaded - the two mods are never used together. Every change, and how long the load pass took, is written
+It changes nothing if Let There Be Glow's plugin (`LetThereBeGlow.dll`) is loaded - the two mods are
+never used together. Every change, and how long the load pass took, is written
 to `LuminousArcana.log`.
 
-The source is generated from the Let There Be Glow plugin's source by the mod's build tool, with the light
-settings read out of the light records it replaces.
+The source is generated from the Let There Be Glow plugin's source by the mod's build tool.
 
 ## Source layout
 

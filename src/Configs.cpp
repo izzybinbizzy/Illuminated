@@ -15,7 +15,7 @@ namespace Plugin
 	}
 
 	// A small reader for the one shape these configs have. It never fails a file: a string it cannot
-	// place is simply not counted, which is the patcher's behaviour too.
+	// place is simply not counted.
 	void ReadConfig(const fs::path& a_file, Coverage& a_cov)
 	{
 		std::ifstream in(a_file, std::ios::binary);
