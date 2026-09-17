@@ -4,7 +4,7 @@
 //
 // Pass 2: projectiles, explosions and hazards whose model is lit lose the game's own light - for as long as the
 // menu's settings keep that model lit. Each one's own light is remembered, so switching an option off gives it back.
-// Also RefreshLights, which runs passes 1 and 2 again whenever a setting changes.
+// Also RefreshLights, which runs passes 1 and 2 again (and puts the sliders onto the light copies) whenever a setting changes.
 
 #include "Plugin.h"
 
@@ -109,6 +109,7 @@ namespace Plugin
 	void RefreshLights()
 	{
 		const auto started = std::chrono::steady_clock::now();
+		ApplyLightStrength(false);
 		ApplyCastingLights(false);
 		ApplyEffectLights(false);
 		SKSE::log::info("lights refreshed for the settings in {:.1f} ms",

@@ -20,6 +20,7 @@ namespace Plugin
 		std::unordered_map<std::string, std::size_t> gIndex;  // lower-case id -> index
 		std::vector<MenuNote>                        gNotes;
 		std::vector<SprayMarker>                     gMarkers;
+		std::vector<LightCopy>                       gLights;
 		std::size_t                                  gMadeGlobals = 0;
 		std::size_t                                  gFileGlobals = 0;
 		std::recursive_mutex                         gSettingsLock;
@@ -80,8 +81,14 @@ namespace Plugin
                     s.group = block["group"];
                     s.label = block["label"];
                     s.isChoice = block["kind"] == "choice";
+                    s.isSlider = block["kind"] == "slider";
                     s.choices = Split(block["choices"], '|');
                     ParseInt(block["default"], s.defaultValue);
+                    if (s.isSlider) {
+                        ParseInt(block["min"], s.minValue);
+                        ParseInt(block["max"], s.maxValue);
+                        ParseInt(block["step"], s.stepValue);
+                    }
                     s.restart = block["restart"] == "1";
                     s.needs = Split(block["requires"], '|');
                     const auto& autoText = block["auto"];
@@ -89,13 +96,26 @@ namespace Plugin
                         s.autoAll = autoText.substr(0, colon) == "and";
                         s.autoPlugins = Split(std::string_view(autoText).substr(colon + 1), '|');
                     }
-                    for (std::size_t i = 0; i < s.choices.size(); ++i) {
+                    for (std::size_t i = 0; i < (std::max)(s.choices.size(), std::size_t{ 1 }); ++i) {
                         s.tips.push_back(Unescape(block["tip" + std::to_string(i)]));
                     }
-                    if (!s.id.empty() && !gIndex.contains(Lower(s.id)) && (s.isChoice ? s.choices.size() >= 2 : true)) {
+                    const bool shapeOk = s.isChoice ? s.choices.size() >= 2 :
+                                         s.isSlider ? s.stepValue > 0 && s.minValue < s.maxValue && (s.maxValue - s.minValue) % s.stepValue == 0 :
+                                                      true;
+                    if (!s.id.empty() && !gIndex.contains(Lower(s.id)) && shapeOk) {
                         s.value = s.defaultValue;
                         gIndex[Lower(s.id)] = gSettings.size();
                         gSettings.push_back(std::move(s));
+                    }
+                } else if (kind == "light") {
+                    LightCopy c;
+                    c.id = block["id"];
+                    c.base = block["base"];
+                    ParseFloat(block["fade"], c.fade);
+                    ParseInt(block["radius"], c.radius);
+                    const bool known = std::any_of(gLights.begin(), gLights.end(), [&](const LightCopy& o) { return Lower(o.id) == Lower(c.id); });
+                    if (!c.id.empty() && !c.base.empty() && !known) {
+                        gLights.push_back(std::move(c));
                     }
                 } else if (kind == "note") {
                     gNotes.push_back({ block["page"], block["group"], block["label"], Unescape(block["text"]) });
@@ -140,16 +160,8 @@ namespace Plugin
 			if (!g) {
 				return nullptr;
 			}
-			g->SetFormEditorID(a_id.c_str());
 			g->value = 0.0f;
-			const auto& [map, lock] = RE::TESForm::GetAllFormsByEditorID();
-			{
-				RE::BSWriteLockGuard guard{ lock };
-				if (map) {
-					map->insert({ RE::BSFixedString(a_id.c_str()), g });
-				}
-			}
-			return RE::TESForm::LookupByEditorID<RE::TESGlobal>(a_id) == g ? g : nullptr;
+			return RegisterEditorID(g, a_id) && RE::TESForm::LookupByEditorID<RE::TESGlobal>(a_id) == g ? g : nullptr;
 		}
 
 		std::map<std::string, std::map<std::string, std::string>> ReadIni()
@@ -219,8 +231,7 @@ namespace Plugin
 				} else if (!fromIni && a_firstLoad) {
 					v = s.defaultValue;
 				}
-				const int top = s.isChoice ? static_cast<int>(s.choices.size()) - 1 : 1;
-				v = std::clamp(v, 0, top);
+				v = AllowedValue(s, v);
 				changed |= v != s.value;
 				s.value = v;
 			}
@@ -296,6 +307,7 @@ namespace Plugin
 		gIndex.clear();
 		gNotes.clear();
 		gMarkers.clear();
+		gLights.clear();
 		std::error_code ec;
 		std::vector<fs::path> files;
 		if (fs::is_directory(SettingsFolder(), ec)) {
@@ -329,10 +341,11 @@ namespace Plugin
 		ApplyIni(true);
 		ApplyGlobals();
 		SaveSettings();  // so the MCM shows what the detected mods turned on
-		SKSE::log::info("settings: {} read from {} file(s), {} notes, {} spray markers; globals: {} from Luminous Arcana.esp, {} made in memory",
-			gSettings.size(), files.size(), gNotes.size(), gMarkers.size(), gFileGlobals, gMadeGlobals);
+		SKSE::log::info("settings: {} read from {} file(s), {} notes, {} spray markers, {} light copies; globals: {} from Luminous Arcana.esp, {} made in memory",
+			gSettings.size(), files.size(), gNotes.size(), gMarkers.size(), gLights.size(), gFileGlobals, gMadeGlobals);
 		for (const auto& s : gSettings) {
-			SKSE::log::info("[SETTING] {} = {}{}", s.id, s.value, s.isChoice && s.value < static_cast<int>(s.choices.size()) ? " (" + s.choices[s.value] + ")" : "");
+			SKSE::log::info("[SETTING] {} = {}{}", s.id, s.value,
+				s.isChoice && s.value < static_cast<int>(s.choices.size()) ? " (" + s.choices[s.value] + ")" : s.isSlider ? "%" : "");
 		}
 	}
 
@@ -407,8 +420,7 @@ namespace Plugin
 				return;
 			}
 			auto& s = gSettings[a_index];
-			const int top = s.isChoice ? static_cast<int>(s.choices.size()) - 1 : 1;
-			s.value = std::clamp(a_value, 0, top);
+			s.value = AllowedValue(s, a_value);
 			if (s.global) {
 				s.global->value = static_cast<float>(s.value);
 			}
@@ -419,6 +431,42 @@ namespace Plugin
 		SKSE::GetTaskInterface()->AddTask([]() { RefreshLights(); });
 	}
 
+	int AllowedValue(const Setting& a_setting, int a_value)
+	{
+		if (a_setting.isSlider) {
+			const int step = (std::max)(a_setting.stepValue, 1);
+			const int v = std::clamp(a_value, a_setting.minValue, a_setting.maxValue);
+			// a value between steps (an INI edited by hand) goes to the nearest step: the configs only name the steps
+			const int k = (v - a_setting.minValue + step / 2) / step;
+			return std::clamp(a_setting.minValue + k * step, a_setting.minValue, a_setting.maxValue);
+		}
+		const int top = a_setting.isChoice ? static_cast<int>(a_setting.choices.size()) - 1 : 1;
+		return std::clamp(a_value, 0, top);
+	}
+
+	int SettingValue(std::string_view a_id, int a_fallback)
+	{
+		std::lock_guard l{ gSettingsLock };
+		const auto it = gIndex.find(Lower(a_id));
+		return it == gIndex.end() ? a_fallback : gSettings[it->second].value;
+	}
+
+	bool RegisterEditorID(RE::TESForm* a_form, const std::string& a_id)
+	{
+		if (!a_form) {
+			return false;
+		}
+		a_form->SetFormEditorID(a_id.c_str());
+		const auto& [map, lock] = RE::TESForm::GetAllFormsByEditorID();
+		RE::BSWriteLockGuard guard{ lock };
+		if (!map) {
+			return false;
+		}
+		map->insert({ RE::BSFixedString(a_id.c_str()), a_form });
+		return true;
+	}
+
+	std::vector<LightCopy>&         LightCopies() { return gLights; }
 	std::vector<Setting>&           Settings() { return gSettings; }
 	const std::vector<MenuNote>&    Notes() { return gNotes; }
 	const std::vector<SprayMarker>& SprayMarkers() { return gMarkers; }

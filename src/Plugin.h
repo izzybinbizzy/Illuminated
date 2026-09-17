@@ -57,15 +57,27 @@ namespace Plugin
 	struct Setting
 	{
 		std::string              id, ini, page, group, label;
-		bool                     isChoice{ false }, restart{ false }, autoAll{ false };
+		bool                     isChoice{ false }, isSlider{ false }, restart{ false }, autoAll{ false };
 		std::vector<std::string> choices, tips, needs, autoPlugins;
 		int                      defaultValue{ 0 }, value{ 0 };
+		int                      minValue{ 0 }, maxValue{ 1 }, stepValue{ 1 };  // a slider's range and step (percent)
 		RE::TESGlobal*           global{ nullptr };
 	};
 
 	struct MenuNote
 	{
 		std::string page, group, label, text;
+	};
+
+	// one in-memory copy of a light a config names; the sliders set its fade and radius (LightCopies.cpp)
+	struct LightCopy
+	{
+		std::string         id, base;
+		float               fade{ 0.0f };  // the config's own fade, or 0: the base light's
+		int                 radius{ 0 };   // the config's own radius, or 0: the base light's
+		RE::TESObjectLIGH*  form{ nullptr };
+		float               startFade{ 0.0f };
+		std::uint32_t       startRadius{ 0 };
 	};
 
 	struct SprayMarker
@@ -89,6 +101,12 @@ namespace Plugin
 	std::size_t                      GlobalsMadeInMemory();
 	bool                             PluginLoaded(std::string_view a_plugin);
 	bool                             SettingAvailable(const Setting& a_setting);
+	int                              AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
+	int                              SettingValue(std::string_view a_id, int a_fallback);
+	bool                             RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
+	std::vector<LightCopy>&          LightCopies();
+	void                             MakeLightCopies();                // LightCopies.cpp
+	void                             ApplyLightStrength(bool a_log);  // LightCopies.cpp: the sliders onto the copies
 	void                             InstallPapyrus();
 	void                             RegisterMenu();   // Menu.cpp
 	void                             RefreshLights();  // CastingLights.cpp: passes 1 and 2 again, for the settings as they are now

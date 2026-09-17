@@ -29,7 +29,27 @@ namespace Plugin
 				ImGuiMCP::PopID();
 				return;
 			}
-			if (a_s.isChoice) {
+			if (a_s.isSlider) {
+				// the slider moves freely while it is held; the value is saved, on its step, when it is let go
+				static std::unordered_map<std::size_t, int> held;
+				int v = held.contains(a_index) ? held[a_index] : a_s.value;
+				ImGuiMCP::SliderInt(a_s.label.c_str(), &v, a_s.minValue, a_s.maxValue, "%d%%");
+				v = AllowedValue(a_s, v);
+				if (ImGuiMCP::IsItemActive()) {
+					held[a_index] = v;
+				} else {
+					held.erase(a_index);
+				}
+				if (ImGuiMCP::IsItemDeactivated() || (!ImGuiMCP::IsItemActive() && v != a_s.value)) {
+					held.erase(a_index);
+					if (v != a_s.value) {
+						SetSetting(a_index, v);
+					}
+				}
+				if (!a_s.tips.empty() && !a_s.tips[0].empty()) {
+					ImGuiMCP::SetItemTooltip("%s", a_s.tips[0].c_str());
+				}
+			} else if (a_s.isChoice) {
 				std::vector<const char*> items;
 				for (const auto& c : a_s.choices) {
 					items.push_back(c.c_str());

@@ -20,7 +20,8 @@
 // If Let There Be Glow's own plugin is loaded, nothing is changed at all: the two mods are never
 // installed together.
 // Every choice is a setting in the menu (SKSE Menu Framework, and the MCM when Luminous Arcana.esp is
-// installed). Passes 1 and 2 follow the settings live; pass 4 reads them when the game loads.
+// installed). Passes 1 and 2 follow the settings live; pass 4 reads them when the game loads. The
+// Brightness and Reach sliders set the fade and radius of the light copies LightCopies.cpp makes.
 //
 // Where each part lives: main.cpp (this file) runs the passes in order; Plugin.h lists what the files
 // share; Text.cpp, EditorIDs.cpp, Configs.cpp, SprayMarkers.cpp and FormCopies.cpp are the helpers;
@@ -55,6 +56,7 @@ namespace
 		LoadSettings();  // first: Light Placer reads the settings' globals in its conditions
 		RegisterMenu();
 		LightSettings();
+		MakeLightCopies();  // after pass 0 (the copies take its flags), before Light Placer reads its configs
 		const auto& cov = ReadCoverage();
 		SKSE::log::info("configs: {} file(s), {} lit model(s), {} shader name(s)", cov.files, cov.models.size(), cov.shaders.size());
 		if (cov.files == 0) {

@@ -22,6 +22,8 @@ Every choice is a setting: a game global each light's conditions read (`GetGloba
 shows in game within a second. The settings come from `Data\SKSE\Plugins\Luminous Arcana\*.txt`,
 the picks are saved to `Data\MCM\Settings\Luminous Arcana.ini`, and the pages are added to SKSE Menu
 Framework's Mod Control Panel (the MCM uses the same INI). Passes 1 and 2 run again on every change.
+The Brightness and Reach sliders set the fade and radius of in-memory copies of the lights the configs name
+(`src/LightCopies.cpp`); Light Placer reads a light with no fade or radius of its own from its light record.
 
 It changes nothing if Let There Be Glow's plugin (`LetThereBeGlow.dll`) is loaded - the two mods are
 never used together. Every change, and how long the load pass took, is written
@@ -41,6 +43,7 @@ The source is generated from the Let There Be Glow plugin's source by the mod's 
 | `src/Configs.cpp` | reads the Light Placer configs and collects the models and shaders they light |
 | `src/SprayMarkers.cpp` | reads the spray markers from the settings file |
 | `src/Settings.cpp` | the settings: their globals, the INI, and the call the MCM makes when one changes |
+| `src/LightCopies.cpp` | the light copies the Brightness and Reach sliders set |
 | `src/Menu.cpp` | the Luminous Arcana pages in SKSE Menu Framework |
 | `src/SKSEMenuFramework.h` | SKSE Menu Framework's own header (Thiago099/SKSE-Menu-Framework-3, GPL-3.0) |
 | `src/FormCopies.cpp` | in-memory copies of lights, effect shaders and magic effects |
