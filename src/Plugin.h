@@ -1,0 +1,110 @@
+// Luminous Arcana - SKSE plugin
+// Copyright (C) 2026 izzydoingit
+// GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
+//
+// What the files share. Each block below names the file that defines it; a helper that only one
+// file uses lives in that file and is not listed here.
+
+#pragma once
+
+#include "PCH.h"
+
+namespace Plugin
+{
+	namespace fs = std::filesystem;
+
+	// ------------------------------------------------------------------ rules more than one file reads
+	constexpr std::string_view kOurFolder = "Luminous Arcana";
+	constexpr std::string_view kCSFolder = "CS Light";
+
+	// ------------------------------------------------------------------ Text.cpp: small text helpers
+	std::string Lower(std::string_view a_text);
+	std::string NormalPath(std::string_view a_path);
+	bool        Contains(std::string_view a_text, std::string_view a_part);
+	std::string Trim(std::string_view a_text);
+	bool        ParseInt(std::string_view a_text, int& a_out);
+	bool        ParseFloat(std::string_view a_text, float& a_out);
+
+	// ------------------------------------------------------------------ EditorIDs.cpp: editor IDs, recorded as each form loads
+	void        RememberEditorID(const RE::TESForm* a_form, const char* a_id);
+	void        ForgetEditorIDs();  // once the passes have run: the names are not needed again
+	std::string EditorID(const RE::TESForm* a_form);
+	std::string Label(const RE::TESForm* a_form);
+
+	template <class T>
+	struct EditorIDHook
+	{
+		static bool thunk(RE::TESForm* a_this, const char* a_id)
+		{
+			RememberEditorID(a_this, a_id);
+			return func(a_this, a_id);
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+		static void                                    Install()
+		{
+			REL::Relocation<std::uintptr_t> vtbl{ T::VTABLE[0] };
+			func = vtbl.write_vfunc(0x33, thunk);
+		}
+	};
+
+	// ------------------------------------------------------------------ Configs.cpp: what the configs light
+	struct Coverage
+	{
+		std::set<std::string> models;   // lowercased .nif paths
+		std::set<std::string> shaders;  // lowercased tokens from "formIDs" arrays
+		std::size_t           files{ 0 };
+	};
+
+	fs::path LightPlacerDir(std::string_view a_folder);
+	Coverage ReadCoverage();
+
+	// ------------------------------------------------------------------ SprayMarkers.cpp: the installer's spray markers
+	struct Rgb
+	{
+		int r{ 0 }, g{ 0 }, b{ 0 };
+	};
+
+	struct SprayChoice
+	{
+		bool  on{ false };
+		int   radiusAbs{ 1200 };
+		int   radiusPc{ 216 };
+		float fade{ 1.7f };
+		float frostFade{ 0.8f };
+		float falloff{ 2.0f };
+		bool  frostSet{ false }, shockSet{ false }, fireSet{ false };
+		Rgb   frost, shock, fireDelta;
+		std::string found;
+	};
+
+	SprayChoice ReadSprayChoice();
+
+	// ------------------------------------------------------------------ FormCopies.cpp: making copies in memory
+	template <class T>
+	T* NewForm()
+	{
+		// Create() is not const, so the factory pointer must not be either
+		auto* factory = RE::IFormFactory::GetConcreteFormFactoryByType<T>();
+		return factory ? factory->Create() : nullptr;
+	}
+
+	RE::TESObjectLIGH*   CopyLight(const RE::TESObjectLIGH* a_src);
+	RE::TESEffectShader* CopyShader(const RE::TESEffectShader* a_src);
+	RE::EffectSetting*   CopyEffect(RE::EffectSetting* a_src);
+
+	// ------------------------------------------------------------------ the passes, in the order they run
+	void LightSettings();  // LightSettings.cpp
+	void CastingLights(const Coverage& a_cov);  // CastingLights.cpp
+	template <class T>
+	void EffectLights(const Coverage& a_cov, std::string_view a_kind);  // EffectLights.cpp
+	void PoisonRuneArt();  // PoisonRune.cpp
+	void SprayLights();  // SprayLights.cpp
+
+	// ------------------------------------------------------------------ Enchantments.cpp
+	void DoubledEnchantments(const Coverage& a_cov);
+	bool AnyLitShaders();
+	void WatchCraftingMenu();
+	void ForgetCreatedEnchantments();
+	void UseOriginals(std::string_view a_why);
+	void UseQuiet(std::string_view a_why);
+}
