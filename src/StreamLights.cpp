@@ -33,6 +33,11 @@ namespace Plugin
 	namespace
 	{
 		constexpr std::string_view kStreamSetting = "LuminousArcanaStreamLights";
+		constexpr std::string_view kWardSetting = "LuminousArcanaWardLights";
+		constexpr float            kWardRadius = 220.0f;  // a ward dome is about waist-high and an arm in front
+		constexpr float            kWardFade = 1.0f;
+		// a ward with no color of its own: the pale blue-white of the vanilla dome
+		constexpr float            kWardRed = 0.62f, kWardGreen = 0.78f, kWardBlue = 1.0f;
 		constexpr std::size_t      kMaxLightsPerStream = 3;
 		constexpr float            kStepUnits = 300.0f;   // one light per this much stream, up to the maximum
 		constexpr float            kRadiusOfStep = 1.4f;  // each light reaches a little past the next step
@@ -63,6 +68,7 @@ namespace Plugin
 
 		struct Recipe
 		{
+			bool          ward{ false };  // a ward dome: one light where the dome sits, and its own setting
 			std::size_t   lights{ 1 };
 			float         gap{ 0.0f };  // units between lights along the stream
 			float         radius{ 300.0f };
@@ -98,6 +104,22 @@ namespace Plugin
 			return SettingValue(kStreamSetting, 0) != 0;
 		}
 
+		// ⛔ HIS RULE: every ward belongs to Dynamic Wards. When that mod is here, this pass does not light a ward.
+		bool DynamicWardsHere()
+		{
+			for (const auto* name : { "Dynamic Wards.esp", "Dynamic Wards.esl", "DynamicWards.esp" }) {
+				if (PluginLoaded(name)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		bool WardLightsOn()
+		{
+			return SettingValue(kWardSetting, 0) != 0 && !DynamicWardsHere();
+		}
+
 		float Percent(std::string_view a_id)
 		{
 			return static_cast<float>(SettingValue(a_id, 100)) / 100.0f;
@@ -119,7 +141,7 @@ namespace Plugin
 		// ------------------------------------------------------------------ the lights on one live projectile
 		void HangLights(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_object)
 		{
-			if (!a_ref || !a_object || !StreamLightsOn()) {
+			if (!a_ref || !a_object) {
 				return;
 			}
 			auto* root = a_object->AsNode();
@@ -131,11 +153,14 @@ namespace Plugin
 			if (it == gRecipes.end()) {
 				return;
 			}
+			const auto& r = it->second;
+			if (!(r.ward ? WardLightsOn() : StreamLightsOn())) {
+				return;
+			}
 			auto* scene = SceneNode();
 			if (!scene) {
 				return;
 			}
-			const auto& r = it->second;
 			const float radius = r.radius * Percent("LuminousArcanaReach");
 			const float fade = r.fade * Percent("LuminousArcanaBrightness");
 			std::vector<RE::NiPointer<RE::BSLight>> made;
@@ -151,9 +176,14 @@ namespace Plugin
 				// x and y are the reach; z carries the light's SIZE, not a third radius (ReLight and Light Placer both do this)
 				data.radius = { radius, radius, kLightSize };
 				// no ambient on purpose: Community Shaders' inverse square lighting reuses those fields
+				// without this a light has no attenuation of its own and never brightens anything (Light Placer does it too)
+				light->SetLightAttenuation(radius);
 				light->local.translate = { 0.0f, r.gap * static_cast<float>(i + 1), 0.0f };
 				light->local.scale = 1.0f;
 				root->AttachChild(light, true);
+				// give it a world position now, rather than waiting for whatever updates the projectile next
+				RE::NiUpdateData update{};
+				light->Update(update);
 				RE::ShadowSceneNode::LIGHT_CREATE_PARAMS params{};
 				params.dynamic = true;
 				params.shadowLight = false;
@@ -172,7 +202,15 @@ namespace Plugin
 					made.emplace_back(bs);
 				}
 			}
+			// the first few of each kind are written down, so his log says whether this pass is doing anything at all
+			static std::size_t told = 0;
+			if (told < 12) {
+				++told;
+				SKSE::log::info("[STREAM-LIT] {} | {} light(s) of {} asked for | radius {:.0f} | fade {:.2f} | node {}",
+					Label(a_ref->GetBaseObject()), made.size(), r.lights, radius, fade, root->name.empty() ? "(unnamed)" : root->name.c_str());
+			}
 			if (made.empty()) {
+				SKSE::log::warn("[STREAM-FAILED] {} | no light could be made or registered", Label(a_ref->GetBaseObject()));
 				return;
 			}
 			std::lock_guard l{ gLiveLock };
@@ -242,6 +280,39 @@ namespace Plugin
 		};
 	}
 
+	// ------------------------------------------------------------------ wards: one light where the dome sits
+	// ⛔ HIS RULE, and his call again 2026-09-17: every ward belongs to Dynamic Wards. This lights a ward ONLY when
+	// Dynamic Wards is not installed, and it stands down the moment it is. The color is the ward's own, when the ward
+	// carries a light of its own to read it from; otherwise the pale blue-white of the vanilla dome.
+	void WardLights()
+	{
+		std::size_t wards = 0, colored = 0;
+		for (auto* proj : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::BGSProjectile>()) {
+			if (!proj || !proj->data.types.any(RE::BGSProjectileData::Type::kBarrier)) {
+				continue;
+			}
+			Recipe r;
+			r.ward = true;
+			r.lights = 1;
+			r.gap = 0.0f;  // where the dome itself sits, not out along a stream
+			r.radius = kWardRadius;
+			r.fade = kWardFade;
+			r.falloff = 2.0f;
+			if (proj->data.light) {
+				r.color = ColorOf(proj->data.light);
+				++colored;
+			} else {
+				r.color = { kWardRed, kWardGreen, kWardBlue };
+			}
+			gRecipes[proj->GetFormID()] = r;
+			++wards;
+			SKSE::log::info("[WARD] {} | color {:.2f},{:.2f},{:.2f} | radius {:.0f}", Label(proj), r.color.red, r.color.green, r.color.blue, r.radius);
+		}
+		SKSE::log::info("ward lights: {} ward dome(s), {} with a color of their own; Dynamic Wards is {}; the setting is {}",
+			wards, colored, DynamicWardsHere() ? "installed, so this pass stands down" : "not installed",
+			SettingValue(kWardSetting, 0) ? "on" : "off");
+	}
+
 	// ------------------------------------------------------------------ the table, read once from the load order
 	void StreamLights()
 	{
@@ -296,10 +367,13 @@ namespace Plugin
 		}
 		SKSE::log::info("stream lights: {} sprays and {} bolts can carry a light of their own, {} left alone; the setting is {}",
 			cones, beams, skipped, StreamLightsOn() ? "on" : "off");
+		WardLights();
 		Load3D<RE::ConeProjectile>::Install();
 		Load3D<RE::BeamProjectile>::Install();
+		Load3D<RE::BarrierProjectile>::Install();
 		Release3D<RE::ConeProjectile>::Install();
 		Release3D<RE::BeamProjectile>::Install();
+		Release3D<RE::BarrierProjectile>::Install();
 		ApplyStreamLights(true);
 	}
 
