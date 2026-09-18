@@ -104,6 +104,7 @@ namespace
 		case SKSE::MessagingInterface::kNewGame:
 			// a save holds the plugin's globals as they were when it was made; the settings file is the truth
 			ApplyGlobals();
+			WatchCamera();  // his first-person blip: write down what the camera does for the next 20 seconds
 			if (AnyLitShaders()) {
 				UseQuiet("game loaded");
 			}
