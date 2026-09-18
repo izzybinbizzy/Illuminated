@@ -53,6 +53,7 @@ namespace
 				kOtherPluginDll);
 			return;
 		}
+		WatchCamera("the game reached the main menu");  // his first-person blip starts before the save is in
 		LoadSettings();  // first: Light Placer reads the settings' globals in its conditions
 		RegisterMenu();
 		LightSettings();
@@ -104,7 +105,7 @@ namespace
 		case SKSE::MessagingInterface::kNewGame:
 			// a save holds the plugin's globals as they were when it was made; the settings file is the truth
 			ApplyGlobals();
-			WatchCamera();  // his first-person blip: write down what the camera does for the next 20 seconds
+			WatchCamera("the save loaded");  // his first-person blip: what the camera does around a load
 			if (AnyLitShaders()) {
 				UseQuiet("game loaded");
 			}

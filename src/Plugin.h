@@ -106,7 +106,7 @@ namespace Plugin
 	bool                             RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	std::vector<LightCopy>&          LightCopies();
 	void                             MakeLightCopies();                // LightCopies.cpp
-	void                             WatchCamera();                    // CameraWatch.cpp: what the camera does for 20 s after a load
+	void                             WatchCamera(std::string_view a_why);  // CameraWatch.cpp: what the camera does around a load
 	void                             StreamLights();                   // StreamLights.cpp: pass 6, lights that travel with a spray or bolt
 	void                             ApplyStreamLights(bool a_log);    // StreamLights.cpp: the setting, on or off
 	void                             ApplyLightStrength(bool a_log);  // LightCopies.cpp: the sliders onto the copies

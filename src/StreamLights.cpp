@@ -139,28 +139,51 @@ namespace Plugin
 		}
 
 		// ------------------------------------------------------------------ the lights on one live projectile
+		// counted so the log can say which step a stream light stopped at, rather than saying nothing at all
+		std::size_t gCalls = 0, gNo3D = 0, gNoRecipe = 0, gOff = 0, gNoScene = 0;
+
+		void Told(std::string_view a_what, const RE::TESObjectREFR* a_ref)
+		{
+			if (gCalls <= 10) {
+				SKSE::log::info("[STREAM-HOOK] call {} | {} | base {}", gCalls, a_what,
+					a_ref && a_ref->GetBaseObject() ? Label(a_ref->GetBaseObject()) : "(none)");
+			}
+		}
+
 		void HangLights(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_object)
 		{
+			++gCalls;
 			if (!a_ref || !a_object) {
+				++gNo3D;
+				Told("no reference or no 3D", a_ref);
 				return;
 			}
 			auto* root = a_object->AsNode();
 			auto* base = a_ref->GetBaseObject();
 			if (!root || !base) {
+				++gNo3D;
+				Told("the 3D is not a node, or there is no base form", a_ref);
 				return;
 			}
 			const auto it = gRecipes.find(base->GetFormID());
 			if (it == gRecipes.end()) {
+				++gNoRecipe;
+				Told("no recipe for this projectile", a_ref);
 				return;
 			}
 			const auto& r = it->second;
 			if (!(r.ward ? WardLightsOn() : StreamLightsOn())) {
+				++gOff;
+				Told("its setting is off", a_ref);
 				return;
 			}
 			auto* scene = SceneNode();
 			if (!scene) {
+				++gNoScene;
+				Told("the game has no shadow scene node right now", a_ref);
 				return;
 			}
+			Told("making its lights", a_ref);
 			const float radius = r.radius * Percent("LuminousArcanaReach");
 			const float fade = r.fade * Percent("LuminousArcanaBrightness");
 			std::vector<RE::NiPointer<RE::BSLight>> made;

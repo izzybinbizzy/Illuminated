@@ -16,7 +16,10 @@ namespace Plugin
 {
 	namespace
 	{
-		constexpr double kWatchSeconds = 20.0;
+		// his report, 2026-09-17 night: the blip starts BEFORE the save is in, so the watch starts at the main menu
+		// and runs long enough to cover the loading screen and the first minute of play
+		constexpr double kWatchSeconds = 90.0;
+		constexpr double kMarkEvery = 10.0;
 
 		struct Watch
 		{
@@ -26,6 +29,8 @@ namespace Plugin
 			const void*                           body{ nullptr };
 			bool                                  first{ true };
 			std::size_t                           flips{ 0 };
+			double                                marked{ 0.0 };
+			std::string                           why;
 		};
 
 		std::shared_ptr<Watch> gWatch;
@@ -56,6 +61,12 @@ namespace Plugin
 				a_watch->firstPerson = firstPerson;
 				a_watch->body = body;
 			}
+			// a mark every ten seconds, so a quiet stretch is proof the watch was running and saw nothing
+			if (Seconds(*a_watch) - a_watch->marked >= kMarkEvery) {
+				a_watch->marked = Seconds(*a_watch);
+				SKSE::log::info("[CAMERA] {:5.1f}s | still {} | watching since {}", a_watch->marked,
+					firstPerson ? "first person" : "third person", a_watch->why);
+			}
 			if (Seconds(*a_watch) >= kWatchSeconds) {
 				SKSE::log::info("[CAMERA] done: {} change(s) in the first {:.0f} seconds after the load", a_watch->flips, kWatchSeconds);
 				return;
@@ -64,10 +75,14 @@ namespace Plugin
 		}
 	}
 
-	void WatchCamera()
+	void WatchCamera(std::string_view a_why)
 	{
+		if (gWatch && Seconds(*gWatch) < kWatchSeconds) {
+			return;  // one watch at a time: the one that started at the main menu keeps running through the load
+		}
 		auto watch = std::make_shared<Watch>();
 		watch->started = std::chrono::steady_clock::now();
+		watch->why = std::string(a_why);
 		gWatch = watch;
 		SKSE::GetTaskInterface()->AddTask([watch]() { Look(watch); });
 	}
