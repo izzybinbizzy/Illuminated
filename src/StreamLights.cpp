@@ -1,4 +1,4 @@
-// Luminous Arcana - SKSE plugin
+// Illuminated - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
@@ -73,8 +73,8 @@ namespace Plugin
 {
 	namespace
 	{
-		constexpr std::string_view kStreamSetting = "LuminousArcanaStreamLights";
-		constexpr std::string_view kWardSetting = "LuminousArcanaWardLights";
+		constexpr std::string_view kStreamSetting = "IlluminatedStreamLights";
+		constexpr std::string_view kWardSetting = "IlluminatedWardLights";
 		constexpr float            kWardRadius = 220.0f;  // a ward dome is about waist-high and an arm in front
 		constexpr float            kWardFade = 1.0f;
 		// a ward with no color of its own: the pale blue-white of the vanilla dome
@@ -83,7 +83,7 @@ namespace Plugin
 		constexpr float            kStepUnits = 300.0f;   // one light per this much stream, up to the maximum
 		constexpr float            kRadiusOfStep = 1.4f;  // each light reaches a little past the next step
 		constexpr float            kShortestStream = 120.0f;
-		constexpr const char*      kLightName = "LuminousArcanaStream";
+		constexpr const char*      kLightName = "IlluminatedStream";
 		constexpr float            kLightSize = 1.414f;   // the light's size, which lives in the radius' z (from ReLight)
 		constexpr float            kFieldOfView = 90.0f;  // what a light that casts no shadow is given (from ReLight)
 		// lesson 2: a flame spray is many short-lived objects, one light each, near the hand
@@ -306,8 +306,8 @@ namespace Plugin
 				}
 			}
 			Told("making its lights", a_ref);
-			const float radius = r.radius * Percent("LuminousArcanaReach");
-			const float fade = r.fade * Percent("LuminousArcanaBrightness");
+			const float radius = r.radius * Percent("IlluminatedReach");
+			const float fade = r.fade * Percent("IlluminatedBrightness");
 			std::vector<RE::NiPointer<RE::BSLight>> made;
 			RE::NiPointLight*                       first = nullptr;
 			for (std::size_t i = 0; i < r.lights; ++i) {

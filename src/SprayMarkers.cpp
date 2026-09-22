@@ -1,4 +1,4 @@
-// Luminous Arcana - SKSE plugin
+// Illuminated - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
@@ -51,7 +51,7 @@ namespace Plugin
 		}
 		// the base marker first, so every axis marker wins over it whatever order the file lists them
 		for (auto& [name, kv] : markers) {
-			if (name != "luminous arcana sprays.txt") {
+			if (name != "illuminated sprays.txt") {
 				continue;
 			}
 			sc.on = true;
@@ -66,17 +66,17 @@ namespace Plugin
 		}
 		for (auto& [name, kv] : markers) {
 			float f = 0.0f;
-			if (name == "luminous arcana sprays - reduced.txt") {
+			if (name == "illuminated sprays - reduced.txt") {
 				sc.found += "reduced ";
 				if (ParseFloat(kv["fade"], f)) sc.fade = f;
 				if (ParseFloat(kv["frostfade"], f)) sc.frostFade = f;
-			} else if (name == "luminous arcana sprays - frost.txt" && ParseRgb(kv["frost"], sc.frost)) {
+			} else if (name == "illuminated sprays - frost.txt" && ParseRgb(kv["frost"], sc.frost)) {
 				sc.frostSet = true;
 				sc.found += "frost ";
-			} else if (name == "luminous arcana sprays - shock.txt" && ParseRgb(kv["shock"], sc.shock)) {
+			} else if (name == "illuminated sprays - shock.txt" && ParseRgb(kv["shock"], sc.shock)) {
 				sc.shockSet = true;
 				sc.found += "shock ";
-			} else if (name == "luminous arcana sprays - fire.txt" && ParseRgb(kv["firedelta"], sc.fireDelta)) {
+			} else if (name == "illuminated sprays - fire.txt" && ParseRgb(kv["firedelta"], sc.fireDelta)) {
 				sc.fireSet = true;
 				sc.found += "fire ";
 			}

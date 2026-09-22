@@ -1,16 +1,16 @@
-// Luminous Arcana - SKSE plugin
+// Illuminated - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Pass 0: Luminous Arcana's own copies of the game's magic lights, carrying the look its lights were made with.
+// Pass 0: Illuminated's own copies of the game's magic lights, carrying the look its lights were made with.
 
 #include "Plugin.h"
 
 namespace Plugin
 {
-	// ------------------------------------------------------------------ pass 0: Luminous Arcana's own magic lights
+	// ------------------------------------------------------------------ pass 0: Illuminated's own magic lights
 	// Every magic effect, projectile, explosion and hazard that uses one of the game's magic lights below
-	// is pointed at Luminous Arcana's OWN copy of that light, made here, carrying the look its lights were
+	// is pointed at Illuminated's OWN copy of that light, made here, carrying the look its lights were
 	// made with - radius, color, flags (inverse square among them), falloff, size, near distance, flicker
 	// and fade. The game's light records keep their own color, size and fade: the Light Placer configs
 	// state those themselves. Two things a Light Placer config cannot state are set on the record Light
@@ -98,7 +98,7 @@ namespace Plugin
 			}
 			light->data.flickerIntensityAmplitude = s.flickerIntensity;
 			light->data.flickerMovementAmplitude = s.flickerMovement;
-			RememberEditorID(copy, (std::string(s.editorID) + " (Luminous Arcana)").c_str());
+			RememberEditorID(copy, (std::string(s.editorID) + " (Illuminated)").c_str());
 			ours[light] = copy;
 			++made;
 			SKSE::log::info("[LIGHT-OURS] {} | radius {} | color {},{},{} | flags {:X} | size {} | fade {}", Label(light), s.radius,

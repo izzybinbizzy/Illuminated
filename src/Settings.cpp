@@ -1,14 +1,14 @@
-// Luminous Arcana - SKSE plugin
+// Illuminated - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
 // The settings: what the player picks in the menu instead of in an installer.
 //
 // Every setting is a game global. Light Placer reads it in each light's conditions ("GetGlobalValue"), so a
-// change shows in game within a second with no restart. The optional Luminous Arcana.esp holds the globals;
+// change shows in game within a second with no restart. The optional Illuminated.esp holds the globals;
 // without it this file makes them in memory before Light Placer reads its configs. The player's picks live in
-// Data\MCM\Settings\Luminous Arcana.ini, the file MCM Helper keeps, so the SKSE Menu Framework page and the
-// MCM always agree. The list of settings is Data\SKSE\Plugins\Luminous Arcana\*.txt, written by lagen.py.
+// Data\MCM\Settings\Illuminated.ini, the file MCM Helper keeps, so the SKSE Menu Framework page and the
+// MCM always agree. The list of settings is Data\SKSE\Plugins\Illuminated\*.txt, written by lagen.py.
 
 #include "Plugin.h"
 
@@ -341,7 +341,7 @@ namespace Plugin
 		ApplyIni(true);
 		ApplyGlobals();
 		SaveSettings();  // so the MCM shows what the detected mods turned on
-		SKSE::log::info("settings: {} read from {} file(s), {} notes, {} spray markers, {} light copies; globals: {} from Luminous Arcana.esp, {} made in memory",
+		SKSE::log::info("settings: {} read from {} file(s), {} notes, {} spray markers, {} light copies; globals: {} from Illuminated.esp, {} made in memory",
 			gSettings.size(), files.size(), gNotes.size(), gMarkers.size(), gLights.size(), gFileGlobals, gMadeGlobals);
 		for (const auto& s : gSettings) {
 			SKSE::log::info("[SETTING] {} = {}{}", s.id, s.value,
@@ -496,7 +496,7 @@ namespace Plugin
 
 		bool RegisterPapyrus(RE::BSScript::IVirtualMachine* a_vm)
 		{
-			a_vm->RegisterFunction("SettingsChanged", "LuminousArcanaNative", PapyrusRefresh);
+			a_vm->RegisterFunction("SettingsChanged", "IlluminatedNative", PapyrusRefresh);
 			return true;
 		}
 	}

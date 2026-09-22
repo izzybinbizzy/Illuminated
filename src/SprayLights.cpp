@@ -1,4 +1,4 @@
-// Luminous Arcana - SKSE plugin
+// Illuminated - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
@@ -30,7 +30,7 @@ namespace Plugin
 	{
 		const auto sc = ReadSprayChoice();
 		if (!sc.on) {
-			SKSE::log::info("spray lights: off (no Luminous Arcana Sprays.txt installed); no spray light is touched");
+			SKSE::log::info("spray lights: off (no Illuminated Sprays.txt installed); no spray light is touched");
 			return;
 		}
 		SKSE::log::info("spray lights: installer says {}| radius {} | fade {} | frost fade {} | falloff {}", sc.found,

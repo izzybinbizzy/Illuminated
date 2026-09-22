@@ -1,4 +1,4 @@
-// Luminous Arcana - SKSE plugin
+// Illuminated - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 //
 // This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -8,7 +8,7 @@
 //
 // What it does, once, when the game has finished loading its plugins:
 //   0. its own copies of the game's magic lights, carrying the look its lights were made with (see pass 0);
-//   1. a magic effect whose casting art Luminous Arcana or CS Light lights loses the game's own
+//   1. a magic effect whose casting art Illuminated or CS Light lights loses the game's own
 //      casting light, so the hand does not carry two lights;
 //   2. the same for projectiles, explosions and hazards whose model is lit - except cone and flame
 //      projectiles, which keep their light, and poison sprays, which lose it whether lit or not;
@@ -49,7 +49,7 @@ namespace
 		const auto loadStarted = std::chrono::steady_clock::now();
 		if (OtherPluginLoaded()) {
 			SKSE::log::info("Let There Be Glow's plugin ({}) is loaded: this plugin changes nothing. "
-							"Luminous Arcana and Let There Be Glow are never used together.",
+							"Illuminated and Let There Be Glow are never used together.",
 				kOtherPluginDll);
 			return;
 		}
@@ -62,7 +62,7 @@ namespace
 		const auto& cov = ReadCoverage();
 		SKSE::log::info("configs: {} file(s), {} lit model(s), {} shader name(s)", cov.files, cov.models.size(), cov.shaders.size());
 		if (cov.files == 0) {
-			SKSE::log::warn("no Luminous Arcana configs were found under Data\\LightPlacer; nothing was changed");
+			SKSE::log::warn("no Illuminated configs were found under Data\\LightPlacer; nothing was changed");
 			return;
 		}
 		CastingLights(cov);
@@ -128,6 +128,6 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	EditorIDHook<RE::EnchantmentItem>::Install();
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
 	InstallPapyrus();
-	SKSE::log::info("Luminous Arcana plugin loaded; waiting for the game's data");
+	SKSE::log::info("Illuminated plugin loaded; waiting for the game's data");
 	return true;
 }

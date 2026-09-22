@@ -1,4 +1,4 @@
-// Luminous Arcana - SKSE plugin
+// Illuminated - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
@@ -15,8 +15,8 @@ namespace Plugin
 {
 	namespace
 	{
-		constexpr std::string_view kBrightness = "LuminousArcanaBrightness";
-		constexpr std::string_view kReach = "LuminousArcanaReach";
+		constexpr std::string_view kBrightness = "IlluminatedBrightness";
+		constexpr std::string_view kReach = "IlluminatedReach";
 	}
 
 	void MakeLightCopies()

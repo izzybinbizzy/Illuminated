@@ -1,4 +1,4 @@
-// Luminous Arcana - SKSE plugin
+// Illuminated - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
@@ -14,7 +14,7 @@ namespace Plugin
 	namespace fs = std::filesystem;
 
 	// ------------------------------------------------------------------ rules more than one file reads
-	constexpr std::string_view kOurFolder = "Luminous Arcana";
+	constexpr std::string_view kOurFolder = "Illuminated";
 	constexpr std::string_view kCSFolder = "CS Light";
 
 	// ------------------------------------------------------------------ Text.cpp: small text helpers
@@ -47,7 +47,7 @@ namespace Plugin
 		}
 	};
 
-	// ------------------------------------------------------------------ Settings.cpp: the menu's settings (Luminous Arcana only)
+	// ------------------------------------------------------------------ Settings.cpp: the menu's settings (Illuminated only)
 	struct Clause
 	{
 		std::string global;  // lower case

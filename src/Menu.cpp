@@ -1,8 +1,8 @@
-// Luminous Arcana - SKSE plugin
+// Illuminated - SKSE plugin
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// The Luminous Arcana pages in SKSE Menu Framework's Mod Control Panel: one page per settings page, a heading per
+// The Illuminated pages in SKSE Menu Framework's Mod Control Panel: one page per settings page, a heading per
 // group, a checkbox or a pick-one list per setting. A change is saved and shows in game within a second.
 
 #define WIN32_LEAN_AND_MEAN
@@ -86,13 +86,13 @@ namespace Plugin
 			const auto& page = gPages[a_page];
 			if (a_page == 0 && !gCSLight.empty()) {
 				ImGuiMCP::TextColored(kWarn, "%s is loaded.", gCSLight.c_str());
-				ImGuiMCP::TextWrapped("%s", "Luminous Arcana does not need CS Light. If you keep CS Light for its world lights, untick its Magic FX, "
+				ImGuiMCP::TextWrapped("%s", "Illuminated does not need CS Light. If you keep CS Light for its world lights, untick its Magic FX, "
 											"Mysticsm, Bound Weapons, Praedy Staves, Regular soulgems, Spiders, Misc Effects and Dwarven "
 											"Spiders options in its own installer, or those lights glow twice.");
 				ImGuiMCP::Separator();
 			}
 			if (a_page == 0) {
-				ImGuiMCP::TextDisabled("Settings: %zu from Luminous Arcana.esp, %zu made in memory. Changes show in game within a second.",
+				ImGuiMCP::TextDisabled("Settings: %zu from Illuminated.esp, %zu made in memory. Changes show in game within a second.",
 					GlobalsFromPlugin(), GlobalsMadeInMemory());
 			}
 			std::string group;
@@ -131,7 +131,7 @@ namespace Plugin
 	void RegisterMenu()
 	{
 		if (!SKSEMenuFramework::IsInstalled()) {
-			SKSE::log::warn("SKSE Menu Framework is not installed: the Luminous Arcana settings can only be changed in the MCM or the INI");
+			SKSE::log::warn("SKSE Menu Framework is not installed: the Illuminated settings can only be changed in the MCM or the INI");
 			return;
 		}
 		for (const auto name : { "CS Light.esp", "CS Light.esl" }) {

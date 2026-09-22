@@ -1,8 +1,8 @@
-# Luminous Arcana - SKSE plugin
+# Illuminated - SKSE plugin
 
 Copyright (C) 2026 izzydoingit. GPL-3.0-or-later, see `../LICENSE`.
 
-Ships with Luminous Arcana and is required by it.
+Ships with Illuminated - Spell Lighting NG and is required by it.
 
 - Takes off the game's own magic lights where the mod provides one, so nothing is lit twice.
 - **Spray Lights**: spray projectiles get a light coloured to match the spray.
@@ -12,7 +12,7 @@ Ships with Luminous Arcana and is required by it.
 - **Brightness** and **Reach** sliders.
 - Every setting is live - a change shows in game within a second.
 
-Settings are in SKSE Menu Framework's Mod Control Panel and in the MCM; both read the same file.
+Settings are in SKSE Menu Framework's Mod Control Panel.
 
 Not used together with Let There Be Glow.
 
