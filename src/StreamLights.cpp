@@ -15,12 +15,53 @@
 // fades), and handing the light to the shadow scene node, which is what renders it. Which projectiles get lights,
 // where they sit along the stream, and how the settings drive them is ours.
 //
-// How it works. When the game builds a cone or beam projectile's 3D, this hooks the call and hangs one to three
-// NiPointLights off that 3D at fixed steps along its forward axis, then hands each one to the shadow scene node,
-// which is what actually renders it. The lights are children of the projectile's own node, so they travel and turn
-// with the stream and disappear with it; when the game releases that 3D, the lights are taken off the scene node
-// here as well. Nothing on any record is edited except the projectile's own hand light, which is taken off while
-// this pass is on and given back when it is switched off - the same remember-and-restore the other passes use.
+// ------------------------------------------------------------------------------------------------------------
+// ⚫⚫ WHAT THE RELIGHT SIDE TAUGHT THIS PASS - FOUR THINGS, AND EVERY ONE OF THEM IS A CHANGE BELOW.
+// The same feature was written a second time for the RELight - Spell Addon plugin (`Streams.cpp` there), against
+// a different framework, and it found four things this file had wrong or missing. They are written down here
+// because each one is invisible in the code that fixes it.
+//
+//  1. ⛔ NOTHING HOOKS `RE::FlameProjectile`, SO THE VANILLA SPRAYS WERE NEVER REACHED AT ALL. Light Placer's
+//     `Hooks::Attach::Install()` installs `Load3D` for `TESObjectREFR`, `Hazard`, `Explosion`,
+//     `BarrierProjectile`, `BeamProjectile`, `ConeProjectile`, `MissileProjectile`, `GrenadeProjectile` and
+//     `ArrowProjectile` - and nothing else; RE::Light does not hook it either. His own `lightscan-report.txt`
+//     types Flames, Frostbite's spray, the poison sprays, Vampiric Drain, the absorb beams and the dragon
+//     breaths as `Flame`, and the 42 Thunderchild shouts as `Cone` - and `Cone` lit the moment it was claimed
+//     while `Flame` reported 0 lights in three separate logs of his. This pass hooked `ConeProjectile`,
+//     `BeamProjectile` and `BarrierProjectile` only, so every one of those sprays fell through it. ✅ It hooks
+//     `RE::FlameProjectile` now, and a flamethrower-type projectile gets a recipe of its own.
+//
+//  2. ⛔ A FLAME SPRAY IS NOT ONE TRAVELLING OBJECT, SO STEPPED LIGHTS ALONG IT ARE THE WRONG SHAPE. It is
+//     many short-lived objects spawned several times a second, each one near the hand. Stepping three lights
+//     out along a `range` measured for a single projectile puts them where nothing is. ✅ A flame spray gets
+//     ONE light, at the root, `gap` 0, radius 300.
+//
+//  3. ⛔ A BEAM'S LIGHT BELONGS ON ITS `BeamEnd` NODE, AND ONLY A PLUGIN CAN PUT IT THERE. RE::Light's
+//     `attachPath` is a list of child INDICES, not node names (its `LightManager.cpp`), so no config can bind
+//     a light to a node by name - which is why the configs shipped two identical lights at [0,0,0]. ✅ A beam
+//     gets ONE light parented to `root->GetObjectByName("BeamEnd")` so it rides the tip of the bolt, radius
+//     420, and falls back to the root when that node is not in the mesh.
+//
+//  4. ⛔ WITHOUT THE TWO ATTENUATION WORDS, COMMUNITY SHADERS' INVERSE SQUARE LIGHTING NEVER SEES THE LIGHT.
+//     CS reads its flag and its cutoff out of the light's own data, in the two words before the colour -
+//     RE::Light's `Overlay` (its `LightData.h`) writes exactly those two, which is why its config lights render
+//     and ours did not. ⚠ They must be written AFTER `SetLightAttenuation`, which writes those words itself.
+//     ✅ Set here, with the cutoff derived so the light's reach comes out at the radius the recipe asked for:
+//     `cutoff = K * fade / (radius² + size²)` with the house `K` of 3918.88 (§4 of the handoffs), clamped.
+//
+// ⚫ And a fifth thing that follows from 2: many short-lived objects means the live lights have to be counted
+// and swept, or a held spray key piles them up. No projectile BASE keeps more than 4 refs lit at once, a ref
+// that is already lit is never lit twice, and at the cap the entries whose light has lost its parent are
+// swept first - RE::Light's own rule, a light whose parent is gone leaves the scene.
+// ------------------------------------------------------------------------------------------------------------
+//
+// How it works. When the game builds a cone, beam, flame or barrier projectile's 3D, this hooks the call and
+// hangs NiPointLights off that 3D - one for a flame spray or a beam, up to three at fixed steps along the
+// forward axis for a cone - then hands each one to the shadow scene node, which is what actually renders it.
+// The lights are children of the projectile's own node, so they travel and turn with the stream and disappear
+// with it; when the game releases that 3D, the lights are taken off the scene node here as well. Nothing on any
+// record is edited except the projectile's own hand light, which is taken off while this pass is on and given
+// back when it is switched off - the same remember-and-restore the other passes use.
 //
 // The settings decide everything: the setting "Stream Lights" turns the pass on, and the Brightness and Reach
 // sliders scale each light's fade and radius. Colors come from the spray markers (frost, shock, fire), or from the
@@ -45,6 +86,15 @@ namespace Plugin
 		constexpr const char*      kLightName = "LuminousArcanaStream";
 		constexpr float            kLightSize = 1.414f;   // the light's size, which lives in the radius' z (from ReLight)
 		constexpr float            kFieldOfView = 90.0f;  // what a light that casts no shadow is given (from ReLight)
+		// lesson 2: a flame spray is many short-lived objects, one light each, near the hand
+		constexpr float            kFlameRadius = 300.0f;
+		// lesson 3: a beam's light rides the tip, on this node when the mesh has it
+		constexpr float            kBeamRadius = 420.0f;
+		constexpr const char*      kBeamNode = "BeamEnd";
+		// lesson 4: the house K, 0.8 * 69.99² - the same number gen.py writes every config's cutoff from
+		constexpr float            kK = 3918.88f;
+		// the fifth thing: no ONE projectile base keeps more than this many of its refs lit at a time
+		constexpr std::size_t      kMaxLivePerBase = 4;
 
 		// one master light, made once and cloned for every use: ReLight found that a freshly made light, attached
 		// straight away, crashes
@@ -68,7 +118,9 @@ namespace Plugin
 
 		struct Recipe
 		{
-			bool          ward{ false };  // a ward dome: one light where the dome sits, and its own setting
+			bool          ward{ false };   // a ward dome: one light where the dome sits, and its own setting
+			bool          flame{ false };  // a flamethrower-type spray: one light at the root (lesson 2)
+			bool          beam{ false };   // a beam: one light on its BeamEnd node (lesson 3)
 			std::size_t   lights{ 1 };
 			float         gap{ 0.0f };  // units between lights along the stream
 			float         radius{ 300.0f };
@@ -80,6 +132,11 @@ namespace Plugin
 		std::unordered_map<RE::FormID, Recipe>                             gRecipes;   // projectile base form -> what to hang on it
 		std::unordered_map<RE::FormID, RE::TESObjectLIGH*>                 gHandLight;  // its own light, to give back
 		std::unordered_map<std::uint32_t, std::vector<RE::NiPointer<RE::BSLight>>> gLive;  // live 3D -> the lights this pass made
+		// the live count, by projectile BASE rather than by reference: a held spray key spawns a new reference
+		// several times a second, and it is the base that has to be capped
+		std::unordered_map<RE::FormID, RE::FormID>                          gLiveBase;   // live reference -> its base form
+		std::unordered_map<RE::FormID, std::size_t>                         gLiveCount;  // base form -> how many of its references are lit
+		std::unordered_map<RE::FormID, RE::NiPointer<RE::NiPointLight>>     gLiveNi;     // live reference -> its first NiPointLight
 		std::mutex                                                          gLiveLock;
 		bool                                                                gTaken = false;  // the hand lights are off right now
 
@@ -138,9 +195,50 @@ namespace Plugin
 			return { a_light->data.color.red / 255.0f, a_light->data.color.green / 255.0f, a_light->data.color.blue / 255.0f };
 		}
 
+		// ------------------------------------------------------------------ forgetting one live reference
+		// gLiveLock is held by every caller.
+		void Forget(RE::FormID a_ref, RE::ShadowSceneNode* a_scene)
+		{
+			if (const auto it = gLive.find(a_ref); it != gLive.end()) {
+				if (a_scene) {
+					for (auto& bs : it->second) {
+						if (bs) {
+							a_scene->RemoveLight(bs);
+						}
+					}
+				}
+				gLive.erase(it);
+			}
+			if (const auto it = gLiveBase.find(a_ref); it != gLiveBase.end()) {
+				if (const auto c = gLiveCount.find(it->second); c != gLiveCount.end() && c->second) {
+					--c->second;
+				}
+				gLiveBase.erase(it);
+			}
+			gLiveNi.erase(a_ref);
+		}
+
+		// ⚫ THE SWEEP, AND IT IS RE::LIGHT'S OWN RULE: a light whose parent is gone has left the scene, so the
+		// reference that held it is not live any more however the game took its 3D away. Without this the cap
+		// fills up with references that ended without a Release3D we saw, and the pass goes quiet.
+		// gLiveLock is held by the caller.
+		std::size_t SweepGone(RE::ShadowSceneNode* a_scene)
+		{
+			std::vector<RE::FormID> gone;
+			for (const auto& [ref, light] : gLiveNi) {
+				if (!light || !light->parent) {
+					gone.push_back(ref);
+				}
+			}
+			for (const auto ref : gone) {
+				Forget(ref, a_scene);
+			}
+			return gone.size();
+		}
+
 		// ------------------------------------------------------------------ the lights on one live projectile
 		// counted so the log can say which step a stream light stopped at, rather than saying nothing at all
-		std::size_t gCalls = 0, gNo3D = 0, gNoRecipe = 0, gOff = 0, gNoScene = 0;
+		std::size_t gCalls = 0, gNo3D = 0, gNoRecipe = 0, gOff = 0, gNoScene = 0, gAlready = 0, gAtCap = 0;
 
 		void Told(std::string_view a_what, const RE::TESObjectREFR* a_ref)
 		{
@@ -183,10 +281,35 @@ namespace Plugin
 				Told("the game has no shadow scene node right now", a_ref);
 				return;
 			}
+			// ⚫ THE CAP, BEFORE ANY LIGHT IS MADE (the fifth thing at the top of this file)
+			{
+				std::lock_guard l{ gLiveLock };
+				if (gLive.find(a_ref->GetFormID()) != gLive.end()) {
+					++gAlready;
+					Told("this reference is already lit", a_ref);
+					return;
+				}
+				if (gLiveCount[base->GetFormID()] >= kMaxLivePerBase) {
+					SweepGone(scene);
+					if (gLiveCount[base->GetFormID()] >= kMaxLivePerBase) {
+						++gAtCap;
+						Told("at the live cap for this projectile", a_ref);
+						return;
+					}
+				}
+			}
+			// lesson 3: a beam's light rides the tip of the bolt, on the node the mesh names
+			RE::NiNode* parent = root;
+			if (r.beam) {
+				if (auto* node = root->GetObjectByName(RE::BSFixedString(kBeamNode)); node && node->AsNode()) {
+					parent = node->AsNode();
+				}
+			}
 			Told("making its lights", a_ref);
 			const float radius = r.radius * Percent("LuminousArcanaReach");
 			const float fade = r.fade * Percent("LuminousArcanaBrightness");
 			std::vector<RE::NiPointer<RE::BSLight>> made;
+			RE::NiPointLight*                       first = nullptr;
 			for (std::size_t i = 0; i < r.lights; ++i) {
 				auto* light = CloneMaster();
 				if (!light) {
@@ -201,9 +324,20 @@ namespace Plugin
 				// no ambient on purpose: Community Shaders' inverse square lighting reuses those fields
 				// without this a light has no attenuation of its own and never brightens anything (Light Placer does it too)
 				light->SetLightAttenuation(radius);
+				// ⚫ LESSON 4 at the top of this file. Community Shaders reads its inverse square flag and its
+				// cutoff out of the two words before the colour, which is exactly what RE::Light's `Overlay`
+				// writes - so ours render the way its config lights do. ⚠ AFTER SetLightAttenuation, which
+				// writes those words itself. The cutoff is derived so the reach comes out at `radius`:
+				// reach = sqrt(K * fade / cutoff - size²), so cutoff = K * fade / (radius² + size²).
+				{
+					auto* words = reinterpret_cast<std::uint32_t*>(&data);
+					words[0] |= 1u << 10;  // kInverseSquare
+					*reinterpret_cast<float*>(&words[1]) =
+						std::clamp(kK * fade / (radius * radius + kLightSize * kLightSize), 0.01f, 0.99f);
+				}
 				light->local.translate = { 0.0f, r.gap * static_cast<float>(i + 1), 0.0f };
 				light->local.scale = 1.0f;
-				root->AttachChild(light, true);
+				parent->AttachChild(light, true);
 				// give it a world position now, rather than waiting for whatever updates the projectile next
 				RE::NiUpdateData update{};
 				light->Update(update);
@@ -223,14 +357,20 @@ namespace Plugin
 				params.lensFlareData = nullptr;
 				if (auto* bs = scene->AddLight(light, params)) {
 					made.emplace_back(bs);
+					if (!first) {
+						first = light;
+					}
+				} else {
+					parent->DetachChild(light);
 				}
 			}
 			// the first few of each kind are written down, so his log says whether this pass is doing anything at all
 			static std::size_t told = 0;
 			if (told < 12) {
 				++told;
-				SKSE::log::info("[STREAM-LIT] {} | {} light(s) of {} asked for | radius {:.0f} | fade {:.2f} | node {}",
-					Label(a_ref->GetBaseObject()), made.size(), r.lights, radius, fade, root->name.empty() ? "(unnamed)" : root->name.c_str());
+				SKSE::log::info("[STREAM-LIT] {} | {} | {} light(s) of {} asked for | radius {:.0f} | fade {:.2f} | node {}",
+					Label(a_ref->GetBaseObject()), r.flame ? "flame spray" : r.beam ? "bolt" : r.ward ? "ward" : "spray",
+					made.size(), r.lights, radius, fade, parent->name.empty() ? "(unnamed)" : parent->name.c_str());
 			}
 			if (made.empty()) {
 				SKSE::log::warn("[STREAM-FAILED] {} | no light could be made or registered", Label(a_ref->GetBaseObject()));
@@ -239,6 +379,11 @@ namespace Plugin
 			std::lock_guard l{ gLiveLock };
 			auto& kept = gLive[a_ref->GetFormID()];
 			kept.insert(kept.end(), made.begin(), made.end());
+			gLiveBase[a_ref->GetFormID()] = base->GetFormID();
+			++gLiveCount[base->GetFormID()];
+			if (first) {
+				gLiveNi[a_ref->GetFormID()] = RE::NiPointer<RE::NiPointLight>(first);
+			}
 		}
 
 		void DropLights(RE::TESObjectREFR* a_ref)
@@ -246,23 +391,9 @@ namespace Plugin
 			if (!a_ref) {
 				return;
 			}
-			std::vector<RE::NiPointer<RE::BSLight>> mine;
-			{
-				std::lock_guard l{ gLiveLock };
-				const auto it = gLive.find(a_ref->GetFormID());
-				if (it == gLive.end()) {
-					return;
-				}
-				mine.swap(it->second);
-				gLive.erase(it);
-			}
-			if (auto* scene = SceneNode()) {
-				for (auto& bs : mine) {
-					if (bs) {
-						scene->RemoveLight(bs);
-					}
-				}
-			}
+			auto*            scene = SceneNode();
+			std::lock_guard  l{ gLiveLock };
+			Forget(a_ref->GetFormID(), scene);
 		}
 
 		// ------------------------------------------------------------------ the two hooks
@@ -342,14 +473,18 @@ namespace Plugin
 		gRecipes.clear();
 		gHandLight.clear();
 		const auto  sc = ReadSprayChoice();
-		std::size_t cones = 0, beams = 0, skipped = 0;
+		std::size_t cones = 0, beams = 0, flames = 0, skipped = 0;
 		for (auto* proj : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::BGSProjectile>()) {
 			if (!proj) {
 				continue;
 			}
-			const bool cone = proj->data.types.any(RE::BGSProjectileData::Type::kCone, RE::BGSProjectileData::Type::kFlamethrower);
-			const bool beam = proj->data.types.any(RE::BGSProjectileData::Type::kBeam);
-			if (!cone && !beam) {
+			// ⚫ LESSON 1 and LESSON 2: a flamethrower-type projectile is its own case now. It is what Flames,
+			// Frostbite and the sprays actually are, it is the type nothing else hooks, and it is many
+			// short-lived objects rather than one that travels - so it takes one light at the root.
+			const bool flame = proj->data.types.any(RE::BGSProjectileData::Type::kFlamethrower);
+			const bool cone = !flame && proj->data.types.any(RE::BGSProjectileData::Type::kCone);
+			const bool beam = !flame && !cone && proj->data.types.any(RE::BGSProjectileData::Type::kBeam);
+			if (!cone && !beam && !flame) {
 				continue;
 			}
 			const auto id = EditorID(proj);
@@ -361,14 +496,29 @@ namespace Plugin
 				continue;
 			}
 			const float range = proj->data.range;
-			if (range < kShortestStream) {
+			// ⚫ A flame spray is judged on its own terms: its `range` is the reach of the cone, not a distance
+			// anything travels, so the shortest-stream floor is not asked of it.
+			if (!flame && range < kShortestStream) {
 				++skipped;
 				continue;
 			}
 			Recipe r;
-			r.lights = static_cast<std::size_t>(std::clamp<int>(static_cast<int>(range / kStepUnits), 1, static_cast<int>(kMaxLightsPerStream)));
-			r.gap = range / static_cast<float>(r.lights + 1);
-			r.radius = r.gap * kRadiusOfStep;
+			r.flame = flame;
+			r.beam = beam;
+			if (flame) {
+				r.lights = 1;
+				r.gap = 0.0f;
+				r.radius = kFlameRadius;
+			} else if (beam) {
+				// lesson 3: one light, on BeamEnd, so it rides the tip
+				r.lights = 1;
+				r.gap = 0.0f;
+				r.radius = kBeamRadius;
+			} else {
+				r.lights = static_cast<std::size_t>(std::clamp<int>(static_cast<int>(range / kStepUnits), 1, static_cast<int>(kMaxLightsPerStream)));
+				r.gap = range / static_cast<float>(r.lights + 1);
+				r.radius = r.gap * kRadiusOfStep;
+			}
 			r.falloff = sc.falloff > 0.0f ? sc.falloff : 2.0f;
 			const auto family = StreamFamily(id);
 			r.fade = family == "frost" ? sc.frostFade : sc.fade;
@@ -384,19 +534,29 @@ namespace Plugin
 			}
 			gRecipes[proj->GetFormID()] = r;
 			gHandLight[proj->GetFormID()] = proj->data.light;
-			(cone ? cones : beams)++;
+			if (flame) {
+				++flames;
+			} else if (cone) {
+				++cones;
+			} else {
+				++beams;
+			}
 			SKSE::log::info("[STREAM] {} | {} | range {:.0f} | {} light(s) every {:.0f} | radius {:.0f} | fade {:.2f} | model {}",
-				Label(proj), cone ? "spray" : "bolt", range, r.lights, r.gap, r.radius, r.fade, model);
+				Label(proj), flame ? "flame spray" : cone ? "spray" : "bolt", range, r.lights, r.gap, r.radius, r.fade, model);
 		}
-		SKSE::log::info("stream lights: {} sprays and {} bolts can carry a light of their own, {} left alone; the setting is {}",
-			cones, beams, skipped, StreamLightsOn() ? "on" : "off");
+		SKSE::log::info("stream lights: {} flame spray(s), {} spray(s) and {} bolt(s) can carry a light of their own, "
+						"{} left alone; no one projectile keeps more than {} lit at a time; the setting is {}",
+			flames, cones, beams, skipped, kMaxLivePerBase, StreamLightsOn() ? "on" : "off");
 		WardLights();
 		Load3D<RE::ConeProjectile>::Install();
 		Load3D<RE::BeamProjectile>::Install();
 		Load3D<RE::BarrierProjectile>::Install();
+		// lesson 1: nothing else hooks this one, and it is what the vanilla sprays are
+		Load3D<RE::FlameProjectile>::Install();
 		Release3D<RE::ConeProjectile>::Install();
 		Release3D<RE::BeamProjectile>::Install();
 		Release3D<RE::BarrierProjectile>::Install();
+		Release3D<RE::FlameProjectile>::Install();
 		ApplyStreamLights(true);
 	}
 
@@ -424,8 +584,13 @@ namespace Plugin
 			SKSE::log::info("stream lights: {}; {} hand light(s) {}", want ? "on" : "off", changed, want ? "taken off" : "given back");
 		}
 		if (!want) {
+			// ⚫ every map that counts a live light goes together, or the cap keeps counting references that
+			// were dropped while the pass was off and the pass never lights anything again
 			std::lock_guard l{ gLiveLock };
 			gLive.clear();
+			gLiveBase.clear();
+			gLiveCount.clear();
+			gLiveNi.clear();
 		}
 	}
 }

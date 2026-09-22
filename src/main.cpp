@@ -19,8 +19,8 @@
 //      plugins define and the ones made at the enchanting table, never letting a save hold a copy.
 // If Let There Be Glow's own plugin is loaded, nothing is changed at all: the two mods are never
 // installed together.
-// Every choice is a setting in the menu (SKSE Menu Framework, and the MCM when Luminous Arcana.esp is
-// installed). Passes 1 and 2 follow the settings live; pass 4 reads them when the game loads. The
+// Every choice is a setting in the menu (SKSE Menu Framework - the only menu this mod has).
+// Passes 1 and 2 follow the settings live; pass 4 reads them when the game loads. The
 // Brightness and Reach sliders set the fade and radius of the light copies LightCopies.cpp makes.
 //
 // Where each part lives: main.cpp (this file) runs the passes in order; Plugin.h lists what the files
