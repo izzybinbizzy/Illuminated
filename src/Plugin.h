@@ -171,6 +171,7 @@ namespace Plugin
 	void SprayLights();  // SprayLights.cpp
 	void ApplyCastingLights(bool a_log);  // CastingLights.cpp: pass 1 again, for the settings as they are now
 	void ApplyEffectLights(bool a_log);   // EffectLights.cpp: pass 2 again
+	void VaerSwirls();  // VaerSwirls.cpp: pass 7, VAER Reborn's brighter strands and Thaumaturgy's copies
 
 	// ------------------------------------------------------------------ Enchantments.cpp
 	void DoubledEnchantments(const Coverage& a_cov);
