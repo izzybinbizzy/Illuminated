@@ -15,45 +15,13 @@
 // fades), and handing the light to the shadow scene node, which is what renders it. Which projectiles get lights,
 // where they sit along the stream, and how the settings drive them is ours.
 //
-// ------------------------------------------------------------------------------------------------------------
-// ⚫⚫ WHAT THE RELIGHT SIDE TAUGHT THIS PASS - FOUR THINGS, AND EVERY ONE OF THEM IS A CHANGE BELOW.
-// The same feature was written a second time for the RELight - Spell Addon plugin (`Streams.cpp` there), against
-// a different framework, and it found four things this file had wrong or missing. They are written down here
-// because each one is invisible in the code that fixes it.
-//
-//  1. ⛔ NOTHING HOOKS `RE::FlameProjectile`, SO THE VANILLA SPRAYS WERE NEVER REACHED AT ALL. Light Placer's
-//     `Hooks::Attach::Install()` installs `Load3D` for `TESObjectREFR`, `Hazard`, `Explosion`,
-//     `BarrierProjectile`, `BeamProjectile`, `ConeProjectile`, `MissileProjectile`, `GrenadeProjectile` and
-//     `ArrowProjectile` - and nothing else; RE::Light does not hook it either. His own `lightscan-report.txt`
-//     types Flames, Frostbite's spray, the poison sprays, Vampiric Drain, the absorb beams and the dragon
-//     breaths as `Flame`, and the 42 Thunderchild shouts as `Cone` - and `Cone` lit the moment it was claimed
-//     while `Flame` reported 0 lights in three separate logs of his. This pass hooked `ConeProjectile`,
-//     `BeamProjectile` and `BarrierProjectile` only, so every one of those sprays fell through it. ✅ It hooks
-//     `RE::FlameProjectile` now, and a flamethrower-type projectile gets a recipe of its own.
-//
-//  2. ⛔ A FLAME SPRAY IS NOT ONE TRAVELLING OBJECT, SO STEPPED LIGHTS ALONG IT ARE THE WRONG SHAPE. It is
-//     many short-lived objects spawned several times a second, each one near the hand. Stepping three lights
-//     out along a `range` measured for a single projectile puts them where nothing is. ✅ A flame spray gets
-//     ONE light, at the root, `gap` 0, radius 300.
-//
-//  3. ⛔ A BEAM'S LIGHT BELONGS ON ITS `BeamEnd` NODE, AND ONLY A PLUGIN CAN PUT IT THERE. RE::Light's
-//     `attachPath` is a list of child INDICES, not node names (its `LightManager.cpp`), so no config can bind
-//     a light to a node by name - which is why the configs shipped two identical lights at [0,0,0]. ✅ A beam
-//     gets ONE light parented to `root->GetObjectByName("BeamEnd")` so it rides the tip of the bolt, radius
-//     420, and falls back to the root when that node is not in the mesh.
-//
-//  4. ⛔ WITHOUT THE TWO ATTENUATION WORDS, COMMUNITY SHADERS' INVERSE SQUARE LIGHTING NEVER SEES THE LIGHT.
-//     CS reads its flag and its cutoff out of the light's own data, in the two words before the colour -
-//     RE::Light's `Overlay` (its `LightData.h`) writes exactly those two, which is why its config lights render
-//     and ours did not. ⚠ They must be written AFTER `SetLightAttenuation`, which writes those words itself.
-//     ✅ Set here, with the cutoff derived so the light's reach comes out at the radius the recipe asked for:
-//     `cutoff = K * fade / (radius² + size²)` with the house `K` of 3918.88 (§4 of the handoffs), clamped.
-//
-// ⚫ And a fifth thing that follows from 2: many short-lived objects means the live lights have to be counted
-// and swept, or a held spray key piles them up. No projectile BASE keeps more than 4 refs lit at once, a ref
-// that is already lit is never lit twice, and at the cap the entries whose light has lost its parent are
-// swept first - RE::Light's own rule, a light whose parent is gone leaves the scene.
-// ------------------------------------------------------------------------------------------------------------
+// Four rules, each one invisible in the code that follows it:
+//  1. `RE::FlameProjectile` is hooked here because nothing else hooks it (not Light Placer, not RE::Light).
+//  2. A flame spray is many short-lived objects near the hand, so it gets ONE light at the root.
+//  3. A beam's light is parented to its `BeamEnd` node, so it rides the tip (the root when the mesh has none).
+//  4. Community Shaders' inverse square flag and cutoff are written after `SetLightAttenuation`, with
+//     cutoff = K * fade / (radius² + size²), so the reach comes out at the radius asked for.
+// Live lights are capped per projectile base and swept when their parent is gone, or a held spray piles them up.
 //
 // How it works. When the game builds a cone, beam, flame or barrier projectile's 3D, this hooks the call and
 // hangs NiPointLights off that 3D - one for a flame spray or a beam, up to three at fixed steps along the
@@ -86,14 +54,14 @@ namespace Plugin
 		constexpr const char*      kLightName = "IlluminatedStream";
 		constexpr float            kLightSize = 1.414f;   // the light's size, which lives in the radius' z (from ReLight)
 		constexpr float            kFieldOfView = 90.0f;  // what a light that casts no shadow is given (from ReLight)
-		// lesson 2: a flame spray is many short-lived objects, one light each, near the hand
+		// rule 2: a flame spray is many short-lived objects, one light each, near the hand
 		constexpr float            kFlameRadius = 300.0f;
-		// lesson 3: a beam's light rides the tip, on this node when the mesh has it
+		// rule 3: a beam's light rides the tip, on this node when the mesh has it
 		constexpr float            kBeamRadius = 420.0f;
 		constexpr const char*      kBeamNode = "BeamEnd";
-		// lesson 4: the house K, 0.8 * 69.99² - the same number gen.py writes every config's cutoff from
+		// rule 4: the house K, 0.8 * 69.99² - the same number gen.py writes every config's cutoff from
 		constexpr float            kK = 3918.88f;
-		// the fifth thing: no ONE projectile base keeps more than this many of its refs lit at a time
+		// no one projectile base keeps more than this many of its refs lit at a time
 		constexpr std::size_t      kMaxLivePerBase = 4;
 
 		// one master light, made once and cloned for every use: ReLight found that a freshly made light, attached
@@ -119,8 +87,8 @@ namespace Plugin
 		struct Recipe
 		{
 			bool          ward{ false };   // a ward dome: one light where the dome sits, and its own setting
-			bool          flame{ false };  // a flamethrower-type spray: one light at the root (lesson 2)
-			bool          beam{ false };   // a beam: one light on its BeamEnd node (lesson 3)
+			bool          flame{ false };  // a flamethrower-type spray: one light at the root (rule 2)
+			bool          beam{ false };   // a beam: one light on its BeamEnd node (rule 3)
 			std::size_t   lights{ 1 };
 			float         gap{ 0.0f };  // units between lights along the stream
 			float         radius{ 300.0f };
@@ -161,7 +129,7 @@ namespace Plugin
 			return SettingValue(kStreamSetting, 0) != 0;
 		}
 
-		// ⛔ HIS RULE: every ward belongs to Dynamic Wards. When that mod is here, this pass does not light a ward.
+		// every ward belongs to Dynamic Wards: when that mod is here, this pass does not light a ward
 		bool DynamicWardsHere()
 		{
 			for (const auto* name : { "Dynamic Wards.esp", "Dynamic Wards.esl", "DynamicWards.esp" }) {
@@ -169,7 +137,7 @@ namespace Plugin
 					return true;
 				}
 			}
-			// ⚫ 2026-09-23: Dynamic Wards 2.0 has NO plugin - it is `DynamicWards.dll` alone - so it is asked for by its DLL
+			// Dynamic Wards 2.0 has no plugin, only `DynamicWards.dll`, so it is found by its DLL
 			return REX::W32::GetModuleHandleW(L"DynamicWards.dll") != nullptr;
 		}
 
@@ -219,9 +187,7 @@ namespace Plugin
 			gLiveNi.erase(a_ref);
 		}
 
-		// ⚫ THE SWEEP, AND IT IS RE::LIGHT'S OWN RULE: a light whose parent is gone has left the scene, so the
-		// reference that held it is not live any more however the game took its 3D away. Without this the cap
-		// fills up with references that ended without a Release3D we saw, and the pass goes quiet.
+		// the sweep (RE::Light's rule): a light whose parent is gone has left the scene, so its reference is not live
 		// gLiveLock is held by the caller.
 		std::size_t SweepGone(RE::ShadowSceneNode* a_scene)
 		{
@@ -282,7 +248,7 @@ namespace Plugin
 				Told("the game has no shadow scene node right now", a_ref);
 				return;
 			}
-			// ⚫ THE CAP, BEFORE ANY LIGHT IS MADE (the fifth thing at the top of this file)
+			// the cap, before any light is made
 			{
 				std::lock_guard l{ gLiveLock };
 				if (gLive.find(a_ref->GetFormID()) != gLive.end()) {
@@ -299,7 +265,7 @@ namespace Plugin
 					}
 				}
 			}
-			// lesson 3: a beam's light rides the tip of the bolt, on the node the mesh names
+			// rule 3: a beam's light rides the tip of the bolt, on the node the mesh names
 			RE::NiNode* parent = root;
 			if (r.beam) {
 				if (auto* node = root->GetObjectByName(RE::BSFixedString(kBeamNode)); node && node->AsNode()) {
@@ -325,11 +291,7 @@ namespace Plugin
 				// no ambient on purpose: Community Shaders' inverse square lighting reuses those fields
 				// without this a light has no attenuation of its own and never brightens anything (Light Placer does it too)
 				light->SetLightAttenuation(radius);
-				// ⚫ LESSON 4 at the top of this file. Community Shaders reads its inverse square flag and its
-				// cutoff out of the two words before the colour, which is exactly what RE::Light's `Overlay`
-				// writes - so ours render the way its config lights do. ⚠ AFTER SetLightAttenuation, which
-				// writes those words itself. The cutoff is derived so the reach comes out at `radius`:
-				// reach = sqrt(K * fade / cutoff - size²), so cutoff = K * fade / (radius² + size²).
+				// rule 4: inverse square flag and cutoff, after SetLightAttenuation
 				{
 					auto* words = reinterpret_cast<std::uint32_t*>(&data);
 					words[0] |= 1u << 10;  // kInverseSquare
@@ -365,7 +327,7 @@ namespace Plugin
 					parent->DetachChild(light);
 				}
 			}
-			// the first few of each kind are written down, so his log says whether this pass is doing anything at all
+			// the first few of each kind are logged, so the log says whether this pass is doing anything
 			static std::size_t told = 0;
 			if (told < 12) {
 				++told;
@@ -436,9 +398,8 @@ namespace Plugin
 	}
 
 	// ------------------------------------------------------------------ wards: one light where the dome sits
-	// ⛔ HIS RULE, and his call again 2026-09-17: every ward belongs to Dynamic Wards. This lights a ward ONLY when
-	// Dynamic Wards is not installed, and it stands down the moment it is. The color is the ward's own, when the ward
-	// carries a light of its own to read it from; otherwise the pale blue-white of the vanilla dome.
+	// every ward belongs to Dynamic Wards: this lights a ward only when Dynamic Wards is not installed. The
+	// colour is the ward's own light when it has one, else the pale blue-white of the vanilla dome.
 	void WardLights()
 	{
 		std::size_t wards = 0, colored = 0;
@@ -479,9 +440,7 @@ namespace Plugin
 			if (!proj) {
 				continue;
 			}
-			// ⚫ LESSON 1 and LESSON 2: a flamethrower-type projectile is its own case now. It is what Flames,
-			// Frostbite and the sprays actually are, it is the type nothing else hooks, and it is many
-			// short-lived objects rather than one that travels - so it takes one light at the root.
+			// rules 1 and 2: a flamethrower-type projectile takes one light at the root
 			const bool flame = proj->data.types.any(RE::BGSProjectileData::Type::kFlamethrower);
 			const bool cone = !flame && proj->data.types.any(RE::BGSProjectileData::Type::kCone);
 			const bool beam = !flame && !cone && proj->data.types.any(RE::BGSProjectileData::Type::kBeam);
@@ -497,8 +456,7 @@ namespace Plugin
 				continue;
 			}
 			const float range = proj->data.range;
-			// ⚫ A flame spray is judged on its own terms: its `range` is the reach of the cone, not a distance
-			// anything travels, so the shortest-stream floor is not asked of it.
+			// a flame spray's range is the reach of the cone, so the shortest-stream floor does not apply
 			if (!flame && range < kShortestStream) {
 				++skipped;
 				continue;
@@ -511,7 +469,7 @@ namespace Plugin
 				r.gap = 0.0f;
 				r.radius = kFlameRadius;
 			} else if (beam) {
-				// lesson 3: one light, on BeamEnd, so it rides the tip
+				// rule 3: one light, on BeamEnd, so it rides the tip
 				r.lights = 1;
 				r.gap = 0.0f;
 				r.radius = kBeamRadius;
@@ -552,7 +510,7 @@ namespace Plugin
 		Load3D<RE::ConeProjectile>::Install();
 		Load3D<RE::BeamProjectile>::Install();
 		Load3D<RE::BarrierProjectile>::Install();
-		// lesson 1: nothing else hooks this one, and it is what the vanilla sprays are
+		// rule 1: nothing else hooks this one, and it is what the vanilla sprays are
 		Load3D<RE::FlameProjectile>::Install();
 		Release3D<RE::ConeProjectile>::Install();
 		Release3D<RE::BeamProjectile>::Install();
@@ -585,7 +543,7 @@ namespace Plugin
 			SKSE::log::info("stream lights: {}; {} hand light(s) {}", want ? "on" : "off", changed, want ? "taken off" : "given back");
 		}
 		if (!want) {
-			// ⚫ every map that counts a live light goes together, or the cap keeps counting references that
+			// every map that counts a live light is cleared together, or the cap keeps counting references that
 			// were dropped while the pass was off and the pass never lights anything again
 			std::lock_guard l{ gLiveLock };
 			gLive.clear();
