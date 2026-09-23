@@ -169,7 +169,8 @@ namespace Plugin
 					return true;
 				}
 			}
-			return false;
+			// ⚫ 2026-09-23: Dynamic Wards 2.0 has NO plugin - it is `DynamicWards.dll` alone - so it is asked for by its DLL
+			return REX::W32::GetModuleHandleW(L"DynamicWards.dll") != nullptr;
 		}
 
 		bool WardLightsOn()

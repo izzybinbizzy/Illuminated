@@ -131,7 +131,7 @@ namespace Plugin
 	void RegisterMenu()
 	{
 		if (!SKSEMenuFramework::IsInstalled()) {
-			SKSE::log::warn("SKSE Menu Framework is not installed: the Illuminated settings can only be changed in the MCM or the INI");
+			SKSE::log::warn("SKSE Menu Framework is not installed, so there is no settings page - the settings INI still applies");
 			return;
 		}
 		for (const auto name : { "CS Light.esp", "CS Light.esl" }) {
