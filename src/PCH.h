@@ -11,6 +11,7 @@
 #include <SKSE/SKSE.h>
 
 #include <algorithm>
+#include <bit>
 #include <cctype>
 #include <charconv>
 #include <chrono>

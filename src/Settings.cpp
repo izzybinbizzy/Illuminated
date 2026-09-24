@@ -7,8 +7,7 @@
 // Every setting is a game global. Light Placer reads it in each light's conditions ("GetGlobalValue"), so a
 // change shows in game within a second with no restart. The optional Illuminated.esp holds the globals;
 // without it this file makes them in memory before Light Placer reads its configs. The player's picks live in
-// Data\MCM\Settings\Illuminated.ini, the file MCM Helper keeps, so the SKSE Menu Framework page and the
-// MCM always agree. The list of settings is Data\SKSE\Plugins\Illuminated\*.txt, written by lagen.py.
+// Data\SKSE\Plugins\Illuminated\Illuminated.ini, beside the list of settings (*.txt, written by lagen.py).
 
 #include "Plugin.h"
 
@@ -30,7 +29,7 @@ namespace Plugin
 		constexpr std::string_view kDetectedKey = "sPlugins";
 
 		fs::path SettingsFolder() { return fs::current_path() / "Data" / "SKSE" / "Plugins" / std::string(kOurFolder); }
-		fs::path IniPath() { return fs::current_path() / "Data" / "MCM" / "Settings" / (std::string(kOurFolder) + ".ini"); }
+		fs::path IniPath() { return SettingsFolder() / (std::string(kOurFolder) + ".ini"); }
 
 		std::string Unescape(std::string_view a_text)
 		{
@@ -372,7 +371,7 @@ namespace Plugin
 		std::lock_guard l{ gSettingsLock };
 		std::error_code ec;
 		fs::create_directories(IniPath().parent_path(), ec);
-		// keep every line of a section this plugin does not own (MCM Helper may keep more there one day)
+		// keep every line of a section this plugin does not own
 		const auto               old = ReadIni();
 		std::ofstream            out(IniPath(), std::ios::trunc);
 		out << "[" << kSettingsSection << "]\n";

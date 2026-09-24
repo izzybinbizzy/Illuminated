@@ -80,7 +80,7 @@ namespace Plugin
 			return r;
 		}
 		bool keptOne = false;
-		for (std::size_t i = 0; i < a_ench->effects.size(); ++i) {
+		for (std::uint32_t i = 0; i < a_ench->effects.size(); ++i) {
 			auto*       eff = a_ench->effects[i];
 			const auto* shader = LitShaderOf(eff);
 			if (!shader) {

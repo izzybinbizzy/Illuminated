@@ -295,8 +295,8 @@ namespace Plugin
 				{
 					auto* words = reinterpret_cast<std::uint32_t*>(&data);
 					words[0] |= 1u << 10;  // kInverseSquare
-					*reinterpret_cast<float*>(&words[1]) =
-						std::clamp(kK * fade / (radius * radius + kLightSize * kLightSize), 0.01f, 0.99f);
+					words[1] = std::bit_cast<std::uint32_t>(
+						std::clamp(kK * fade / (radius * radius + kLightSize * kLightSize), 0.01f, 0.99f));
 				}
 				light->local.translate = { 0.0f, r.gap * static_cast<float>(i + 1), 0.0f };
 				light->local.scale = 1.0f;
