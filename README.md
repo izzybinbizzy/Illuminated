@@ -1,6 +1,6 @@
 # Illuminated - SKSE plugin
 
-Copyright (C) 2026 izzydoingit. GPL-3.0-or-later, see `../LICENSE`.
+Copyright (C) 2026 izzydoingit. GPL-3.0-or-later, see `LICENSE`.
 
 Ships with Illuminated - Spell Lighting NG and is required by it.
 
