@@ -60,6 +60,7 @@ namespace
 		MakeLightCopies();  // after pass 0 (the copies take its flags), before Light Placer reads its configs
 		StreamLights();     // pass 6: the lights that travel with a spray or a bolt, and its two hooks
 		VaerSwirls();       // pass 7: VAER Reborn's swirls - the settings are loaded by now (HIS CALL 2026-09-22)
+		Wards();            // before pass 1: an effect it silences must not be followed by the casting-light pass
 		const auto& cov = ReadCoverage();
 		SKSE::log::info("configs: {} file(s), {} lit model(s), {} shader name(s)", cov.files, cov.models.size(), cov.shaders.size());
 		if (cov.files == 0) {

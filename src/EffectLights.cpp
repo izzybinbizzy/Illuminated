@@ -53,11 +53,29 @@ namespace Plugin
 			nulled, restored, gEffectTargets.size());
 	}
 
+	// A projectile a Light-archetype effect fires (Magelight) IS the lamp that stays where it lands: it keeps the game's
+	// light, the same rule as the effect itself (a user's report, 2026-09-24: "magelight is not producing proper
+	// illumination once the projectile hits a surface or target" - its light had been taken off here and in the patcher).
+	std::set<const RE::BGSProjectile*> LightSpellProjectiles()
+	{
+		std::set<const RE::BGSProjectile*> out;
+		for (const auto* effect : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::EffectSetting>()) {
+			if (effect && effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight && effect->data.projectileBase) {
+				out.insert(effect->data.projectileBase);
+			}
+		}
+		return out;
+	}
+
 	template <class T>
 	void EffectLights(const Coverage& a_cov, std::string_view a_kind)
 	{
 		gEffectCoverage = &a_cov;
-		std::size_t scanned = 0, clean = 0, followed = 0, coneKept = 0, poison = 0, forced = 0;
+		std::size_t scanned = 0, clean = 0, followed = 0, coneKept = 0, poison = 0, forced = 0, lamps = 0;
+		std::set<const RE::BGSProjectile*> lightSpells;
+		if constexpr (std::is_same_v<T, RE::BGSProjectile>) {
+			lightSpells = LightSpellProjectiles();
+		}
 		for (auto* form : RE::TESDataHandler::GetSingleton()->GetFormArray<T>()) {
 			if (!form) {
 				continue;
@@ -78,6 +96,11 @@ namespace Plugin
 			}
 			// decided at compile time: an explosion or a hazard has no projectile type to read
 			if constexpr (std::is_same_v<T, RE::BGSProjectile>) {
+				if (lightSpells.contains(form)) {
+					++lamps;
+					SKSE::log::info("[FX-LIGHT-SPELL] {} {} | {} | a Light spell's lamp keeps its light", a_kind, Label(form), model);
+					continue;
+				}
 				if (!poisonSpray && form->data.types.any(RE::BGSProjectileData::Type::kFlamethrower, RE::BGSProjectileData::Type::kCone)) {
 					++coneKept;
 					continue;
@@ -97,8 +120,8 @@ namespace Plugin
 			++followed;
 		}
 		SKSE::log::info("{} lights: {} lit or named seen; {} followed, {} already had none, {} cone/flame kept on purpose, "
-						"{} poison sprays, {} named",
-			a_kind, scanned, followed, clean, coneKept, poison, forced);
+						"{} poison sprays, {} named, {} Light spell lamps kept",
+			a_kind, scanned, followed, clean, coneKept, poison, forced, lamps);
 	}
 
 	// the three kinds main.cpp runs this pass for
