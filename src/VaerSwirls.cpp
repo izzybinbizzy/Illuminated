@@ -51,10 +51,10 @@ namespace Plugin
 			{ "Thaumaturgy.esp", 0x42CEA1, "VAEReborn.esp", 0x000802, "VAEReborn.esp", 0x000826, "MAG_EnchAbsorbStaminaFFContact02" },
 		};
 
+		// loaded, not merely present: LookupModByName also finds a plugin that is installed but not enabled
 		bool VaerPluginLoaded(std::string_view a_name)
 		{
-			auto* dh = RE::TESDataHandler::GetSingleton();
-			return dh && dh->LookupModByName(a_name) != nullptr;
+			return PluginLoaded(a_name);
 		}
 
 		std::size_t BrighterStrands()

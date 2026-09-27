@@ -56,6 +56,15 @@ namespace Plugin
 	// A projectile a Light-archetype effect fires (Magelight) IS the lamp that stays where it lands: it keeps the game's
 	// light, the same rule as the effect itself (a user's report, 2026-09-24: "magelight is not producing proper
 	// illumination once the projectile hits a surface or target" - its light had been taken off here and in the patcher).
+	// A Magelight that lands on terrain places a HAZARD instead (vanilla Skyrim.esm 0x03FA51, and the copies overhauls
+	// make of it). Nothing links that hazard to the spell, so it is known by its mesh, the light-spell lamp, and keeps
+	// its light the same way (measured 2026-09-25: with its light taken off, the landed lamp was dark).
+	constexpr std::string_view kLightSpellLampMesh = "lightspellhazard.nif";
+
+	bool IsLightSpellLamp(const std::string& a_model)
+	{
+		return a_model == kLightSpellLampMesh || a_model.ends_with("\\" + std::string(kLightSpellLampMesh));
+	}
 	std::set<const RE::BGSProjectile*> LightSpellProjectiles()
 	{
 		std::set<const RE::BGSProjectile*> out;
@@ -93,6 +102,13 @@ namespace Plugin
 			if (force) {
 				++forced;
 				SKSE::log::info("[FX-FORCE] {} {} | {}", a_kind, Label(form), model);
+			}
+			if constexpr (std::is_same_v<T, RE::BGSHazard>) {
+				if (IsLightSpellLamp(model)) {
+					++lamps;
+					SKSE::log::info("[FX-LIGHT-SPELL] {} {} | {} | a Light spell's landed lamp keeps its light", a_kind, Label(form), model);
+					continue;
+				}
 			}
 			// decided at compile time: an explosion or a hazard has no projectile type to read
 			if constexpr (std::is_same_v<T, RE::BGSProjectile>) {

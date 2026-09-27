@@ -399,7 +399,7 @@ namespace Plugin
 
 	// ------------------------------------------------------------------ wards: one light where the dome sits
 	// every ward belongs to Dynamic Wards: this lights a ward only when Dynamic Wards is not installed. The
-	// colour is the ward's own light when it has one, else the pale blue-white of the vanilla dome.
+	// color is the ward's own light when it has one, else the pale blue-white of the vanilla dome.
 	void WardLights()
 	{
 		std::size_t wards = 0, colored = 0;
@@ -527,10 +527,15 @@ namespace Plugin
 			return;
 		}
 		std::size_t changed = 0;
-		for (const auto& [formID, own] : gHandLight) {
+		for (auto& [formID, own] : gHandLight) {
 			auto* proj = RE::TESForm::LookupByID<RE::BGSProjectile>(formID);
 			if (!proj) {
 				continue;
+			}
+			// taken off: what it carries now is what to give back - the spray pass may have given it a copy of its
+			// own since this table was read, and that copy must come back, not the record's first light
+			if (want && proj->data.light) {
+				own = proj->data.light;
 			}
 			auto* wanted = want ? nullptr : own;
 			if (proj->data.light != wanted) {
@@ -543,13 +548,20 @@ namespace Plugin
 			SKSE::log::info("stream lights: {}; {} hand light(s) {}", want ? "on" : "off", changed, want ? "taken off" : "given back");
 		}
 		if (!want) {
-			// every map that counts a live light is cleared together, or the cap keeps counting references that
-			// were dropped while the pass was off and the pass never lights anything again
-			std::lock_guard l{ gLiveLock };
-			gLive.clear();
-			gLiveBase.clear();
-			gLiveCount.clear();
-			gLiveNi.clear();
+			// every stream light still lit comes off the scene node now, with every map that counts it: a light
+			// only forgotten stays registered and keeps shining where its stream was, and a count left behind keeps
+			// the cap full so the pass never lights anything again. A ward's light follows its own setting.
+			auto*                   scene = SceneNode();
+			std::lock_guard         l{ gLiveLock };
+			std::vector<RE::FormID> streams;
+			for (const auto& [ref, base] : gLiveBase) {
+				if (const auto r = gRecipes.find(base); r == gRecipes.end() || !r->second.ward) {
+					streams.push_back(ref);
+				}
+			}
+			for (const auto ref : streams) {
+				Forget(ref, scene);
+			}
 		}
 	}
 }

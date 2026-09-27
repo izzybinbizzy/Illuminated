@@ -58,13 +58,13 @@ namespace
 		RegisterMenu();
 		LightSettings();
 		MakeLightCopies();  // after pass 0 (the copies take its flags), before Light Placer reads its configs
-		StreamLights();     // pass 6: the lights that travel with a spray or a bolt, and its two hooks
 		VaerSwirls();       // pass 7: VAER Reborn's swirls - the settings are loaded by now (HIS CALL 2026-09-22)
 		Wards();            // before pass 1: an effect it silences must not be followed by the casting-light pass
 		const auto& cov = ReadCoverage();
 		SKSE::log::info("configs: {} file(s), {} lit model(s), {} shader name(s)", cov.files, cov.models.size(), cov.shaders.size());
 		if (cov.files == 0) {
 			SKSE::log::warn("no Illuminated configs were found under Data\\LightPlacer; nothing was changed");
+			StreamLights();     // pass 6: the lights that travel with a spray or a bolt, and its two hooks
 			return;
 		}
 		CastingLights(cov);
@@ -74,6 +74,7 @@ namespace
 		ApplyEffectLights(true);
 		PoisonRuneArt();
 		SprayLights();
+		StreamLights();     // pass 6, after pass 4: a spray's hand light is its stretched copy by now; and its two hooks
 		DoubledEnchantments(cov);
 		if (AnyLitShaders()) {
 			WatchCraftingMenu();

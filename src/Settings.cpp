@@ -310,9 +310,11 @@ namespace Plugin
 		std::error_code ec;
 		std::vector<fs::path> files;
 		if (fs::is_directory(SettingsFolder(), ec)) {
-			for (const auto& entry : fs::directory_iterator(SettingsFolder(), ec)) {
-				if (entry.is_regular_file() && Lower(entry.path().extension().string()) == ".txt") {
-					files.push_back(entry.path());
+			// the error code form: stepping on through a folder that cannot be read ends the walk instead of throwing
+			for (auto it = fs::directory_iterator(SettingsFolder(), ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
+				std::error_code one;  // one unreadable entry is skipped, the walk goes on
+				if (it->is_regular_file(one) && Lower(it->path().extension().string()) == ".txt") {
+					files.push_back(it->path());
 				}
 			}
 		}

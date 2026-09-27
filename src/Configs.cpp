@@ -247,9 +247,13 @@ namespace Plugin
 			if (!fs::is_directory(dir, ec)) {
 				continue;
 			}
-			for (const auto& entry : fs::recursive_directory_iterator(dir, ec)) {
-				if (entry.is_regular_file() && Lower(entry.path().extension().string()) == ".json") {
-					ReadConfig(entry.path(), gCoverage);
+			// the error code form throughout: a folder that cannot be stepped into (locked, broken under MO2's virtual
+			// files) ends the walk instead of throwing out of the game's message handler
+			for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
+				 !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+				std::error_code one;  // one unreadable entry is skipped, the walk goes on
+				if (it->is_regular_file(one) && Lower(it->path().extension().string()) == ".json") {
+					ReadConfig(it->path(), gCoverage);
 				}
 			}
 		}

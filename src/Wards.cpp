@@ -112,7 +112,8 @@ namespace Plugin
 		SKSE::log::info("wards: {} effect(s) wear the ward art beside a ward's rank and show no second dome", extras.size());
 
 		// the blue sphere
-		if (dh->LookupModByName(k360Plugin)) {
+		// loaded, not merely present: LookupModByName also finds a plugin that is installed but not enabled
+		if (PluginLoaded(k360Plugin)) {
 			if (auto* dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm")) {
 				dome->SetModel(kBlueSphere);
 			}

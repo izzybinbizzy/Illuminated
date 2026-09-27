@@ -5,7 +5,7 @@
 // A watcher for one bug and nothing else: HIS REPORT, 2026-09-17 - *"whenever i first load in it forces me into first
 // person for a few seconds then forces me back to whatever i was doing"*.
 //
-// It changes nothing in the game. For twenty seconds after a save loads it looks, once a frame, at which camera the
+// It changes nothing in the game. For ninety seconds from the main menu it looks, once a frame, at which camera the
 // game is using and at whether the player's body has been rebuilt, and writes a line ONLY when either changes. So the
 // log says exactly when the camera flipped, how long it stayed, and whether the body was reloaded at the same moment -
 // which is what tells a script forcing the camera apart from something rebuilding the player.
@@ -56,7 +56,7 @@ namespace Plugin
 				SKSE::log::info("[CAMERA] {:5.2f}s | {} | the player's body {}{}", Seconds(*a_watch),
 					firstPerson ? "first person" : "third person",
 					body == a_watch->body ? "is the one it was" : (a_watch->first ? "as it loaded" : "HAS BEEN REBUILT"),
-					a_watch->first ? " | watching for 20 seconds; only changes are written" : "");
+					a_watch->first ? std::format(" | watching for {:.0f} seconds; only changes are written", kWatchSeconds) : std::string());
 				a_watch->first = false;
 				a_watch->firstPerson = firstPerson;
 				a_watch->body = body;
