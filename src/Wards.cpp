@@ -27,6 +27,11 @@ namespace Plugin
 		constexpr const char*   kEmptyModel = "Effects\\FXEmptyObject.nif";
 		constexpr const char*   kBlueSphere = "Magic\\Glow Wards\\Blue\\wardbodyfx360.nif";
 		constexpr const char*   kBlueFlash = "Magic\\Glow Wards\\Blue\\wardshieldhitfx.nif";
+		// his call 2026-09-27: without 360 Ward the dome and the hand wear OUR vanilla-blue copies (their own textures, so no
+		// other mod's loose textures reach them)
+		constexpr std::uint32_t kHandArt = 0x0253F1;         // Skyrim.esm: magic\wardinhandfx.nif
+		constexpr const char*   kBlueDome = "Magic\\Glow Wards\\Blue\\wardbodyfx.nif";
+		constexpr const char*   kBlueHand = "Magic\\Glow Wards\\Blue\\wardinhandfx.nif";
 
 		bool DynamicWardsLoaded() { return REX::W32::GetModuleHandleA("DynamicWards.dll") != nullptr; }
 
@@ -121,6 +126,13 @@ namespace Plugin
 				flash->SetModel(kBlueFlash);
 			}
 			SKSE::log::info("wards: 360 Ward is loaded - its sphere and flash wear the vanilla blue ({})", kBlueSphere);
+		} else if (auto* dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm")) {
+			dome->SetModel(kBlueDome);
+			SKSE::log::info("wards: the dome wears our vanilla blue ({})", kBlueDome);
+		}
+		if (auto* hand = dh->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm")) {
+			hand->SetModel(kBlueHand);
+			SKSE::log::info("wards: the hand wears our vanilla blue ({})", kBlueHand);
 		}
 	}
 }
