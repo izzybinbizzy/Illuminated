@@ -35,6 +35,29 @@ namespace Plugin
 
 		bool DynamicWardsLoaded() { return REX::W32::GetModuleHandleA("DynamicWards.dll") != nullptr; }
 
+		// HIS REPORT 2026-09-27 (Spellbreaker - the old fix, lost in a handoff purge): a WORN ward - Spellbreaker, the Divine
+		// Crusader shield, the Shield of Reman - never drives a cast ward's transitions, so the vanilla meshes sit idle: only
+		// the swirl, and the dome flashes as the ward ends. They wear copies of our dome and hand on Magic\\BeginLoopEnd.hkx
+		// (`wardgen.py warddomes`), in art forms of their own, so the cast wards keep theirs.
+		struct WornRow
+		{
+			const char* plugin;
+			RE::FormID  id;
+		};
+		constexpr WornRow kWorn[] = {
+			{ "Skyrim.esm", 0x07DCDB },                        // Spellbreaker's Ward - Deflection
+			{ "ccmtysse001-knightsofthenine.esl", 0x00081D },  // the Divine Crusader shield's
+			{ "LegacyoftheDragonborn.esm", 0x124E5B },         // Reman's Ward
+		};
+		RE::BGSArtObject* gWornDome = nullptr;
+		RE::BGSArtObject* gWornHand = nullptr;
+
+		RE::BGSArtObject* NewArt()
+		{
+			auto* factory = RE::IFormFactory::GetConcreteFormFactoryByType<RE::BGSArtObject>();
+			return factory ? factory->Create() : nullptr;
+		}
+
 		// the bare mesh name, lower case: "Magic\WardBodyFX.nif" -> "wardbodyfx"
 		std::string MeshName(const char* a_model)
 		{
@@ -133,6 +156,28 @@ namespace Plugin
 		if (auto* hand = dh->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm")) {
 			hand->SetModel(kBlueHand);
 			SKSE::log::info("wards: the hand wears our vanilla blue ({})", kBlueHand);
+		}
+		// the worn wards: their own looping hand always, their own looping dome unless 360 Ward's sphere is the dome
+		if (!gWornDome) {
+			gWornDome = NewArt();
+		}
+		if (!gWornHand) {
+			gWornHand = NewArt();
+		}
+		if (gWornDome && gWornHand) {
+			gWornDome->SetModel("Magic\\Glow Wards\\Blue\\wardbodyfxworn.nif");
+			gWornHand->SetModel("Magic\\Glow Wards\\Blue\\wardinhandfxworn.nif");
+			const bool has360 = PluginLoaded(k360Plugin);
+			auto*      dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm");
+			std::size_t worn = 0;
+			for (const auto& r : kWorn) {
+				if (auto* e = dh->LookupForm<RE::EffectSetting>(r.id, r.plugin)) {
+					e->data.castingArt = gWornHand;
+					e->data.hitEffectArt = has360 ? dome : gWornDome;
+					++worn;
+				}
+			}
+			SKSE::log::info("wards: {} worn ward(s) (Spellbreaker, Crusader, Reman) wear the looping copies", worn);
 		}
 	}
 }
