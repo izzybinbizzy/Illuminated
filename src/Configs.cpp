@@ -23,21 +23,31 @@ namespace Plugin
 				kArray,
 				kObject
 			};
-			Kind                                      kind{ Kind::kNull };
-			std::string                               text;
-			std::vector<Json>                         items;
-			std::vector<std::pair<std::string, Json>> fields;
+			struct Field;  // a key and its value; completed below, once Json is (a std::pair of an incomplete Json is not allowed)
 
-			const Json* Get(std::string_view a_key) const
-			{
-				for (const auto& [k, v] : fields) {
-					if (k == a_key) {
-						return &v;
-					}
-				}
-				return nullptr;
-			}
+			Kind               kind{ Kind::kNull };
+			std::string        text;
+			std::vector<Json>  items;
+			std::vector<Field> fields;
+
+			const Json* Get(std::string_view a_key) const;
 		};
+
+		struct Json::Field
+		{
+			std::string key;
+			Json        value;
+		};
+
+		const Json* Json::Get(std::string_view a_key) const
+		{
+			for (const auto& [k, v] : fields) {
+				if (k == a_key) {
+					return &v;
+				}
+			}
+			return nullptr;
+		}
 
 		struct Reader
 		{

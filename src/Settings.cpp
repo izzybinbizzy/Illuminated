@@ -319,7 +319,8 @@ namespace Plugin
 			}
 		}
 		std::sort(files.begin(), files.end());  // Settings.txt (the main download) before Praedy's Staves Settings.txt
-		std::sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
+		// stable: the rest keep the order above (a plain sort left it unspecified, and the first file to name a setting wins)
+		std::stable_sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
 			return (Lower(a.filename().string()) != "settings.txt") < (Lower(b.filename().string()) != "settings.txt");
 		});
 		for (const auto& f : files) {
