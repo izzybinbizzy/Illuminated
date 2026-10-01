@@ -4,7 +4,7 @@
 //
 // Pass 2: projectiles, explosions and hazards whose model is lit lose the game's own light - for as long as the
 // menu's settings keep that model lit. Each one's own light is remembered, so switching an option off gives it back.
-// Also RefreshLights, which runs passes 1 and 2 again (and puts the sliders onto the light copies) whenever a setting changes.
+// Also RefreshLights, which runs passes 1, 2 and 6 again (and puts the sliders onto the light copies) whenever a setting changes.
 
 #include "Plugin.h"
 
@@ -149,9 +149,10 @@ namespace Plugin
 	{
 		const auto started = std::chrono::steady_clock::now();
 		ApplyLightStrength(false);
-		ApplyStreamLights(false);
+		ApplyStreamLights(false);  // switched off: the hand lights come back first, and pass 2 then has its say over them
 		ApplyCastingLights(false);
 		ApplyEffectLights(false);
+		ApplyStreamLights(false);  // still on: a light pass 2 just gave back comes off again (measured 2026-10-01: 102 did not)
 		SKSE::log::info("lights refreshed for the settings in {:.1f} ms",
 			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
 	}

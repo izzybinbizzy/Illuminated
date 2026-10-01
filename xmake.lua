@@ -19,8 +19,11 @@ set_config("skyrim_vr", vr_only)
 
 includes("lib/commonlibsse-ng")
 
+add_requires("nlohmann_json v3.12.0")
+
 target("Illuminated", function()
     add_deps("commonlibsse-ng")
+    add_packages("nlohmann_json")
     add_rules("commonlibsse-ng.plugin", {
         name = "Illuminated",
         author = "izzydoingit",

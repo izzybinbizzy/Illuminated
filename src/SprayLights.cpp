@@ -98,6 +98,8 @@ namespace Plugin
 				SKSE::log::warn("[SPRAY-FAILED] {} | the new light did not take", Label(proj));
 				continue;
 			}
+			LightCopies().push_back({ .id = "spray " + EditorID(proj), .base = EditorID(bulb), .form = copy, .startFade = copy->fade,
+				.startRadius = copy->data.radius });
 			++raised;
 			SKSE::log::info("[SPRAY-RAISED] {} | range {} | radius {} | from {} | family {} | colour {},{},{}", Label(proj), range,
 				radius, EditorID(bulb), family, copy->data.color.red, copy->data.color.green, copy->data.color.blue);

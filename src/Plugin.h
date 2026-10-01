@@ -69,15 +69,18 @@ namespace Plugin
 		std::string page, group, label, text;
 	};
 
-	// one in-memory copy of a light a config names; the sliders set its fade and radius (LightCopies.cpp)
+	// one in-memory copy of a light a config names; the sliders set its fade, radius and cutoff (LightCopies.cpp)
 	struct LightCopy
 	{
 		std::string         id, base;
-		float               fade{ 0.0f };  // the config's own fade, or 0: the base light's
-		int                 radius{ 0 };   // the config's own radius, or 0: the base light's
+		float               fade{ 0.0f };    // the config's own fade, or 0: the base light's
+		int                 radius{ 0 };     // the config's own radius, or 0: the base light's
+		float               cutoff{ 0.0f };  // the config's own inverse-square cutoff, or 0: the base light's
+		bool                flicker{ false };  // its lights flicker (a fadeController): Brightness is applied as they are drawn
 		RE::TESObjectLIGH*  form{ nullptr };
 		float               startFade{ 0.0f };
 		std::uint32_t       startRadius{ 0 };
+		float               startCutoff{ 0.0f };  // 0: not an inverse-square light, its falloff is left alone
 	};
 
 	struct SprayMarker
@@ -91,14 +94,11 @@ namespace Plugin
 	bool                             ConditionsHold(const std::vector<std::vector<Clause>>& a_tests);
 	void                             LoadSettings();
 	void                             ApplyGlobals();
-	bool                             ReloadSettingsIni();
 	void                             SaveSettings();
 	void                             SetSetting(std::size_t a_index, int a_value);
 	std::vector<Setting>&            Settings();
 	const std::vector<MenuNote>&     Notes();
 	const std::vector<SprayMarker>&  SprayMarkers();
-	std::size_t                      GlobalsFromPlugin();
-	std::size_t                      GlobalsMadeInMemory();
 	bool                             PluginLoaded(std::string_view a_plugin);
 	bool                             SettingAvailable(const Setting& a_setting);
 	int                              AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
@@ -106,13 +106,14 @@ namespace Plugin
 	bool                             RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	std::vector<LightCopy>&          LightCopies();
 	void                             MakeLightCopies();                // LightCopies.cpp
-	void                             WatchCamera(std::string_view a_why);  // CameraWatch.cpp: what the camera does around a load
 	void                             StreamLights();                   // StreamLights.cpp: pass 6, lights that travel with a spray or bolt
 	void                             ApplyStreamLights(bool a_log);    // StreamLights.cpp: the setting, on or off
-	void                             ApplyLightStrength(bool a_log);  // LightCopies.cpp: the sliders onto the copies
-	void                             InstallPapyrus();
-	void                             RegisterMenu();   // Menu.cpp
-	void                             RefreshLights();  // CastingLights.cpp: passes 1 and 2 again, for the settings as they are now
+	void                             StreamLightsFrame();              // StreamLights.cpp: once a frame, what a loader thread left to do
+	void                             ApplyLightStrength(bool a_log);   // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn)
+	void                             RequestRefresh();                 // LightCopies.cpp: RefreshLights at the next frame, on the main thread
+	void                             RegisterMenu();                   // Menu.cpp
+	void                             OfferToDevBench();                // DevBench.cpp: the settings and the light copies, for a test bench
+	void                             RefreshLights();                  // EffectLights.cpp: the sliders and passes 1, 2 and 6 again, for the settings as they are now
 
 	// ------------------------------------------------------------------ Configs.cpp: what the configs light
 	struct Coverage

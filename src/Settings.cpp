@@ -5,9 +5,9 @@
 // The settings: what the player picks in the menu instead of in an installer.
 //
 // Every setting is a game global. Light Placer reads it in each light's conditions ("GetGlobalValue"), so a
-// change shows in game within a second with no restart. The optional Illuminated.esp holds the globals;
-// without it this file makes them in memory before Light Placer reads its configs. The player's picks live in
-// Data\SKSE\Plugins\Illuminated\Illuminated.ini, beside the list of settings (*.txt, written by lagen.py).
+// change shows in game within a second with no restart. The globals are made here, in memory, before Light Placer
+// reads its configs. The player's picks live in Data\SKSE\Plugins\Illuminated\Illuminated.ini, beside the list of
+// settings (*.txt, written by lagen.py).
 
 #include "Plugin.h"
 
@@ -20,8 +20,6 @@ namespace Plugin
 		std::vector<MenuNote>                        gNotes;
 		std::vector<SprayMarker>                     gMarkers;
 		std::vector<LightCopy>                       gLights;
-		std::size_t                                  gMadeGlobals = 0;
-		std::size_t                                  gFileGlobals = 0;
 		std::recursive_mutex                         gSettingsLock;
 
 		constexpr std::string_view kSettingsSection = "Settings";
@@ -112,6 +110,8 @@ namespace Plugin
                     c.base = block["base"];
                     ParseFloat(block["fade"], c.fade);
                     ParseInt(block["radius"], c.radius);
+                    ParseFloat(block["cutoff"], c.cutoff);
+                    c.flicker = block["flicker"] == "1";
                     const bool known = std::any_of(gLights.begin(), gLights.end(), [&](const LightCopy& o) { return Lower(o.id) == Lower(c.id); });
                     if (!c.id.empty() && !c.base.empty() && !known) {
                         gLights.push_back(std::move(c));
@@ -185,7 +185,8 @@ namespace Plugin
 			return out;
 		}
 
-		bool ApplyIni(bool a_firstLoad)
+		// the saved picks onto the settings; a setting the INI does not name keeps its default
+		void ApplyIni()
 		{
 			const auto ini = ReadIni();
 			const auto sec = ini.find(Lower(kSettingsSection));
@@ -197,7 +198,6 @@ namespace Plugin
 					}
 				}
 			}
-			bool changed = false;
 			for (auto& s : gSettings) {
 				int  v = s.value;
 				bool fromIni = false;
@@ -224,17 +224,10 @@ namespace Plugin
 					// while that mod was installed
 					if (met && (!fromIni || newlySeen)) {
 						v = 1;
-					} else if (!fromIni && a_firstLoad) {
-						v = met ? 1 : s.defaultValue;
 					}
-				} else if (!fromIni && a_firstLoad) {
-					v = s.defaultValue;
 				}
-				v = AllowedValue(s, v);
-				changed |= v != s.value;
-				s.value = v;
+				s.value = AllowedValue(s, v);
 			}
-			return changed;
 		}
 	}
 
@@ -326,25 +319,20 @@ namespace Plugin
 		for (const auto& f : files) {
 			ReadSettingsFile(f);
 		}
-		gMadeGlobals = gFileGlobals = 0;
+		std::size_t made = 0;
 		for (auto& s : gSettings) {
-			s.global = RE::TESForm::LookupByEditorID<RE::TESGlobal>(s.id);
-			if (s.global) {
-				++gFileGlobals;
-				continue;
-			}
 			s.global = MakeGlobal(s.id);
 			if (s.global) {
-				++gMadeGlobals;
+				++made;
 			} else {
 				SKSE::log::warn("[SETTING-FAILED] {} | could not make its global; lights that read it stay at 0", s.id);
 			}
 		}
-		ApplyIni(true);
+		ApplyIni();
 		ApplyGlobals();
-		SaveSettings();  // so the MCM shows what the detected mods turned on
-		SKSE::log::info("settings: {} read from {} file(s), {} notes, {} spray markers, {} light copies; globals: {} from Illuminated.esp, {} made in memory",
-			gSettings.size(), files.size(), gNotes.size(), gMarkers.size(), gLights.size(), gFileGlobals, gMadeGlobals);
+		SaveSettings();  // so the file shows what the detected mods turned on
+		SKSE::log::info("settings: {} read from {} file(s), {} notes, {} spray markers, {} light copies; {} globals made in memory",
+			gSettings.size(), files.size(), gNotes.size(), gMarkers.size(), gLights.size(), made);
 		for (const auto& s : gSettings) {
 			SKSE::log::info("[SETTING] {} = {}{}", s.id, s.value,
 				s.isChoice && s.value < static_cast<int>(s.choices.size()) ? " (" + s.choices[s.value] + ")" : s.isSlider ? "%" : "");
@@ -359,14 +347,6 @@ namespace Plugin
 				s.global->value = static_cast<float>(s.value);
 			}
 		}
-	}
-
-	bool ReloadSettingsIni()
-	{
-		std::lock_guard l{ gSettingsLock };
-		const bool changed = ApplyIni(false);
-		ApplyGlobals();
-		return changed;
 	}
 
 	void SaveSettings()
@@ -429,8 +409,8 @@ namespace Plugin
 			SKSE::log::info("[SETTING-CHANGED] {} = {}", s.id, s.value);
 		}
 		SaveSettings();
-		// the forms are the game's: change them on its main thread, not the menu's
-		SKSE::GetTaskInterface()->AddTask([]() { RefreshLights(); });
+		// the forms and the lit scene are the game's: they follow at the next frame, on its main thread
+		RequestRefresh();
 	}
 
 	int AllowedValue(const Setting& a_setting, int a_value)
@@ -472,8 +452,6 @@ namespace Plugin
 	std::vector<Setting>&           Settings() { return gSettings; }
 	const std::vector<MenuNote>&    Notes() { return gNotes; }
 	const std::vector<SprayMarker>& SprayMarkers() { return gMarkers; }
-	std::size_t                     GlobalsFromPlugin() { return gFileGlobals; }
-	std::size_t                     GlobalsMadeInMemory() { return gMadeGlobals; }
 	bool                            PluginLoaded(std::string_view a_plugin) { return Loaded(a_plugin); }
 
 	bool SettingAvailable(const Setting& a_setting)
@@ -482,31 +460,5 @@ namespace Plugin
 			return true;
 		}
 		return std::any_of(a_setting.needs.begin(), a_setting.needs.end(), [](const std::string& p) { return Loaded(p); });
-	}
-
-	// ------------------------------------------------------------------ Papyrus: the MCM tells the plugin its INI changed
-	namespace
-	{
-		void PapyrusRefresh(RE::StaticFunctionTag*)
-		{
-			const bool changed = ReloadSettingsIni();
-			SaveSettings();
-			if (changed) {
-				SKSE::GetTaskInterface()->AddTask([]() { RefreshLights(); });
-			}
-		}
-
-		bool RegisterPapyrus(RE::BSScript::IVirtualMachine* a_vm)
-		{
-			a_vm->RegisterFunction("SettingsChanged", "IlluminatedNative", PapyrusRefresh);
-			return true;
-		}
-	}
-
-	void InstallPapyrus()
-	{
-		if (const auto* papyrus = SKSE::GetPapyrusInterface()) {
-			papyrus->Register(RegisterPapyrus);
-		}
 	}
 }

@@ -92,8 +92,7 @@ namespace Plugin
 				ImGuiMCP::Separator();
 			}
 			if (a_page == 0) {
-				ImGuiMCP::TextDisabled("Settings: %zu from Illuminated.esp, %zu made in memory. Changes show in game within a second.",
-					GlobalsFromPlugin(), GlobalsMadeInMemory());
+				ImGuiMCP::TextDisabled("Changes show in game within a second.");
 			}
 			std::string group;
 			auto&       settings = Settings();

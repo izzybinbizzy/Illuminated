@@ -21,7 +21,8 @@
 // installed together.
 // Every choice is a setting in the menu (SKSE Menu Framework - the only menu this mod has).
 // Passes 1 and 2 follow the settings live; pass 4 reads them when the game loads. The
-// Brightness and Reach sliders set the fade and radius of the light copies LightCopies.cpp makes.
+// Brightness and Reach sliders set the fade, radius and cutoff of the light copies LightCopies.cpp makes;
+// a light that is already lit follows at the next frame.
 //
 // Where each part lives: main.cpp (this file) runs the passes in order; Plugin.h lists what the files
 // share; Text.cpp, EditorIDs.cpp, Configs.cpp, SprayMarkers.cpp and FormCopies.cpp are the helpers;
@@ -53,7 +54,6 @@ namespace
 				kOtherPluginDll);
 			return;
 		}
-		WatchCamera("the game reached the main menu");  // his first-person blip starts before the save is in
 		LoadSettings();  // first: Light Placer reads the settings' globals in its conditions
 		RegisterMenu();
 		LightSettings();
@@ -74,6 +74,7 @@ namespace
 		ApplyEffectLights(true);
 		PoisonRuneArt();
 		SprayLights();
+		ApplyLightStrength(false);  // the sliders onto pass 4's spray lights too
 		StreamLights();     // pass 6, after pass 4: a spray's hand light is its stretched copy by now; and its two hooks
 		DoubledEnchantments(cov);
 		if (AnyLitShaders()) {
@@ -90,6 +91,9 @@ namespace
 			return;
 		}
 		switch (a_msg->type) {
+		case SKSE::MessagingInterface::kPostLoad:
+			OfferToDevBench();
+			break;
 		case SKSE::MessagingInterface::kDataLoaded:
 			OnDataLoaded();
 			break;
@@ -108,7 +112,6 @@ namespace
 		case SKSE::MessagingInterface::kNewGame:
 			// a save holds the plugin's globals as they were when it was made; the settings file is the truth
 			ApplyGlobals();
-			WatchCamera("the save loaded");  // his first-person blip: what the camera does around a load
 			if (AnyLitShaders()) {
 				UseQuiet("game loaded");
 			}
@@ -130,7 +133,6 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	EditorIDHook<RE::TESEffectShader>::Install();
 	EditorIDHook<RE::EnchantmentItem>::Install();
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
-	InstallPapyrus();
 	SKSE::log::info("Illuminated plugin loaded; waiting for the game's data");
 	return true;
 }

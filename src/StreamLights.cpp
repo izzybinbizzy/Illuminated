@@ -17,10 +17,13 @@
 //
 // Four rules, each one invisible in the code that follows it:
 //  1. `RE::FlameProjectile` is hooked here because nothing else hooks it (not Light Placer, not RE::Light).
-//  2. A flame spray is many short-lived objects near the hand, so it gets ONE light at the root.
+//  2. A flame spray's object sits at the caster's hand and its art streams out of it, so it gets ONE light, a little way
+//     out along the spray, that reaches from there to the spray's end (the numbers RE::Light's sprays were tuned to).
 //  3. A beam's light is parented to its `BeamEnd` node, so it rides the tip (the root when the mesh has none).
 //  4. Community Shaders' inverse square flag and cutoff are written after `SetLightAttenuation`, with
 //     cutoff = K * fade / (radius² + size²), so the reach comes out at the radius asked for.
+//  5. The scene is only ever touched on the main thread: 3D built or released on one of the game's loader threads is
+//     queued, and lit or dropped at the next frame (StreamLightsFrame).
 // Live lights are capped per projectile base and swept when their parent is gone, or a held spray piles them up.
 //
 // How it works. When the game builds a cone, beam, flame or barrier projectile's 3D, this hooks the call and
@@ -54,13 +57,17 @@ namespace Plugin
 		constexpr const char*      kLightName = "IlluminatedStream";
 		constexpr float            kLightSize = 1.414f;   // the light's size, which lives in the radius' z (from ReLight)
 		constexpr float            kFieldOfView = 90.0f;  // what a light that casts no shadow is given (from ReLight)
-		// rule 2: a flame spray is many short-lived objects, one light each, near the hand
-		constexpr float            kFlameRadius = 300.0f;
+		// rule 2: a flame spray's one light sits this far out (half the range for a short spray) and reaches from there
+		// to the end of the spray and a little past, never less than the shortest reach
+		constexpr float            kFlameForward = 128.0f;
+		constexpr float            kFlameEndReach = 1.15f;
+		constexpr float            kFlameShortestReach = 133.0f;
 		// rule 3: a beam's light rides the tip, on this node when the mesh has it
 		constexpr float            kBeamRadius = 420.0f;
 		constexpr const char*      kBeamNode = "BeamEnd";
 		// rule 4: the house K, 0.8 * 69.99² - the same number gen.py writes every config's cutoff from
 		constexpr float            kK = 3918.88f;
+		constexpr float            kLowestCutoff = 0.01f, kHighestCutoff = 0.99f;
 		// no one projectile base keeps more than this many of its refs lit at a time
 		constexpr std::size_t      kMaxLivePerBase = 4;
 
@@ -106,6 +113,9 @@ namespace Plugin
 		std::unordered_map<RE::FormID, std::size_t>                         gLiveCount;  // base form -> how many of its references are lit
 		std::unordered_map<RE::FormID, RE::NiPointer<RE::NiPointLight>>     gLiveNi;     // live reference -> its first NiPointLight
 		std::mutex                                                          gLiveLock;
+		// rule 5: what a loader thread built or released, waiting for the main thread (under gLiveLock)
+		std::vector<RE::ObjectRefHandle>                                    gToHang;
+		std::vector<RE::FormID>                                             gToDrop;
 		bool                                                                gTaken = false;  // the hand lights are off right now
 
 		// fire, frost or shock, read from the editor ID the way the spray pass reads it
@@ -154,6 +164,12 @@ namespace Plugin
 		RE::ShadowSceneNode* SceneNode()
 		{
 			return RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+		}
+
+		bool OnMainThread()
+		{
+			const auto* main = RE::Main::GetSingleton();
+			return main && REX::W32::GetCurrentThreadId() == main->threadID;
 		}
 
 		RE::NiColor ColorOf(const RE::TESObjectLIGH* a_light)
@@ -296,7 +312,7 @@ namespace Plugin
 					auto* words = reinterpret_cast<std::uint32_t*>(&data);
 					words[0] |= 1u << 10;  // kInverseSquare
 					words[1] = std::bit_cast<std::uint32_t>(
-						std::clamp(kK * fade / (radius * radius + kLightSize * kLightSize), 0.01f, 0.99f));
+						std::clamp(kK * fade / (radius * radius + kLightSize * kLightSize), kLowestCutoff, kHighestCutoff));
 				}
 				light->local.translate = { 0.0f, r.gap * static_cast<float>(i + 1), 0.0f };
 				light->local.scale = 1.0f;
@@ -354,9 +370,12 @@ namespace Plugin
 			if (!a_ref) {
 				return;
 			}
-			auto*            scene = SceneNode();
-			std::lock_guard  l{ gLiveLock };
-			Forget(a_ref->GetFormID(), scene);
+			std::lock_guard l{ gLiveLock };
+			if (OnMainThread()) {
+				Forget(a_ref->GetFormID(), SceneNode());
+			} else {
+				gToDrop.push_back(a_ref->GetFormID());
+			}
 		}
 
 		// ------------------------------------------------------------------ the two hooks
@@ -367,7 +386,12 @@ namespace Plugin
 			static RE::NiAVObject* thunk(T* a_this, bool a_backgroundLoading)
 			{
 				auto* object = original(a_this, a_backgroundLoading);
-				HangLights(a_this, object);
+				if (OnMainThread()) {
+					HangLights(a_this, object);
+				} else if (object) {
+					std::lock_guard l{ gLiveLock };
+					gToHang.push_back(a_this->CreateRefHandle());
+				}
 				return object;
 			}
 
@@ -465,9 +489,9 @@ namespace Plugin
 			r.flame = flame;
 			r.beam = beam;
 			if (flame) {
+				// rule 2; its reach is set below, once its fade is known
 				r.lights = 1;
-				r.gap = 0.0f;
-				r.radius = kFlameRadius;
+				r.gap = (std::min)(kFlameForward, range / 2.0f);
 			} else if (beam) {
 				// rule 3: one light, on BeamEnd, so it rides the tip
 				r.lights = 1;
@@ -483,6 +507,10 @@ namespace Plugin
 			r.fade = family == "frost" ? sc.frostFade : sc.fade;
 			if (r.fade <= 0.0f) {
 				r.fade = 1.0f;
+			}
+			if (flame) {
+				// no further than one light of this fade carries (rule 4 at the lowest cutoff): a dragon's breath ranges 3000
+				r.radius = std::clamp((range - r.gap) * kFlameEndReach, kFlameShortestReach, std::sqrt(kK * r.fade / kLowestCutoff));
 			}
 			if (family == "frost" && sc.frostSet) {
 				r.color = { sc.frost.r / 255.0f, sc.frost.g / 255.0f, sc.frost.b / 255.0f };
@@ -519,12 +547,35 @@ namespace Plugin
 		ApplyStreamLights(true);
 	}
 
+	// rule 5: once a frame, on the main thread - what the loader threads left to do
+	void StreamLightsFrame()
+	{
+		std::vector<RE::ObjectRefHandle> hang;
+		{
+			std::lock_guard l{ gLiveLock };
+			if (gToHang.empty() && gToDrop.empty()) {
+				return;
+			}
+			auto* scene = SceneNode();
+			for (const auto ref : gToDrop) {
+				Forget(ref, scene);
+			}
+			gToDrop.clear();
+			hang.swap(gToHang);
+		}
+		for (const auto& handle : hang) {
+			if (const auto ref = handle.get()) {
+				HangLights(ref.get(), ref->Get3D());
+			}
+		}
+	}
+
 	// the projectile's own hand light is taken off while this pass is on, and given back when it is switched off
 	void ApplyStreamLights(bool a_log)
 	{
 		const bool want = StreamLightsOn();
-		if (want == gTaken && !a_log) {
-			return;
+		if (!want && !gTaken && !a_log) {
+			return;  // off and nothing taken; while it is on, every call takes off whatever light has come back
 		}
 		std::size_t changed = 0;
 		for (auto& [formID, own] : gHandLight) {

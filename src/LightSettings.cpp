@@ -49,6 +49,8 @@ namespace Plugin
 		{ "Skyrim.esm", 0x10FBEC, "MagicLightFireball02", 400, 225, 156, 99, 0x4001, 1.0f, 2.0f, 1.0f, 0.0f, 0.0f, 1.5f },
 	};
 
+	constexpr std::uint32_t kInverseSquare = 1u << 14;  // Community Shaders' flag on a light record: its falloff is the cutoff
+
 	void LightSettings()
 	{
 		auto*       dh = RE::TESDataHandler::GetSingleton();
@@ -100,6 +102,9 @@ namespace Plugin
 			light->data.flickerMovementAmplitude = s.flickerMovement;
 			RememberEditorID(copy, (std::string(s.editorID) + " (Illuminated)").c_str());
 			ours[light] = copy;
+			// the Brightness and Reach sliders reach the game's own magic lights too (a casting art's hand light)
+			LightCopies().push_back({ .id = std::string(s.editorID) + " (Illuminated)", .base = s.editorID, .form = copy,
+				.startFade = s.fade, .startRadius = s.radius, .startCutoff = (s.flags & kInverseSquare) ? s.falloff : 0.0f });
 			++made;
 			SKSE::log::info("[LIGHT-OURS] {} | radius {} | color {},{},{} | flags {:X} | size {} | fade {}", Label(light), s.radius,
 				s.r, s.g, s.b, s.flags, s.fov, s.fade);
