@@ -10,6 +10,7 @@
 #include "Plugin.h"
 
 #include "SKSEMenuFramework.h"
+#include "Translation.h"
 
 namespace Plugin
 {
@@ -20,12 +21,14 @@ namespace Plugin
 		std::string              gCSLight;  // the CS Light plugin that is loaded, if one is
 
 		const ImGuiMCP::ImVec4 kWarn{ 1.0f, 0.72f, 0.3f, 1.0f };
+		// every shown line goes through T(): Translation.json beside Settings.txt (lagen.py writes the English one)
+		using Translation::T;
 
 		void DrawSetting(std::size_t a_index, Setting& a_s)
 		{
 			ImGuiMCP::PushID(static_cast<int>(a_index));
 			if (!SettingAvailable(a_s)) {
-				ImGuiMCP::TextDisabled("%s - not installed", a_s.label.c_str());
+				ImGuiMCP::TextDisabled(T("%s - not installed"), T(a_s.label.c_str()));
 				ImGuiMCP::PopID();
 				return;
 			}
@@ -33,7 +36,7 @@ namespace Plugin
 				// the slider moves freely while it is held; the value is saved, on its step, when it is let go
 				static std::unordered_map<std::size_t, int> held;
 				int v = held.contains(a_index) ? held[a_index] : a_s.value;
-				ImGuiMCP::SliderInt(a_s.label.c_str(), &v, a_s.minValue, a_s.maxValue, "%d%%");
+				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, "%d%%");
 				v = AllowedValue(a_s, v);
 				if (ImGuiMCP::IsItemActive()) {
 					held[a_index] = v;
@@ -47,33 +50,33 @@ namespace Plugin
 					}
 				}
 				if (!a_s.tips.empty() && !a_s.tips[0].empty()) {
-					ImGuiMCP::SetItemTooltip("%s", a_s.tips[0].c_str());
+					ImGuiMCP::SetItemTooltip("%s", T(a_s.tips[0].c_str()));
 				}
 			} else if (a_s.isChoice) {
 				std::vector<const char*> items;
 				for (const auto& c : a_s.choices) {
-					items.push_back(c.c_str());
+					items.push_back(T(c.c_str()));
 				}
 				int v = a_s.value;
-				if (ImGuiMCP::Combo(a_s.label.c_str(), &v, items.data(), static_cast<int>(items.size()))) {
+				if (ImGuiMCP::Combo(T(a_s.label.c_str()), &v, items.data(), static_cast<int>(items.size()))) {
 					SetSetting(a_index, v);
 				}
 				const auto shown = static_cast<std::size_t>(std::clamp(a_s.value, 0, static_cast<int>(a_s.tips.size()) - 1));
 				if (!a_s.tips.empty() && !a_s.tips[shown].empty()) {
-					ImGuiMCP::SetItemTooltip("%s", a_s.tips[shown].c_str());
+					ImGuiMCP::SetItemTooltip("%s", T(a_s.tips[shown].c_str()));
 				}
 			} else {
 				bool on = a_s.value != 0;
-				if (ImGuiMCP::Checkbox(a_s.label.c_str(), &on)) {
+				if (ImGuiMCP::Checkbox(T(a_s.label.c_str()), &on)) {
 					SetSetting(a_index, on ? 1 : 0);
 				}
 				if (!a_s.tips.empty() && !a_s.tips[0].empty()) {
-					ImGuiMCP::SetItemTooltip("%s", a_s.tips[0].c_str());
+					ImGuiMCP::SetItemTooltip("%s", T(a_s.tips[0].c_str()));
 				}
 			}
 			if (a_s.restart) {
 				ImGuiMCP::SameLine();
-				ImGuiMCP::TextDisabled("(takes effect the next time the game starts)");
+				ImGuiMCP::TextDisabled("%s", T("(takes effect the next time the game starts)"));
 			}
 			ImGuiMCP::PopID();
 		}
@@ -85,21 +88,21 @@ namespace Plugin
 			}
 			const auto& page = gPages[a_page];
 			if (a_page == 0 && !gCSLight.empty()) {
-				ImGuiMCP::TextColored(kWarn, "%s is loaded.", gCSLight.c_str());
-				ImGuiMCP::TextWrapped("%s", "Illuminated does not need CS Light. If you keep CS Light for its world lights, untick its Magic FX, "
+				ImGuiMCP::TextColored(kWarn, T("%s is loaded."), gCSLight.c_str());
+				ImGuiMCP::TextWrapped("%s", T("Illuminated does not need CS Light. If you keep CS Light for its world lights, untick its Magic FX, "
 											"Mysticsm, Bound Weapons, Praedy Staves, Regular soulgems, Spiders, Misc Effects and Dwarven "
-											"Spiders options in its own installer, or those lights glow twice.");
+											"Spiders options in its own installer, or those lights glow twice."));
 				ImGuiMCP::Separator();
 			}
 			if (a_page == 0) {
-				ImGuiMCP::TextDisabled("Changes show in game within a second.");
+				ImGuiMCP::TextDisabled("%s", T("Changes show in game within a second."));
 			}
 			std::string group;
 			auto&       settings = Settings();
 			for (const auto& n : Notes()) {
 				if (n.page == page) {
-					ImGuiMCP::TextColored(kWarn, "%s", n.label.c_str());
-					ImGuiMCP::TextWrapped("%s", n.text.c_str());
+					ImGuiMCP::TextColored(kWarn, "%s", T(n.label.c_str()));
+					ImGuiMCP::TextWrapped("%s", T(n.text.c_str()));
 				}
 			}
 			for (std::size_t i = 0; i < settings.size(); ++i) {
@@ -109,7 +112,7 @@ namespace Plugin
 				}
 				if (s.group != group) {
 					group = s.group;
-					ImGuiMCP::SeparatorText(group.c_str());
+					ImGuiMCP::SeparatorText(T(group.c_str()));
 				}
 				DrawSetting(i, s);
 			}
@@ -129,6 +132,7 @@ namespace Plugin
 
 	void RegisterMenu()
 	{
+		SKSE::log::info("{}", Translation::Load(fs::current_path() / "Data" / "SKSE" / "Plugins" / std::string(kOurFolder) / "Translation.json"));
 		if (!SKSEMenuFramework::IsInstalled()) {
 			SKSE::log::warn("SKSE Menu Framework is not installed, so there is no settings page - the settings INI still applies");
 			return;
@@ -148,9 +152,9 @@ namespace Plugin
 			SKSE::log::warn("settings name {} pages; the menu shows the first {}", gPages.size(), kMaxPages);
 			gPages.resize(kMaxPages);
 		}
-		SKSEMenuFramework::SetSection(std::string(kOurFolder));
+		SKSEMenuFramework::SetSection(T(std::string(kOurFolder).c_str()));
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
-			SKSEMenuFramework::AddSectionItem(gPages[i], kPageFunctions[i]);
+			SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
 		}
 		SKSE::log::info("menu: {} page(s) added to SKSE Menu Framework {}", gPages.size(), SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
