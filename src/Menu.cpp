@@ -3,7 +3,8 @@
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
 // The Illuminated pages in SKSE Menu Framework's Mod Control Panel: one page per settings page, a heading per
-// group, a checkbox or a pick-one list per setting. A change is saved and shows in game within a second.
+// group, a checkbox or a pick-one list per setting. A change is saved and shows in game within a second. The look is
+// the shared MenuStyle.h in candle gold.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -11,6 +12,7 @@
 
 #include "SKSEMenuFramework.h"
 #include "Translation.h"
+#include "MenuStyle.h"
 
 namespace Plugin
 {
@@ -86,6 +88,7 @@ namespace Plugin
 			if (a_page >= gPages.size()) {
 				return;
 			}
+			const MenuStyle::Page style;
 			const auto& page = gPages[a_page];
 			if (a_page == 0 && !gCSLight.empty()) {
 				ImGuiMCP::TextColored(kWarn, T("%s is loaded."), gCSLight.c_str());
@@ -95,7 +98,7 @@ namespace Plugin
 				ImGuiMCP::Separator();
 			}
 			if (a_page == 0) {
-				ImGuiMCP::TextDisabled("%s", T("Changes show in game within a second."));
+				MenuStyle::Note(T("Changes show in game within a second."));
 			}
 			std::string group;
 			auto&       settings = Settings();
@@ -112,7 +115,7 @@ namespace Plugin
 				}
 				if (s.group != group) {
 					group = s.group;
-					ImGuiMCP::SeparatorText(T(group.c_str()));
+					MenuStyle::Header(MenuStyle::Icon::kBulb, T(group.c_str()));
 				}
 				DrawSetting(i, s);
 			}
@@ -152,6 +155,7 @@ namespace Plugin
 			SKSE::log::warn("settings name {} pages; the menu shows the first {}", gPages.size(), kMaxPages);
 			gPages.resize(kMaxPages);
 		}
+		MenuStyle::gTheme = MenuStyle::MakeTheme(0xFFC94D);  // candle gold
 		SKSEMenuFramework::SetSection(T(std::string(kOurFolder).c_str()));
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
 			SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
