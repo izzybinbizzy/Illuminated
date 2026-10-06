@@ -2,7 +2,7 @@
 
 Copyright (C) 2026 izzydoingit. GPL-3.0-or-later, see `LICENSE`.
 
-Ships with Illuminated - Spell Lighting NG and is required by it.
+Ships with Illuminated - Spell & Weapon Light NG and is required by it.
 
 - Takes off the game's own magic lights where the mod provides one, so nothing is lit twice.
 - **Spray Lights**: spray projectiles get a light coloured to match the spray.
