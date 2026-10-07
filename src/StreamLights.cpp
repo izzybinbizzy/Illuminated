@@ -311,11 +311,11 @@ namespace Plugin
 				data.radius = { radius, radius, kLightSize };
 				// no ambient colour with inverse square lighting: Community Shaders reuses those fields. Without it a new light's
 				// ambient is white, so it takes RE::Light's rule (Truman): a tenth of the diffuse (Dynamic Wards does the same)
-				if (!isl) {
-					data.ambient = { r.color.red * 0.1f, r.color.green * 0.1f, r.color.blue * 0.1f };
-				}
 				// without this a light has no attenuation of its own and never brightens anything (Light Placer does it too)
 				light->SetLightAttenuation(radius);
+				if (!isl) {  // after SetLightAttenuation, which writes the same two words
+					data.ambient = { r.color.red * 0.1f, r.color.green * 0.1f, r.color.blue * 0.1f };
+				}
 				// rule 4: inverse square flag and cutoff, after SetLightAttenuation - Community Shaders only
 				if (isl) {
 					auto* words = reinterpret_cast<std::uint32_t*>(&data);
