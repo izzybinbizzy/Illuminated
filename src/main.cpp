@@ -55,6 +55,7 @@ namespace
 			return;
 		}
 		LoadSettings();  // first: Light Placer reads the settings' globals in its conditions
+		ReadLighting();  // before pass 0: on ENB and Vanilla its lights are made plain
 		RegisterMenu();
 		LightSettings();
 		MakeLightCopies();  // after pass 0 (the copies take its flags), before Light Placer reads its configs
@@ -62,6 +63,11 @@ namespace
 		Wards();            // before pass 1: an effect it silences must not be followed by the casting-light pass
 		const auto& cov = ReadCoverage();
 		SKSE::log::info("configs: {} file(s), {} lit model(s), {} shader name(s)", cov.files, cov.models.size(), cov.shaders.size());
+		if (cov.files != 0 && REX::W32::GetModuleHandleA("po3_LightPlacer.dll") == nullptr) {
+			SKSE::log::warn("Light Placer (po3_LightPlacer.dll) is not loaded: the configs light nothing, so the game's own "
+							"lights are left on");
+			return;
+		}
 		if (cov.files == 0) {
 			SKSE::log::warn("no Illuminated configs were found under Data\\LightPlacer; nothing was changed");
 			StreamLights();     // pass 6: the lights that travel with a spray or a bolt, and its two hooks

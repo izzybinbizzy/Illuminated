@@ -16,6 +16,8 @@
 //               out from its fade and its cutoff alone (measured 2026-10-01: the stated radius changed nothing, and a
 //               brighter light reached further). The cutoff is the made-with one x Brightness / Reach², which moves the
 //               reach by Reach and holds it still while Brightness changes.
+//               On ENB and Vanilla (Lighting.cpp) an inverse-square copy is made plain when it is made: no cutoff, the
+//               reach it had drawn as a radius, and Reach moves that radius.
 //
 // A light that is already lit follows at once: on the frame a slider changes, every lit light that names one of our
 // copies takes its copy's cutoff, and a steady light's fade moves by the change (Frame, on the main thread).
@@ -322,7 +324,7 @@ namespace Plugin
 
 	void MakeLightCopies()
 	{
-		std::size_t made = 0, flickers = 0, missing = 0, failed = 0;
+		std::size_t made = 0, flickers = 0, missing = 0, failed = 0, plained = 0;
 		for (auto& c : LightCopies()) {
 			if (c.form) {
 				continue;  // one of pass 0's own magic lights, made already (LightSettings.cpp)
@@ -344,12 +346,22 @@ namespace Plugin
 			c.startRadius = c.radius > 0 ? static_cast<std::uint32_t>(c.radius) : base->data.radius;
 			// the config's own cutoff, or the record's when the record itself is an inverse-square light
 			c.startCutoff = c.cutoff > 0.0f ? c.cutoff : (base->data.flags.underlying() & kInverseSquare) ? base->data.fallofExponent : 0.0f;
+			if (!InverseSquare() && c.startCutoff > 0.0f) {
+				// ENB and Vanilla (Lighting.cpp): the reach it has under Community Shaders, drawn plain; Reach moves the radius
+				const float size = base->data.fov >= 50.0f ? 1.414f : std::clamp(base->data.fov, 0.01f, 50.0f);  // Light Placer's GetSize
+				const auto  plain = Plain(c.startFade, static_cast<float>(c.startRadius), IslReach(c.startFade, c.startCutoff, size));
+				c.startFade = plain.fade;
+				c.startRadius = static_cast<std::uint32_t>(std::lround(plain.radius));
+				c.startCutoff = 0.0f;
+				copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(copy->data.flags.underlying() & ~kInverseSquare);
+				++plained;
+			}
 			gLit[c.id] = { c.flicker, 0.0f };
 			flickers += c.flicker;
 			++made;
 		}
-		SKSE::log::info("light copies: {} made ({} flicker), {} whose light is not in this load order, {} failed", made, flickers, missing,
-			failed);
+		SKSE::log::info("light copies: {} made ({} flicker, {} drawn plain for {}), {} whose light is not in this load order, {} failed", made,
+			flickers, plained, LightingName(LightingPick()), missing, failed);
 		InstallHooks();
 		ApplyLightStrength(true);
 	}

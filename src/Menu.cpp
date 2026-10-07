@@ -90,6 +90,14 @@ namespace Plugin
 			}
 			const MenuStyle::Page style;
 			const auto& page = gPages[a_page];
+			if (a_page == 0) {
+				ImGuiMCP::TextColored(MenuStyle::kMuted, T("Lighting: %s"), T(LightingName(LightingPick())));
+				if (!InverseSquare()) {
+					ImGuiMCP::TextWrapped("%s", T("Lights are drawn by the game's own lighting: each reaches as far as it does with "
+												"Community Shaders' inverse square lighting. Reach and Brightness still apply."));
+				}
+				ImGuiMCP::Separator();
+			}
 			if (a_page == 0 && !gCSLight.empty()) {
 				ImGuiMCP::TextColored(kWarn, T("%s is loaded."), gCSLight.c_str());
 				ImGuiMCP::TextWrapped("%s", T("Illuminated does not need CS Light. If you keep CS Light for its world lights, untick its Magic FX, "
