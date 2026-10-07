@@ -121,8 +121,10 @@ namespace Plugin
 		std::set<std::string> models;   // lowercased .nif paths
 		std::set<std::string> shaders;  // lowercased tokens from "formIDs" arrays
 		std::size_t           files{ 0 };
-		// every light row's settings tests, per model: a model is lit while the tests of any of its rows hold
-		std::unordered_map<std::string, std::vector<std::vector<std::vector<Clause>>>> modelTests;
+		// every light row's settings tests, per model: a model is lit while the tests of any of its rows hold. An entry's
+		// tests are kept once and shared by all of its models (never copied per model)
+		using Tests = std::vector<std::vector<std::vector<Clause>>>;  // one entry: each light's settings test
+		std::unordered_map<std::string, std::vector<std::shared_ptr<const Tests>>> modelTests;
 		bool ModelLit(const std::string& a_model) const;
 	};
 
