@@ -146,8 +146,9 @@ namespace Plugin
 			}
 		}
 		gPages.clear();
+		std::unordered_set<std::string> seen;  // the pages in the order they are first named, each once
 		for (const auto& s : Settings()) {
-			if (std::find(gPages.begin(), gPages.end(), s.page) == gPages.end()) {
+			if (seen.insert(s.page).second) {
 				gPages.push_back(s.page);
 			}
 		}

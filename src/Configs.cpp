@@ -212,12 +212,13 @@ namespace Plugin
 					tests.emplace_back();
 				}
 				if (const auto* models = entry.Get("models"); models && models->kind == Json::Kind::kArray) {
+					// one copy of the entry's tests, shared by every model it names
+					const auto shared = std::make_shared<const Coverage::Tests>(std::move(tests));
 					for (const auto& m : models->items) {
 						const auto low = NormalPath(m.text);
 						if (low.size() > 4 && low.ends_with(".nif")) {
 							a_cov.models.insert(low);
-							auto& list = a_cov.modelTests[low];
-							list.insert(list.end(), tests.begin(), tests.end());
+							a_cov.modelTests[low].push_back(shared);
 						}
 					}
 				}
@@ -245,7 +246,9 @@ namespace Plugin
 		if (it == modelTests.end()) {
 			return false;
 		}
-		return std::any_of(it->second.begin(), it->second.end(), [](const auto& t) { return ConditionsHold(t); });
+		return std::any_of(it->second.begin(), it->second.end(), [](const auto& a_entry) {
+			return std::any_of(a_entry->begin(), a_entry->end(), [](const auto& t) { return ConditionsHold(t); });
+		});
 	}
 
 	const Coverage& ReadCoverage()

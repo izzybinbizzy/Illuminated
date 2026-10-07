@@ -20,6 +20,7 @@ namespace Plugin
 		std::vector<MenuNote>                        gNotes;
 		std::vector<SprayMarker>                     gMarkers;
 		std::vector<LightCopy>                       gLights;
+		std::unordered_set<std::string>              gLightIds;  // lower-case ids of gLights, for the duplicate check
 		std::recursive_mutex                         gSettingsLock;
 
 		constexpr std::string_view kSettingsSection = "Settings";
@@ -112,8 +113,7 @@ namespace Plugin
                     ParseInt(block["radius"], c.radius);
                     ParseFloat(block["cutoff"], c.cutoff);
                     c.flicker = block["flicker"] == "1";
-                    const bool known = std::any_of(gLights.begin(), gLights.end(), [&](const LightCopy& o) { return Lower(o.id) == Lower(c.id); });
-                    if (!c.id.empty() && !c.base.empty() && !known) {
+                    if (!c.id.empty() && !c.base.empty() && gLightIds.insert(Lower(c.id)).second) {
                         gLights.push_back(std::move(c));
                     }
                 } else if (kind == "note") {
@@ -300,6 +300,7 @@ namespace Plugin
 		gNotes.clear();
 		gMarkers.clear();
 		gLights.clear();
+		gLightIds.clear();
 		std::error_code ec;
 		std::vector<fs::path> files;
 		if (fs::is_directory(SettingsFolder(), ec)) {
