@@ -39,6 +39,7 @@ namespace Plugin
 			for (const auto& s : Settings()) {
 				out["settings"][s.id] = s.value;
 			}
+			out["lighting"] = json::parse(LightingReport());
 			out["copies"] = json::array();
 			for (const auto& c : LightCopies()) {
 				if (c.form) {

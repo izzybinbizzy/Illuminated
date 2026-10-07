@@ -25,6 +25,27 @@ namespace Plugin
 	bool        ParseInt(std::string_view a_text, int& a_out);
 	bool        ParseFloat(std::string_view a_text, float& a_out);
 
+	// ------------------------------------------------------------------ Lighting.cpp: which lighting the game draws with
+	enum class Lighting : int
+	{
+		kShaders = 0,  // Community Shaders: inverse square lights, as the configs are made
+		kEnb = 1,      // an ENB: the game's own lighting, every light drawn plain
+		kVanilla = 2,  // the game's own lighting, every light drawn plain
+	};
+
+	struct PlainLight
+	{
+		float fade{ 0.0f }, radius{ 0.0f };
+	};
+
+	void        ReadLighting();  // data load, before pass 0
+	Lighting    LightingPick();
+	const char* LightingName(Lighting a_pick);
+	bool        InverseSquare();                                         // lights are drawn inverse square (Community Shaders)
+	float       IslReach(float a_fade, float a_cutoff, float a_size);    // how far an inverse-square light reaches
+	PlainLight  Plain(float a_fade, float a_radius, float a_reach);      // that light, drawn by the game's own lighting
+	std::string LightingReport();
+
 	// ------------------------------------------------------------------ EditorIDs.cpp: editor IDs, recorded as each form loads
 	void        RememberEditorID(const RE::TESForm* a_form, const char* a_id);
 	void        ForgetEditorIDs();  // once the passes have run: the names are not needed again

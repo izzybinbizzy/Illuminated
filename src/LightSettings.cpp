@@ -75,19 +75,29 @@ namespace Plugin
 				SKSE::log::warn("[LIGHT-FAILED] {} | could not make a copy", Label(light));
 				continue;
 			}
-			copy->data.radius = s.radius;
+			// ENB and Vanilla (Lighting.cpp): the inverse square flag means nothing there, so the light is made plain - the
+			// reach it has under Community Shaders, drawn by the game's own lighting
+			std::uint32_t radius = s.radius, flags = s.flags;
+			float         fade = s.fade;
+			if (!InverseSquare() && (flags & kInverseSquare)) {
+				const auto plain = Plain(s.fade, static_cast<float>(s.radius), IslReach(s.fade, s.falloff, s.fov));
+				radius = static_cast<std::uint32_t>(std::lround(plain.radius));
+				fade = plain.fade;
+				flags &= ~kInverseSquare;
+			}
+			copy->data.radius = radius;
 			copy->data.color.red = static_cast<std::uint8_t>(s.r);
 			copy->data.color.green = static_cast<std::uint8_t>(s.g);
 			copy->data.color.blue = static_cast<std::uint8_t>(s.b);
-			copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(s.flags);
+			copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(flags);
 			copy->data.fallofExponent = s.falloff;
 			copy->data.fov = s.fov;
 			copy->data.nearDistance = s.nearDistance;
 			copy->data.flickerIntensityAmplitude = s.flickerIntensity;
 			copy->data.flickerMovementAmplitude = s.flickerMovement;
-			copy->fade = s.fade;
+			copy->fade = fade;
 			// read back what the copy now holds
-			if (copy->data.radius != s.radius || copy->data.flags.underlying() != s.flags || copy->fade != s.fade ||
+			if (copy->data.radius != radius || copy->data.flags.underlying() != flags || copy->fade != fade ||
 				copy->data.fov != s.fov || copy->data.color.red != static_cast<std::uint8_t>(s.r)) {
 				++failed;
 				SKSE::log::warn("[LIGHT-FAILED] {} | the copy's values did not take", Label(light));
@@ -104,10 +114,10 @@ namespace Plugin
 			ours[light] = copy;
 			// the Brightness and Reach sliders reach the game's own magic lights too (a casting art's hand light)
 			LightCopies().push_back({ .id = std::string(s.editorID) + " (Illuminated)", .base = s.editorID, .form = copy,
-				.startFade = s.fade, .startRadius = s.radius, .startCutoff = (s.flags & kInverseSquare) ? s.falloff : 0.0f });
+				.startFade = fade, .startRadius = radius, .startCutoff = (flags & kInverseSquare) ? s.falloff : 0.0f });
 			++made;
-			SKSE::log::info("[LIGHT-OURS] {} | radius {} | color {},{},{} | flags {:X} | size {} | fade {}", Label(light), s.radius,
-				s.r, s.g, s.b, s.flags, s.fov, s.fade);
+			SKSE::log::info("[LIGHT-OURS] {} | radius {} | color {},{},{} | flags {:X} | size {} | fade {}", Label(light), radius,
+				s.r, s.g, s.b, flags, s.fov, fade);
 		}
 		std::size_t pointed = 0;
 		const auto point = [&](RE::TESObjectLIGH*& a_slot) {

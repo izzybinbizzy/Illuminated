@@ -11,6 +11,7 @@
 #include <SKSE/SKSE.h>
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cctype>
 #include <charconv>
@@ -21,6 +22,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>

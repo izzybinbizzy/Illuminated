@@ -109,9 +109,13 @@ namespace Plugin
                     LightCopy c;
                     c.id = block["id"];
                     c.base = block["base"];
-                    ParseFloat(block["fade"], c.fade);
+                    if (!ParseFloat(block["fade"], c.fade) || !std::isfinite(c.fade)) {
+                        c.fade = 0.0f;  // not given, or not a finite number
+                    }
                     ParseInt(block["radius"], c.radius);
-                    ParseFloat(block["cutoff"], c.cutoff);
+                    if (!ParseFloat(block["cutoff"], c.cutoff) || !std::isfinite(c.cutoff)) {
+                        c.cutoff = 0.0f;
+                    }
                     c.flicker = block["flicker"] == "1";
                     if (!c.id.empty() && !c.base.empty() && gLightIds.insert(Lower(c.id)).second) {
                         gLights.push_back(std::move(c));

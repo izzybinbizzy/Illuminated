@@ -22,6 +22,8 @@
 //  3. A beam's light is parented to its `BeamEnd` node, so it rides the tip (the root when the mesh has none).
 //  4. Community Shaders' inverse square flag and cutoff are written after `SetLightAttenuation`, with
 //     cutoff = K * fade / (radius² + size²), so the reach comes out at the radius asked for.
+//     On ENB and Vanilla (Lighting.cpp) nothing is written there; the light is drawn plain, the reach asked for as
+//     the game's own lighting draws it, with a tenth of its colour as ambient.
 //  5. The scene is only ever touched on the main thread: 3D built or released on one of the game's loader threads is
 //     queued, and lit or dropped at the next frame (StreamLightsFrame).
 // Live lights are capped per projectile base and swept when their parent is gone, or a held spray piles them up.
@@ -289,8 +291,11 @@ namespace Plugin
 				}
 			}
 			Told("making its lights", a_ref);
-			const float radius = r.radius * Percent("IlluminatedReach");
-			const float fade = r.fade * Percent("IlluminatedBrightness");
+			const bool  isl = InverseSquare();
+			// ENB and Vanilla (Lighting.cpp): the reach asked for, drawn by the game's own lighting
+			const auto  plain = Plain(r.fade, 0.0f, r.radius);
+			const float radius = (isl ? r.radius : plain.radius) * Percent("IlluminatedReach");
+			const float fade = (isl ? r.fade : plain.fade) * Percent("IlluminatedBrightness");
 			std::vector<RE::NiPointer<RE::BSLight>> made;
 			RE::NiPointLight*                       first = nullptr;
 			for (std::size_t i = 0; i < r.lights; ++i) {
@@ -304,11 +309,15 @@ namespace Plugin
 				data.fade = fade;
 				// x and y are the reach; z carries the light's SIZE, not a third radius (ReLight and Light Placer both do this)
 				data.radius = { radius, radius, kLightSize };
-				// no ambient on purpose: Community Shaders' inverse square lighting reuses those fields
+				// no ambient colour with inverse square lighting: Community Shaders reuses those fields. Without it a new light's
+				// ambient is white, so it takes RE::Light's rule (Truman): a tenth of the diffuse (Dynamic Wards does the same)
 				// without this a light has no attenuation of its own and never brightens anything (Light Placer does it too)
 				light->SetLightAttenuation(radius);
-				// rule 4: inverse square flag and cutoff, after SetLightAttenuation
-				{
+				if (!isl) {  // after SetLightAttenuation, which writes the same two words
+					data.ambient = { r.color.red * 0.1f, r.color.green * 0.1f, r.color.blue * 0.1f };
+				}
+				// rule 4: inverse square flag and cutoff, after SetLightAttenuation - Community Shaders only
+				if (isl) {
 					auto* words = reinterpret_cast<std::uint32_t*>(&data);
 					words[0] |= 1u << 10;  // kInverseSquare
 					words[1] = std::bit_cast<std::uint32_t>(
