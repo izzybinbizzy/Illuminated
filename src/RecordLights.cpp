@@ -449,11 +449,14 @@ namespace Plugin
 		if (pick <= 0 || pick > static_cast<int>(std::size(kNamedColors)) || it == gVariants.end()) {
 			return a_record;
 		}
+		// the named color, drawn as ApplyRecordColors last drew every record light (it runs first on each refresh), so
+		// "Light colors" reaches the element colors too (CodeRabbit, Illuminated #5: the variant skipped Paler)
 		const auto c = kNamedColors[pick - 1];
+		const auto drawn = [](std::uint32_t a_c) { return gPale ? ScreenChannel(static_cast<std::uint8_t>(a_c)) : static_cast<std::uint8_t>(a_c); };
 		auto&      color = it->second->data.color;
-		color.red = static_cast<std::uint8_t>(c >> 16);
-		color.green = static_cast<std::uint8_t>(c >> 8);
-		color.blue = static_cast<std::uint8_t>(c);
+		color.red = drawn(c >> 16);
+		color.green = drawn(c >> 8);
+		color.blue = drawn(c);
 		return it->second;
 	}
 
