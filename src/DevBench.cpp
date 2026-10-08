@@ -4,7 +4,7 @@
 //
 // DevBench, when it is in the load order (it is optional; nothing here runs without it):
 //   inspect kind=illuminated     every setting's value, and every light copy's fade, radius and cutoff now next to the
-//                                values it was made with.
+//                                values it was made with; the lighting pick; the record lights (made without Light Placer).
 //   illuminated.control          action = setting (key = a setting id or INI key, value = a whole number: changed exactly
 //                                as the menu does - saved, applied at the next frame; the reply is the value it holds) |
 //                                settings (every setting with its value, range and page).
@@ -40,6 +40,7 @@ namespace Plugin
 				out["settings"][s.id] = s.value;
 			}
 			out["lighting"] = json::parse(LightingReport());
+			out["records"] = json::parse(RecordReport());  // the game's own light records, lit without Light Placer
 			out["copies"] = json::array();
 			for (const auto& c : LightCopies()) {
 				if (c.form) {

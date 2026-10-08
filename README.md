@@ -4,14 +4,21 @@ Copyright (C) 2026 izzydoingit. GPL-3.0-or-later, see `LICENSE`.
 
 Ships with Illuminated - Spell & Weapon Light NG and is required by it.
 
-- Takes off the game's own magic lights where the mod provides one, so nothing is lit twice.
-- **Spray Lights**: spray projectiles get a light coloured to match the spray.
+- **Without Light Placer** (Vanilla, ENB): lights spells through the game's own light records - the casting hand,
+  projectiles, explosions and hazards each get a light in the spell's color, flickering ones flicker. **Light colors**:
+  Automatic (paler on Community Shaders, deeper on Vanilla and ENB), Paler or Deeper.
+- **With Light Placer**: takes off the game's own magic lights where the mod provides one, so nothing is lit twice.
+- **Fading**: a spell's or an enchanted weapon's light fades as its magicka or charge runs low.
+- **Spray Lights**: spray projectiles get a light colored to match the spray.
 - **Stream lights**: a flame, cone or beam projectile carries up to three lights that travel with it, so the
   light follows the stream instead of sitting at the caster's hand. Follows
   [ReLight](https://github.com/TrumanGIT/ReLight) by Truman, GPL-3.0-or-later, used with permission.
 - **VAER Reborn**: with its setting on, VAER's swirl strands are brighter, every effect VAER dresses gets its swirl
   back when a later plugin replaced it, and Thaumaturgy's own copies wear VAER's swirl too.
-- **Brightness** and **Reach** sliders.
+- **Brightness** and **Reach** sliders, **presets**, **Dim in daylight**, and a **light budget** for big fights.
+- Without Light Placer: **Fire, Frost and Shock colors**, **automatic lights** for spells from mods with no patch,
+  a **Lighting** choice (found by itself, Community Shaders, ENB or Vanilla), and a switch that leaves spells to
+  ENB Light where it lights them.
 - Every setting is live - a change shows in game within a second.
 
 Settings are in SKSE Menu Framework's Mod Control Panel.

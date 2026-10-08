@@ -9,7 +9,8 @@
 //   ENB                 } the game's own lighting: the inverse square flag means nothing, a light reaches its radius. Every
 //   Vanilla             } inverse-square light this mod makes or copies is turned into a plain one (Plain, below)
 //
-// The pick is one word in `SKSE\Plugins\Illuminated\Lighting.txt`, which the installer's option installs. With no file the
+// The menu's "Lighting" choice wins when it names one (restart). Else the pick is one word in
+// `SKSE\Plugins\Illuminated\Lighting.txt`, which the installer's option installs. With no file the
 // game is looked at: Community Shaders' inverse square shader -> Community Shaders, an ENB's settings in the game folder ->
 // ENB, else Vanilla. Inverse square lighting is used only on the Community Shaders pick, and only while its shader is there.
 //
@@ -25,13 +26,17 @@ namespace Plugin
 	{
 		constexpr const char* kIslShader = "Data/Shaders/InverseSquareLighting/InverseSquareLighting.hlsli";
 		constexpr const char* kEnbFiles[] = { "enbseries.ini", "enblocal.ini" };
-		constexpr float       kK = 3918.88f;               // the house K, 0.8 * 69.99² (StreamLights.cpp rule 4, gen.py)
+		constexpr float       kK = 3918.88f;                  // the house K, 0.8 * 69.99² (StreamLights.cpp rule 4, gen.py)
 		constexpr float       kPlainReach = 178.0f / 133.0f;  // Dynamic Wards' house light: reach 133 drawn at radius 178
 		constexpr float       kPlainFade = 1.14f;
 
 		std::atomic<Lighting> gPick{ Lighting::kShaders };
 		std::atomic<bool>     gFromFile{ false };
-		std::atomic<bool>     gIslShader{ false };
+		std::atomic<bool>     gFromMenu{ false };
+		// the menu's choice: 0 found by itself, 1 Community Shaders, 2 ENB, 3 Vanilla (= the Lighting value + 1)
+		constexpr std::string_view kMenuSetting = "IlluminatedLighting";
+		static_assert(static_cast<int>(Lighting::kShaders) == 0 && static_cast<int>(Lighting::kEnb) == 1 && static_cast<int>(Lighting::kVanilla) == 2);
+		std::atomic<bool> gIslShader{ false };
 
 		fs::path PickPath() { return fs::current_path() / "Data" / "SKSE" / "Plugins" / std::string(kOurFolder) / "Lighting.txt"; }
 
@@ -73,14 +78,22 @@ namespace Plugin
 	{
 		std::error_code ec;
 		gIslShader = fs::exists(fs::current_path() / kIslShader, ec);
-		const auto pick = ReadPick();
-		gFromFile = pick.has_value();
-		gPick = pick ? *pick : gIslShader ? Lighting::kShaders : EnbInstalled() ? Lighting::kEnb : Lighting::kVanilla;
+		// the menu's "Lighting" (his yes 2026-10-07: detect + a menu override) wins over Lighting.txt and the game; read once
+		// here, at data load after the settings, so a change takes effect at the next start
+		const int  menu = SettingValue(kMenuSetting, 0);
+		const auto pick = menu >= 1 && menu <= 3 ? std::optional<Lighting>(static_cast<Lighting>(menu - 1)) : ReadPick();
+		gFromMenu = menu >= 1 && menu <= 3;
+		gFromFile = !gFromMenu && pick.has_value();
+		gPick = pick ? *pick : gIslShader ? Lighting::kShaders :
+		                   EnbInstalled() ? Lighting::kEnb :
+		                                    Lighting::kVanilla;
 		if (gPick == Lighting::kShaders && !gIslShader) {
 			SKSE::log::warn("lighting: Community Shaders was picked but its inverse square lighting is not installed; lights are drawn plain");
 		}
-		SKSE::log::info("lighting: {} ({}); inverse square shader {}; lights drawn {}", LightingName(gPick), gFromFile ? "the installer's pick" :
-			"no Lighting.txt, looked at the game", gIslShader ? "installed" : "not installed", InverseSquare() ? "inverse square" : "plain");
+		SKSE::log::info("lighting: {} ({}); inverse square shader {}; lights drawn {}", LightingName(gPick),
+			gFromMenu ? "picked in the menu" : gFromFile ? "the installer's pick" :
+														   "no Lighting.txt, looked at the game",
+			gIslShader ? "installed" : "not installed", InverseSquare() ? "inverse square" : "plain");
 	}
 
 	Lighting LightingPick()
@@ -120,7 +133,7 @@ namespace Plugin
 
 	std::string LightingReport()
 	{
-		return std::format(R"({{"pick":"{}","fromInstaller":{},"inverseSquareShader":{},"inverseSquare":{}}})", LightingName(gPick),
-			gFromFile.load(), gIslShader.load(), InverseSquare());
+		return std::format(R"({{"pick":"{}","fromMenu":{},"fromInstaller":{},"inverseSquareShader":{},"inverseSquare":{}}})", LightingName(gPick),
+			gFromMenu.load(), gFromFile.load(), gIslShader.load(), InverseSquare());
 	}
 }

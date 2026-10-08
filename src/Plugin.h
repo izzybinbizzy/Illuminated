@@ -41,9 +41,9 @@ namespace Plugin
 	void        ReadLighting();  // data load, before pass 0
 	Lighting    LightingPick();
 	const char* LightingName(Lighting a_pick);
-	bool        InverseSquare();                                         // lights are drawn inverse square (Community Shaders)
-	float       IslReach(float a_fade, float a_cutoff, float a_size);    // how far an inverse-square light reaches
-	PlainLight  Plain(float a_fade, float a_radius, float a_reach);      // that light, drawn by the game's own lighting
+	bool        InverseSquare();                                       // lights are drawn inverse square (Community Shaders)
+	float       IslReach(float a_fade, float a_cutoff, float a_size);  // how far an inverse-square light reaches
+	PlainLight  Plain(float a_fade, float a_radius, float a_reach);    // that light, drawn by the game's own lighting
 	std::string LightingReport();
 
 	// ------------------------------------------------------------------ EditorIDs.cpp: editor IDs, recorded as each form loads
@@ -93,15 +93,15 @@ namespace Plugin
 	// one in-memory copy of a light a config names; the sliders set its fade, radius and cutoff (LightCopies.cpp)
 	struct LightCopy
 	{
-		std::string         id, base;
-		float               fade{ 0.0f };    // the config's own fade, or 0: the base light's
-		int                 radius{ 0 };     // the config's own radius, or 0: the base light's
-		float               cutoff{ 0.0f };  // the config's own inverse-square cutoff, or 0: the base light's
-		bool                flicker{ false };  // its lights flicker (a fadeController): Brightness is applied as they are drawn
-		RE::TESObjectLIGH*  form{ nullptr };
-		float               startFade{ 0.0f };
-		std::uint32_t       startRadius{ 0 };
-		float               startCutoff{ 0.0f };  // 0: not an inverse-square light, its falloff is left alone
+		std::string        id, base;
+		float              fade{ 0.0f };      // the config's own fade, or 0: the base light's
+		int                radius{ 0 };       // the config's own radius, or 0: the base light's
+		float              cutoff{ 0.0f };    // the config's own inverse-square cutoff, or 0: the base light's
+		bool               flicker{ false };  // its lights flicker (a fadeController): Brightness is applied as they are drawn
+		RE::TESObjectLIGH* form{ nullptr };
+		float              startFade{ 0.0f };
+		std::uint32_t      startRadius{ 0 };
+		float              startCutoff{ 0.0f };  // 0: not an inverse-square light, its falloff is left alone
 	};
 
 	struct SprayMarker
@@ -126,15 +126,60 @@ namespace Plugin
 	int                              SettingValue(std::string_view a_id, int a_fallback);
 	bool                             RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	std::vector<LightCopy>&          LightCopies();
-	void                             MakeLightCopies();                // LightCopies.cpp
-	void                             StreamLights();                   // StreamLights.cpp: pass 6, lights that travel with a spray or bolt
-	void                             ApplyStreamLights(bool a_log);    // StreamLights.cpp: the setting, on or off
-	void                             StreamLightsFrame();              // StreamLights.cpp: once a frame, what a loader thread left to do
-	void                             ApplyLightStrength(bool a_log);   // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn)
-	void                             RequestRefresh();                 // LightCopies.cpp: RefreshLights at the next frame, on the main thread
-	void                             RegisterMenu();                   // Menu.cpp
-	void                             OfferToDevBench();                // DevBench.cpp: the settings and the light copies, for a test bench
-	void                             RefreshLights();                  // EffectLights.cpp: the sliders and passes 1, 2 and 6 again, for the settings as they are now
+	void                             MakeLightCopies();                                                              // LightCopies.cpp
+	void                             StreamLights();                                                                 // StreamLights.cpp: pass 6, lights that travel with a spray or bolt
+	void                             ApplyStreamLights(bool a_log);                                                  // StreamLights.cpp: the setting, on or off
+	void                             StreamLightsFrame();                                                            // StreamLights.cpp: once a frame, what a loader thread left to do
+	void                             ApplyLightStrength(bool a_log);                                                 // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn)
+	void                             RequestRefresh();                                                               // LightCopies.cpp: RefreshLights at the next frame, on the main thread
+	void                             NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the fading module wrote it (never scaled twice)
+	void                             RegisterMenu();                                                                 // Menu.cpp
+	void                             OfferToDevBench();                                                              // DevBench.cpp: the settings and the light copies, for a test bench
+	void                             RefreshLights();                                                                // EffectLights.cpp: the sliders and passes 1, 2 and 6 again, for the settings as they are now
+
+	// ------------------------------------------------------------------ Configs.cpp: each config light, for the game's own light records
+	struct ConfigLight
+	{
+		std::string                          light;  // the light copy it names (an IlluminatedLight editor ID)
+		std::uint8_t                         r{ 0 }, g{ 0 }, b{ 0 };
+		bool                                 hasColor{ false };      // false: the copy's own color
+		bool                                 portalStrict{ false };  // kept inside its cell, as Light Placer keeps it
+		bool                                 controller{ false };    // a fadeController drives its fade
+		bool                                 flash{ false };         // that controller is a one-off flash (it ends at 0), not a flicker
+		float                                meanFade{ 0.0f };       // the controller's fade, averaged over the time it runs
+		std::vector<std::pair<float, float>> keys;                   // a flicker's keys (time, fade), sorted - empty for a flash or none
+		std::uint8_t                         interpolation{ 1 };     // 0 step, 1 linear, 2 cubic (the controller's "interpolation")
+		std::vector<std::vector<Clause>>     test;                   // the settings it waits on (ParseConditions)
+	};
+	using ConfigEntry = std::vector<ConfigLight>;
+	using ConfigLightMap = std::unordered_map<std::string, std::vector<std::shared_ptr<const ConfigEntry>>>;  // model -> its entries
+	void                  KeepConfigLights(bool a_keep);                                                      // before ReadCoverage: keep every light row too, per model
+	const ConfigLightMap& ConfigLights();
+	void                  DropConfigLights();  // once the record lights are made
+
+	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
+	void                             DecideRecordRoute();  // before ReadCoverage
+	[[nodiscard]] bool               RecordRoute();
+	void                             MakeRecordLights();                             // after MakeLightCopies and ReadCoverage, before pass 1
+	void                             ApplyRecordColors();                            // the Light colors setting onto every record light
+	void                             RecordFlicker(RE::ActorMagicCaster* a_caster);  // after a caster's update: its hand light's flicker
+	void                             AdvanceRecordFlicker(float a_delta);            // once a frame, on the main thread
+	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model);     // nullptr: no row lights that model now
+	// automatic lights (his go-to pick, 2026-10-07): a light of ours in a_color, at the middle strength and reach of the tuned
+	// hand lights a_tuned (made once per color, at data load; follows the sliders and the Light colors setting)
+	[[nodiscard]] RE::TESObjectLIGH* AutoLight(RE::Color a_color, const std::vector<const RE::TESObjectLIGH*>& a_tuned);
+	[[nodiscard]] std::size_t        AutoLightCount();
+	[[nodiscard]] std::size_t        AutoCastingCount();  // CastingLights.cpp: the spells given an automatic light
+	// stepping aside for other light mods (RecordLights.cpp)
+	[[nodiscard]] bool YieldToENBLight();  // its switch on, ENB Light.esp loaded, the lighting ENB
+	[[nodiscard]] bool TouchedByENBLight(const RE::TESForm* a_form);
+	// per-element colors (RecordLights.cpp): 0 none, 1 fire, 2 frost, 3 shock
+	[[nodiscard]] int                ElementOf(const RE::EffectSetting* a_effect);
+	[[nodiscard]] int                ElementOfForm(const RE::TESForm* a_form);                                // a projectile or explosion
+	void                             PrepareElementLights(const RE::TESObjectLIGH* a_record, int a_element);  // data load
+	void                             PrepareElementLightsFor(const std::string& a_model, int a_element);      // data load: every light the model can wear
+	[[nodiscard]] RE::TESObjectLIGH* ElementLight(RE::TESObjectLIGH* a_record, int a_element);                // the element's colored copy, or a_record on Auto
+	[[nodiscard]] std::string        RecordReport();                                                          // for DevBench
 
 	// ------------------------------------------------------------------ Configs.cpp: what the configs light
 	struct Coverage
@@ -146,7 +191,7 @@ namespace Plugin
 		// tests are kept once and shared by all of its models (never copied per model)
 		using Tests = std::vector<std::vector<std::vector<Clause>>>;  // one entry: each light's settings test
 		std::unordered_map<std::string, std::vector<std::shared_ptr<const Tests>>> modelTests;
-		bool ModelLit(const std::string& a_model) const;
+		bool                                                                       ModelLit(const std::string& a_model) const;
 	};
 
 	fs::path        LightPlacerDir(std::string_view a_folder);
@@ -160,14 +205,14 @@ namespace Plugin
 
 	struct SprayChoice
 	{
-		bool  on{ false };
-		int   radiusAbs{ 1200 };
-		int   radiusPc{ 216 };
-		float fade{ 1.7f };
-		float frostFade{ 0.8f };
-		float falloff{ 2.0f };
-		bool  frostSet{ false }, shockSet{ false }, fireSet{ false };
-		Rgb   frost, shock, fireDelta;
+		bool        on{ false };
+		int         radiusAbs{ 1200 };
+		int         radiusPc{ 216 };
+		float       fade{ 1.7f };
+		float       frostFade{ 0.8f };
+		float       falloff{ 2.0f };
+		bool        frostSet{ false }, shockSet{ false }, fireSet{ false };
+		Rgb         frost, shock, fireDelta;
 		std::string found;
 	};
 
@@ -187,16 +232,16 @@ namespace Plugin
 	RE::EffectSetting*   CopyEffect(RE::EffectSetting* a_src);
 
 	// ------------------------------------------------------------------ the passes, in the order they run
-	void LightSettings();  // LightSettings.cpp
+	void LightSettings();                       // LightSettings.cpp
 	void CastingLights(const Coverage& a_cov);  // CastingLights.cpp
 	template <class T>
 	void EffectLights(const Coverage& a_cov, std::string_view a_kind);  // EffectLights.cpp
-	void PoisonRuneArt();  // PoisonRune.cpp
-	void SprayLights();  // SprayLights.cpp
-	void ApplyCastingLights(bool a_log);  // CastingLights.cpp: pass 1 again, for the settings as they are now
-	void ApplyEffectLights(bool a_log);   // EffectLights.cpp: pass 2 again
-	void VaerSwirls();  // VaerSwirls.cpp: pass 7, VAER Reborn's brighter strands and Thaumaturgy's copies
-	void Wards();       // Wards.cpp: one dome per ward, 360 Ward's sphere in the vanilla blue
+	void PoisonRuneArt();                                               // PoisonRune.cpp
+	void SprayLights();                                                 // SprayLights.cpp
+	void ApplyCastingLights(bool a_log);                                // CastingLights.cpp: pass 1 again, for the settings as they are now
+	void ApplyEffectLights(bool a_log);                                 // EffectLights.cpp: pass 2 again
+	void VaerSwirls();                                                  // VaerSwirls.cpp: pass 7, VAER Reborn's brighter strands and Thaumaturgy's copies
+	void Wards();                                                       // Wards.cpp: one dome per ward, 360 Ward's sphere in the vanilla blue
 
 	// ------------------------------------------------------------------ Enchantments.cpp
 	void DoubledEnchantments(const Coverage& a_cov);

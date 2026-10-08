@@ -29,7 +29,7 @@ namespace Plugin
 		constexpr const char*   kBlueFlash = "Magic\\Glow Wards\\Blue\\wardshieldhitfx.nif";
 		// his call 2026-09-27: without 360 Ward the dome and the hand wear OUR vanilla-blue copies (their own textures, so no
 		// other mod's loose textures reach them)
-		constexpr std::uint32_t kHandArt = 0x0253F1;         // Skyrim.esm: magic\wardinhandfx.nif
+		constexpr std::uint32_t kHandArt = 0x0253F1;  // Skyrim.esm: magic\wardinhandfx.nif
 		constexpr const char*   kBlueDome = "Magic\\Glow Wards\\Blue\\wardbodyfx.nif";
 		constexpr const char*   kBlueHand = "Magic\\Glow Wards\\Blue\\wardinhandfx.nif";
 
@@ -167,8 +167,8 @@ namespace Plugin
 		if (gWornDome && gWornHand) {
 			gWornDome->SetModel("Magic\\Glow Wards\\Blue\\wardbodyfxworn.nif");
 			gWornHand->SetModel("Magic\\Glow Wards\\Blue\\wardinhandfxworn.nif");
-			const bool has360 = PluginLoaded(k360Plugin);
-			auto*      dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm");
+			const bool  has360 = PluginLoaded(k360Plugin);
+			auto*       dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm");
 			std::size_t worn = 0;
 			for (const auto& r : kWorn) {
 				if (auto* e = dh->LookupForm<RE::EffectSetting>(r.id, r.plugin)) {

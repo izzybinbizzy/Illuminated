@@ -42,7 +42,7 @@ namespace Plugin
 
 	SprayChoice ReadSprayChoice()
 	{
-		SprayChoice                                                     sc;
+		SprayChoice                                                             sc;
 		std::vector<std::pair<std::string, std::map<std::string, std::string>>> markers;
 		for (const auto& m : SprayMarkers()) {
 			if (ConditionsHold(m.when)) {
@@ -58,18 +58,25 @@ namespace Plugin
 			sc.found += "on ";
 			int   n = 0;
 			float f = 0.0f;
-			if (ParseInt(kv["radiuspc"], n) && n > 0) sc.radiusPc = n;
-			if (ParseInt(kv["radius"], n) && n >= 0) sc.radiusAbs = n;
-			if (ParseFloat(kv["fade"], f)) sc.fade = f;
-			if (ParseFloat(kv["frostfade"], f)) sc.frostFade = f;
-			if (ParseFloat(kv["falloff"], f)) sc.falloff = f;
+			if (ParseInt(kv["radiuspc"], n) && n > 0)
+				sc.radiusPc = n;
+			if (ParseInt(kv["radius"], n) && n >= 0)
+				sc.radiusAbs = n;
+			if (ParseFloat(kv["fade"], f))
+				sc.fade = f;
+			if (ParseFloat(kv["frostfade"], f))
+				sc.frostFade = f;
+			if (ParseFloat(kv["falloff"], f))
+				sc.falloff = f;
 		}
 		for (auto& [name, kv] : markers) {
 			float f = 0.0f;
 			if (name == "illuminated sprays - reduced.txt") {
 				sc.found += "reduced ";
-				if (ParseFloat(kv["fade"], f)) sc.fade = f;
-				if (ParseFloat(kv["frostfade"], f)) sc.frostFade = f;
+				if (ParseFloat(kv["fade"], f))
+					sc.fade = f;
+				if (ParseFloat(kv["frostfade"], f))
+					sc.frostFade = f;
 			} else if (name == "illuminated sprays - frost.txt" && ParseRgb(kv["frost"], sc.frost)) {
 				sc.frostSet = true;
 				sc.found += "frost ";

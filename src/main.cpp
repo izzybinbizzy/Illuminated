@@ -23,6 +23,8 @@
 // Passes 1 and 2 follow the settings live; pass 4 reads them when the game loads. The
 // Brightness and Reach sliders set the fade, radius and cutoff of the light copies LightCopies.cpp makes;
 // a light that is already lit follows at the next frame.
+// Without Light Placer, passes 1 and 2 give the game's own light records Illuminated's lights instead of taking
+// theirs off (RecordLights.cpp).
 //
 // Where each part lives: main.cpp (this file) runs the passes in order; Plugin.h lists what the files
 // share; Text.cpp, EditorIDs.cpp, Configs.cpp, SprayMarkers.cpp and FormCopies.cpp are the helpers;
@@ -30,6 +32,7 @@
 // CastingLights.cpp, EffectLights.cpp, PoisonRune.cpp, SprayLights.cpp and Enchantments.cpp are passes 1 to 5;
 // LightSettings.cpp is pass 0.
 
+#include "Fade.h"
 #include "Plugin.h"
 
 using namespace Plugin;
@@ -49,28 +52,29 @@ namespace
 	{
 		const auto loadStarted = std::chrono::steady_clock::now();
 		if (OtherPluginLoaded()) {
-			SKSE::log::info("Let There Be Glow's plugin ({}) is loaded: this plugin changes nothing. "
-							"Illuminated and Let There Be Glow are never used together.",
+			SKSE::log::info(
+				"Let There Be Glow's plugin ({}) is loaded: this plugin changes nothing. "
+				"Illuminated and Let There Be Glow are never used together.",
 				kOtherPluginDll);
 			return;
 		}
 		LoadSettings();  // first: Light Placer reads the settings' globals in its conditions
 		ReadLighting();  // before pass 0: on ENB and Vanilla its lights are made plain
 		RegisterMenu();
+		Fade::OnDataLoaded();  // the fading module: lights follow charge and magicka (its own settings, rules, hooks, menu pages)
 		LightSettings();
-		MakeLightCopies();  // after pass 0 (the copies take its flags), before Light Placer reads its configs
-		VaerSwirls();       // pass 7: VAER Reborn's swirls - the settings are loaded by now (HIS CALL 2026-09-22)
-		Wards();            // before pass 1: an effect it silences must not be followed by the casting-light pass
+		MakeLightCopies();    // after pass 0 (the copies take its flags), before Light Placer reads its configs
+		VaerSwirls();         // pass 7: VAER Reborn's swirls - the settings are loaded by now (HIS CALL 2026-09-22)
+		Wards();              // before pass 1: an effect it silences must not be followed by the casting-light pass
+		DecideRecordRoute();  // no Light Placer: the configs light the game's own light records instead (RecordLights.cpp)
 		const auto& cov = ReadCoverage();
 		SKSE::log::info("configs: {} file(s), {} lit model(s), {} shader name(s)", cov.files, cov.models.size(), cov.shaders.size());
-		if (cov.files != 0 && REX::W32::GetModuleHandleA("po3_LightPlacer.dll") == nullptr) {
-			SKSE::log::warn("Light Placer (po3_LightPlacer.dll) is not loaded: the configs light nothing, so the game's own "
-							"lights are left on");
-			return;
+		if (RecordRoute()) {
+			MakeRecordLights();  // before passes 1 and 2, which point the records at them
 		}
 		if (cov.files == 0) {
 			SKSE::log::warn("no Illuminated configs were found under Data\\LightPlacer; nothing was changed");
-			StreamLights();     // pass 6: the lights that travel with a spray or a bolt, and its two hooks
+			StreamLights();  // pass 6: the lights that travel with a spray or a bolt, and its two hooks
 			return;
 		}
 		CastingLights(cov);
@@ -81,8 +85,10 @@ namespace
 		PoisonRuneArt();
 		SprayLights();
 		ApplyLightStrength(false);  // the sliders onto pass 4's spray lights too
-		StreamLights();     // pass 6, after pass 4: a spray's hand light is its stretched copy by now; and its two hooks
-		DoubledEnchantments(cov);
+		StreamLights();             // pass 6, after pass 4: a spray's hand light is its stretched copy by now; and its two hooks
+		if (!RecordRoute()) {       // pass 5 is about Light Placer's lit shaders: there are none without it
+			DoubledEnchantments(cov);
+		}
 		if (AnyLitShaders()) {
 			WatchCraftingMenu();
 		}
@@ -99,6 +105,7 @@ namespace
 		switch (a_msg->type) {
 		case SKSE::MessagingInterface::kPostLoad:
 			OfferToDevBench();
+			Fade::OnPostLoad();
 			break;
 		case SKSE::MessagingInterface::kDataLoaded:
 			OnDataLoaded();
@@ -111,6 +118,7 @@ namespace
 			}
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
+			Fade::OnGameLoading();
 			// the enchantments made during play are about to be replaced by the save's; never touch them again
 			ForgetCreatedEnchantments();
 			break;
@@ -118,6 +126,9 @@ namespace
 		case SKSE::MessagingInterface::kNewGame:
 			// a save holds the plugin's globals as they were when it was made; the settings file is the truth
 			ApplyGlobals();
+			if (a_msg->type == SKSE::MessagingInterface::kNewGame) {
+				Fade::OnGameLoading();
+			}
 			if (AnyLitShaders()) {
 				UseQuiet("game loaded");
 			}
@@ -130,7 +141,8 @@ namespace
 
 SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
-	SKSE::Init(a_skse);
+	SKSE::Init(a_skse, { .trampoline = true, .trampolineSize = 128 });
+	Fade::OnPluginLoad();  // the fading module: editor IDs recorded before the plugins load
 	EditorIDHook<RE::EffectSetting>::Install();
 	EditorIDHook<RE::BGSProjectile>::Install();
 	EditorIDHook<RE::BGSExplosion>::Install();
