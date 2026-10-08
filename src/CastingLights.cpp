@@ -6,6 +6,11 @@
 // settings keep that art lit. Each effect's own light is remembered, so switching an option off gives it back.
 // Without Light Placer (RecordLights.cpp) the effect is pointed at the record light made for its art instead of losing
 // its light, and an effect that had no casting light gets one.
+// AUTOMATIC LIGHTS (his go-to pick 2026-10-07, "do all of them" 2026-10-08), without Light Placer: a spell whose casting
+// art no config lights - another mod's spell Illuminated has no patch for - gets a light of ours too, behind the setting
+// "Spells without a patch": in the color of its own casting light when it has one, else in its element's color (the
+// color most of the tuned spells of that element wear: fire, frost, shock), at the middle strength and reach of the tuned
+// hand lights. A spell with neither keeps what it has: no color is guessed.
 
 #include "Plugin.h"
 
@@ -40,7 +45,11 @@ namespace Plugin
 		RE::EffectSetting* effect;
 		RE::TESObjectLIGH* own;  // the light the effect had before this plugin touched it (after pass 0)
 		std::string        model;
+		RE::TESObjectLIGH* autoLight{ nullptr };  // no config lights its art: the automatic light it gets while the setting is on
+		int                element{ 0 };          // fire, frost or shock (RecordLights.cpp): its color setting
+		bool               enbLight{ false };     // ENB Light changed the effect or its casting art: it steps aside on ENB
 	};
+	constexpr std::string_view kAutoSetting = "IlluminatedAutoLights";
 	std::vector<CastingTarget> gCastingTargets;
 	const Coverage*            gCastingCoverage = nullptr;
 
@@ -50,7 +59,9 @@ namespace Plugin
 		for (auto& t : gCastingTargets) {
 			if (RecordRoute()) {
 				// the record light its art's rows give it now, or its own when no row lights the art
-				auto* const record = RecordLightFor(t.model);
+				auto* const record = YieldToRELight() || (t.enbLight && YieldToENBLight()) ?
+				                         nullptr :
+				                         ElementLight(t.autoLight ? (SettingValue(kAutoSetting, 1) != 0 ? t.autoLight : nullptr) : RecordLightFor(t.model), t.element);
 				auto* const want = record ? record : t.own;
 				if (t.effect->data.light != want) {
 					t.effect->data.light = want;
@@ -78,6 +89,71 @@ namespace Plugin
 		}
 		SKSE::log::info("casting lights for the settings as they are: {} taken off, {} pointed at a record light, {} given back, {} effects followed",
 			nulled, recorded, restored, gCastingTargets.size());
+	}
+
+	// the spells no config lights: an automatic light each, where a color can be read off the spell
+	void AutoCastingLights(const Coverage& a_cov)
+	{
+		if (!RecordRoute()) {
+			return;
+		}
+		// what the tuned spells wear now: the hand lights in the middle of which an automatic light sits, and the color most
+		// of the tuned spells of each element wear
+		std::vector<const RE::TESObjectLIGH*>                          tuned;
+		std::map<RE::ActorValue, std::map<std::uint32_t, std::size_t>> byElement;
+		const auto                                                     pack = [](const RE::Color& c) { return (static_cast<std::uint32_t>(c.red) << 16) | (static_cast<std::uint32_t>(c.green) << 8) | c.blue; };
+		for (const auto& t : gCastingTargets) {
+			if (auto* record = RecordLightFor(t.model)) {
+				tuned.push_back(record);
+				++byElement[t.effect->data.resistVariable][pack(record->data.color)];
+			}
+		}
+		const auto elementColor = [&](RE::ActorValue a_av) -> std::optional<RE::Color> {
+			const auto it = byElement.find(a_av);
+			if (a_av == RE::ActorValue::kNone || it == byElement.end() || it->second.empty()) {
+				return std::nullopt;
+			}
+			const auto best = std::ranges::max_element(it->second, {}, [](const auto& kv) { return kv.second; })->first;
+			return RE::Color(static_cast<std::uint8_t>(best >> 16), static_cast<std::uint8_t>(best >> 8), static_cast<std::uint8_t>(best), 0);
+		};
+		std::size_t own = 0, element = 0, noColor = 0;
+		for (auto* effect : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::EffectSetting>()) {
+			if (!effect || !effect->data.castingArt) {
+				continue;
+			}
+			const auto model = NormalPath(effect->data.castingArt->GetModel() ? effect->data.castingArt->GetModel() : "");
+			if (model.empty() || a_cov.models.contains(model) || effect->data.castingType == RE::MagicSystem::CastingType::kConstantEffect ||
+				effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight || SkippedPrefix(EditorID(effect)) ||
+				CounterEffectCount(effect) > kMaxCounterEffects) {
+				continue;
+			}
+			std::optional<RE::Color> color;
+			if (const auto* l = effect->data.light) {
+				color = l->data.color;
+				++own;
+			} else if ((color = elementColor(effect->data.resistVariable))) {
+				++element;
+			} else {
+				++noColor;
+				continue;
+			}
+			auto* light = AutoLight(*color, tuned);
+			if (!light) {
+				continue;
+			}
+			gCastingTargets.push_back({ effect, effect->data.light, model, light });
+			SKSE::log::info("[CAST-AUTO] {} | {} | {},{},{} from {}", Label(effect), model, color->red, color->green, color->blue,
+				effect->data.light ? "its own light" : "its element");
+		}
+		SKSE::log::info(
+			"automatic lights: {} spell(s) no config lights - {} in their own light's color, {} in their element's, {} left as they are "
+			"(no color to read); {} light(s) made",
+			own + element + noColor, own, element, noColor, AutoLightCount());
+	}
+
+	std::size_t AutoCastingCount()
+	{
+		return static_cast<std::size_t>(std::ranges::count_if(gCastingTargets, [](const CastingTarget& t) { return t.autoLight != nullptr; }));
 	}
 
 	void CastingLights(const Coverage& a_cov)
@@ -124,6 +200,19 @@ namespace Plugin
 			"casting lights: {} lit effects seen; {} followed, {} had none of their own, skipped: {} constant effect, "
 			"{} light archetype, {} editor ID prefix, {} oversized",
 			scanned, gCastingTargets.size(), clean, constant, archetype, prefix, bloated);
+		AutoCastingLights(a_cov);
+		if (RecordRoute()) {
+			for (auto& t : gCastingTargets) {
+				t.enbLight = TouchedByENBLight(t.effect) || TouchedByENBLight(t.effect->data.castingArt);
+				if ((t.element = ElementOf(t.effect)) > 0) {
+					if (t.autoLight) {
+						PrepareElementLights(t.autoLight, t.element);
+					} else {
+						PrepareElementLightsFor(t.model, t.element);
+					}
+				}
+			}
+		}
 		ApplyCastingLights(true);
 	}
 }

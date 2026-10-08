@@ -15,7 +15,10 @@ Ships with Illuminated - Spell & Weapon Light NG and is required by it.
   [ReLight](https://github.com/TrumanGIT/ReLight) by Truman, GPL-3.0-or-later, used with permission.
 - **VAER Reborn**: with its setting on, VAER's swirl strands are brighter, every effect VAER dresses gets its swirl
   back when a later plugin replaced it, and Thaumaturgy's own copies wear VAER's swirl too.
-- **Brightness** and **Reach** sliders.
+- **Brightness** and **Reach** sliders, **presets**, **Dim in daylight**, and a **light budget** for big fights.
+- Without Light Placer: **Fire, Frost and Shock colors**, **automatic lights** for spells from mods with no patch,
+  a **Lighting** choice (found by itself, Community Shaders, ENB or Vanilla), and switches that leave spells to
+  RELight or ENB Light where those light them.
 - Every setting is live - a change shows in game within a second.
 
 Settings are in SKSE Menu Framework's Mod Control Panel.

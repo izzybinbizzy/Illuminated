@@ -92,6 +92,7 @@ namespace Plugin
 		std::vector<std::pair<RE::TESObjectLIGH*, RE::Color>> gMadeColors;     // every record light and the color it was made in
 		bool                                                  gPale = false;   // what ApplyRecordColors last drew
 		std::unordered_map<const RE::TESObjectLIGH*, Flicker> gFlickerOf;      // the record lights of flicker rows
+		std::unordered_set<const RE::TESObjectLIGH*>          gOurRecords;     // every record light made here
 		std::atomic<float>                                    gClock{ 0.0f };  // seconds, advanced once a frame on the main thread
 
 		constexpr std::string_view kPaleColors = "IlluminatedPaleColors";
@@ -115,8 +116,8 @@ namespace Plugin
 
 		// the record light this caster's hand light was made from: one of the hand's spell's effects' lights, of a flicker
 		// row, in the light's own color (a spell whose light comes from another effect is left alone)
-		[[nodiscard]] const std::pair<const RE::TESObjectLIGH* const, Flicker>* FlickerFor(RE::ActorMagicCaster& a_caster,
-			const RE::NiLight&                                                                                   a_light)
+		// the record light of ours a caster's hand light was made from, found through the hand's spell and matched by color
+		[[nodiscard]] const RE::TESObjectLIGH* RecordOf(RE::ActorMagicCaster& a_caster, const RE::NiLight& a_light)
 		{
 			const auto source = a_caster.GetCastingSource();
 			auto*      actor = a_caster.GetCasterAsActor();
@@ -139,9 +140,9 @@ namespace Plugin
 				if (!record) {
 					continue;
 				}
-				if (const auto it = gFlickerOf.find(record); it != gFlickerOf.end() && same(diffuse.red, record->data.color.red) &&
-															 same(diffuse.green, record->data.color.green) && same(diffuse.blue, record->data.color.blue)) {
-					return &*it;
+				if (gOurRecords.contains(record) && same(diffuse.red, record->data.color.red) && same(diffuse.green, record->data.color.green) &&
+					same(diffuse.blue, record->data.color.blue)) {
+					return record;
 				}
 			}
 			return nullptr;
@@ -229,6 +230,7 @@ namespace Plugin
 							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | kPortalStrict);
 						}
 						gMadeColors.emplace_back(light, light->data.color);
+						gOurRecords.insert(light);
 						if (flickers) {
 							gFlickerOf.emplace(light, Flicker{ .keys = row.keys,
 														  .interpolation = row.interpolation,
@@ -270,6 +272,197 @@ namespace Plugin
 			gMs);
 	}
 
+	RE::TESObjectLIGH* AutoLight(RE::Color a_color, const std::vector<const RE::TESObjectLIGH*>& a_tuned)
+	{
+		static std::unordered_map<std::uint32_t, RE::TESObjectLIGH*> made;              // one per color
+		static const RE::TESObjectLIGH*                              middle = nullptr;  // by form: the copies' list moves as it grows
+		if (!gOn || a_tuned.empty()) {
+			return nullptr;
+		}
+		auto& copies = LightCopies();
+		if (!middle) {
+			// the tuned hand light in the middle by strength (fade x radius²): an automatic light is never the brightest
+			std::vector<const LightCopy*> tuned;
+			for (const auto& c : copies) {
+				if (c.form && std::ranges::find(a_tuned, c.form) != a_tuned.end()) {
+					tuned.push_back(&c);
+				}
+			}
+			if (tuned.empty()) {
+				return nullptr;
+			}
+			std::ranges::sort(tuned, [](const LightCopy* a, const LightCopy* b) { return Strength(*a) < Strength(*b); });
+			middle = tuned[tuned.size() / 2]->form;
+		}
+		const std::uint32_t key = (static_cast<std::uint32_t>(a_color.red) << 16) | (static_cast<std::uint32_t>(a_color.green) << 8) | a_color.blue;
+		if (const auto it = made.find(key); it != made.end()) {
+			return it->second;
+		}
+		const auto source = std::ranges::find(copies, middle, &LightCopy::form);
+		if (source == copies.end()) {
+			return nullptr;
+		}
+		auto* light = CopyLight(middle);
+		if (!light) {
+			return nullptr;
+		}
+		light->data.color.red = a_color.red;
+		light->data.color.green = a_color.green;
+		light->data.color.blue = a_color.blue;
+		gMadeColors.emplace_back(light, light->data.color);
+		gOurRecords.insert(light);
+		LightCopy copy{ .id = std::format("auto {},{},{}", a_color.red, a_color.green, a_color.blue),
+			.base = source->id,
+			.form = light,
+			.startFade = source->startFade,
+			.startRadius = source->startRadius,
+			.startCutoff = source->startCutoff };
+		copies.push_back(std::move(copy));
+		made.emplace(key, light);
+		return light;
+	}
+
+	std::size_t AutoLightCount()
+	{
+		return static_cast<std::size_t>(std::ranges::count_if(LightCopies(), [](const LightCopy& c) { return c.id.starts_with("auto "); }));
+	}
+
+	// ------------------------------------------------------------------ stepping aside for other light mods
+	// HIS GO-TO PICK (2026-10-07 ~20:48, "4 make it optional"): where another light mod lights the same spell, a switch says
+	// whether Illuminated steps aside, so nothing is lit twice. Without Light Placer:
+	//   RELight (or RELight - Spell Addon): it lights spells with RE::Light; stepping aside, Illuminated keeps the game's
+	//   own spell lights instead of its record lights.
+	//   ENB Light (ENB Light.esp, ENB only): a spell whose effect or casting art ENB Light changed keeps the light ENB Light
+	//   gave it (its mesh's ENB light).
+	bool YieldToRELight()
+	{
+		static const bool loaded = REX::W32::GetModuleHandleA("Relight.dll") || REX::W32::GetModuleHandleA("RelightSpellAddon.dll");
+		return loaded && SettingValue("IlluminatedYieldRELight", 1) != 0;
+	}
+
+	bool YieldToENBLight()
+	{
+		static const bool loaded = [] {
+			auto* dh = RE::TESDataHandler::GetSingleton();
+			return dh && (dh->LookupLoadedModByName("ENB Light.esp") || dh->LookupLoadedLightModByName("ENB Light.esp"));
+		}();
+		return loaded && LightingPick() == Lighting::kEnb && SettingValue("IlluminatedYieldENBLight", 1) != 0;
+	}
+
+	bool TouchedByENBLight(const RE::TESForm* a_form)
+	{
+		const auto* files = a_form ? a_form->sourceFiles.array : nullptr;
+		return files && std::ranges::any_of(*files, [](const RE::TESFile* f) { return f && f->GetFilename() == "ENB Light.esp"; });
+	}
+
+	// ------------------------------------------------------------------ per-element colors
+	// HIS GO-TO PICK (2026-10-07 ~20:45, "a per-element colour row with Auto - match the spell art"; "do all of them"
+	// 2026-10-08), without Light Placer: Fire, Frost and Shock each have a color setting - Auto (the spell's own, as tuned)
+	// or one named color. A spell's element is read off its effect (what it is resisted by); its bolt and explosion take
+	// the element of the effect that fires them. Each record light such a spell can wear gets one copy per element at data
+	// load, so a change of color in the menu only recolors those copies and points the records at them - no light is made
+	// while the game plays. A changed color reaches the next spell readied.
+	namespace
+	{
+		constexpr std::string_view kElementSetting[] = { "", "IlluminatedFireColor", "IlluminatedFrostColor", "IlluminatedShockColor" };
+		// the named colors (lagen.py ELEMENT_COLORS, in the same order): Dynamic Wards' preset hues, so the two mods match
+		constexpr std::uint32_t                                                kNamedColors[] = { 0xD0102E, 0xFF6A10, 0xFFC420, 0x2ED452, 0x00D2B0, 0x40DCFF, 0x2468FF, 0x7A3CFF, 0xFF2EC4, 0xFFFFFF };
+		std::map<std::pair<const RE::TESObjectLIGH*, int>, RE::TESObjectLIGH*> gVariants;
+		std::unordered_map<const RE::TESForm*, int>                            gElementOfForm;  // projectiles and explosions
+	}
+
+	int ElementOf(const RE::EffectSetting* a_effect)
+	{
+		if (!a_effect) {
+			return 0;
+		}
+		switch (a_effect->data.resistVariable) {
+		case RE::ActorValue::kResistFire:
+			return 1;
+		case RE::ActorValue::kResistFrost:
+			return 2;
+		case RE::ActorValue::kResistShock:
+			return 3;
+		default:
+			return 0;
+		}
+	}
+
+	int ElementOfForm(const RE::TESForm* a_form)
+	{
+		if (gElementOfForm.empty()) {
+			// once, at data load: a projectile or an explosion fired by effects of one element is that element; by more than
+			// one, none
+			for (const auto* effect : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::EffectSetting>()) {
+				const int e = ElementOf(effect);
+				for (const RE::TESForm* f : { static_cast<const RE::TESForm*>(effect ? effect->data.projectileBase : nullptr),
+						 static_cast<const RE::TESForm*>(effect ? effect->data.explosion : nullptr) }) {
+					if (f && e) {
+						auto [it, added] = gElementOfForm.try_emplace(f, e);
+						if (!added && it->second != e) {
+							it->second = -1;
+						}
+					}
+				}
+			}
+			gElementOfForm.try_emplace(nullptr, 0);  // never empty again: built once
+		}
+		const auto it = gElementOfForm.find(a_form);
+		return it == gElementOfForm.end() || it->second < 0 ? 0 : it->second;
+	}
+
+	void PrepareElementLights(const RE::TESObjectLIGH* a_record, int a_element)
+	{
+		if (!gOn || !a_record || a_element <= 0 || gVariants.contains({ a_record, a_element })) {
+			return;
+		}
+		auto&      copies = LightCopies();
+		const auto source = std::ranges::find(copies, a_record, &LightCopy::form);
+		auto*      light = source == copies.end() ? nullptr : CopyLight(a_record);
+		if (!light) {
+			return;
+		}
+		gOurRecords.insert(light);
+		if (const auto f = gFlickerOf.find(a_record); f != gFlickerOf.end()) {
+			gFlickerOf.emplace(light, f->second);
+		}
+		LightCopy copy{ .id = std::format("{} element {}", source->id, a_element),
+			.base = source->id,
+			.form = light,
+			.startFade = source->startFade,
+			.startRadius = source->startRadius,
+			.startCutoff = source->startCutoff };
+		copies.push_back(std::move(copy));
+		gVariants.emplace(std::pair{ a_record, a_element }, light);
+	}
+
+	void PrepareElementLightsFor(const std::string& a_model, int a_element)
+	{
+		if (const auto it = gChoices.find(a_model); it != gChoices.end()) {
+			for (const auto& c : it->second) {
+				PrepareElementLights(c.light, a_element);
+			}
+		}
+	}
+
+	RE::TESObjectLIGH* ElementLight(RE::TESObjectLIGH* a_record, int a_element)
+	{
+		if (!gOn || !a_record || a_element <= 0 || a_element >= static_cast<int>(std::size(kElementSetting))) {
+			return a_record;
+		}
+		const int  pick = SettingValue(kElementSetting[a_element], 0);
+		const auto it = gVariants.find({ a_record, a_element });
+		if (pick <= 0 || pick > static_cast<int>(std::size(kNamedColors)) || it == gVariants.end()) {
+			return a_record;
+		}
+		const auto c = kNamedColors[pick - 1];
+		auto&      color = it->second->data.color;
+		color.red = static_cast<std::uint8_t>(c >> 16);
+		color.green = static_cast<std::uint8_t>(c >> 8);
+		color.blue = static_cast<std::uint8_t>(c);
+		return it->second;
+	}
+
 	void AdvanceRecordFlicker(float a_delta)
 	{
 		if (gOn && a_delta > 0.0f && a_delta < 1.0f) {
@@ -280,17 +473,26 @@ namespace Plugin
 
 	void RecordFlicker(RE::ActorMagicCaster* a_caster)
 	{
-		if (!gOn || gFlickerOf.empty() || !a_caster || REL::Module::IsVR()) {
+		if (!gOn || gOurRecords.empty() || !a_caster || REL::Module::IsVR()) {
 			return;
 		}
 		RE::NiLight* light = a_caster->light ? a_caster->light->light.get() : nullptr;
 		if (!light) {
 			return;
 		}
-		if (const auto* found = FlickerFor(*a_caster, *light)) {
-			const auto& [record, flicker] = *found;
+		const auto* record = RecordOf(*a_caster, *light);
+		if (!record) {
+			return;
+		}
+		auto& fade = light->GetLightRuntimeData().fade;
+		if (const auto it = gFlickerOf.find(record); it != gFlickerOf.end()) {
+			const auto& flicker = it->second;
 			const float now = gClock.load(std::memory_order_relaxed) + PhaseOf(light, flicker.duration);
-			light->GetLightRuntimeData().fade = record->fade * flicker.At(now) / flicker.mean;
+			fade = record->fade * flicker.At(now) / flicker.mean;
+		} else {
+			// a steady one takes its record's fade too, so Brightness and Dim in daylight reach a hand already lit (run 9,
+			// 2026-10-08: the game set it once, when the spell was readied, and it never moved after)
+			fade = record->fade;
 		}
 	}
 

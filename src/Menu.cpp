@@ -87,6 +87,57 @@ namespace Plugin
 			ImGuiMCP::PopID();
 		}
 
+		// one setting by its id, the way the menu sets it; a setting that is not installed or not there is left alone
+		void SetById(std::string_view a_id, int a_value)
+		{
+			auto& settings = Settings();
+			for (std::size_t i = 0; i < settings.size(); ++i) {
+				if (settings[i].id == a_id && SettingAvailable(settings[i])) {
+					if (const int v = AllowedValue(settings[i], a_value); v != settings[i].value) {
+						SetSetting(i, v);
+					}
+					return;
+				}
+			}
+		}
+
+		// HIS GO-TO PICK "presets" (2026-10-07 ~20:45; "do all of them" 2026-10-08): one click sets the sliders and the switches
+		// that shape the look and the cost together. -1 leaves a setting as the player has it.
+		void DrawPresets()
+		{
+			struct Preset
+			{
+				const char* name;
+				const char* tip;
+				int         brightness, reach, flicker, hands, streams;
+			};
+			const Preset presets[] = {
+				{ T("Subtle"), T("Softer lights that stay close to the spell."), 75, 80, 1, -1, -1 },
+				{ T("Default"), T("The lights as the mod was made."), 100, 100, 1, 0, 1 },
+				{ T("Dramatic"), T("Brighter lights that reach further."), 150, 120, 1, -1, -1 },
+				{ T("Performance"), T("For big fights: hand lights for you and your followers only, steady lights, no stream lights."), 100, 80, 0, 2, 0 },
+			};
+			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Presets"));
+			for (std::size_t i = 0; i < std::size(presets); ++i) {
+				const auto& p = presets[i];
+				if (i) {
+					ImGuiMCP::SameLine();
+				}
+				if (ImGuiMCP::Button(p.name)) {
+					SetById("IlluminatedBrightness", p.brightness);
+					SetById("IlluminatedReach", p.reach);
+					SetById("IlluminatedDynamicLighting", p.flicker);
+					if (p.hands >= 0) {
+						SetById("IlluminatedHandLights", p.hands);
+					}
+					if (p.streams >= 0) {
+						SetById("IlluminatedStreamLights", p.streams);
+					}
+				}
+				ImGuiMCP::SetItemTooltip("%s", p.tip);
+			}
+		}
+
 		void DrawPage(std::size_t a_page)
 		{
 			if (a_page >= gPages.size()) {
@@ -103,6 +154,8 @@ namespace Plugin
 				if (RecordRoute()) {
 					ImGuiMCP::TextWrapped("%s", T("Light Placer is not loaded: Illuminated gives each spell's own hand, bolt, explosion and "
 												  "hazard light its color and reach instead. Brightness and Reach apply from the next cast."));
+					ImGuiMCP::TextColored(MenuStyle::kMuted, T("Spells lit automatically (from mods without a patch): %d"),
+						static_cast<int>(AutoCastingCount()));
 				}
 				ImGuiMCP::Separator();
 			}
@@ -115,6 +168,7 @@ namespace Plugin
 			}
 			if (a_page == 0) {
 				MenuStyle::Note(T("Changes show in game within a second."));
+				DrawPresets();
 			}
 			std::string group;
 			auto&       settings = Settings();

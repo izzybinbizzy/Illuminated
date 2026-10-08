@@ -165,7 +165,22 @@ namespace Plugin
 	void                             RecordFlicker(RE::ActorMagicCaster* a_caster);  // after a caster's update: its hand light's flicker
 	void                             AdvanceRecordFlicker(float a_delta);            // once a frame, on the main thread
 	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model);     // nullptr: no row lights that model now
-	[[nodiscard]] std::string        RecordReport();                                 // for DevBench
+	// automatic lights (his go-to pick, 2026-10-07): a light of ours in a_color, at the middle strength and reach of the tuned
+	// hand lights a_tuned (made once per color, at data load; follows the sliders and the Light colors setting)
+	[[nodiscard]] RE::TESObjectLIGH* AutoLight(RE::Color a_color, const std::vector<const RE::TESObjectLIGH*>& a_tuned);
+	[[nodiscard]] std::size_t        AutoLightCount();
+	[[nodiscard]] std::size_t        AutoCastingCount();  // CastingLights.cpp: the spells given an automatic light
+	// stepping aside for other light mods (RecordLights.cpp)
+	[[nodiscard]] bool YieldToRELight();   // its switch on and RELight or its Spell Addon loaded
+	[[nodiscard]] bool YieldToENBLight();  // its switch on, ENB Light.esp loaded, the lighting ENB
+	[[nodiscard]] bool TouchedByENBLight(const RE::TESForm* a_form);
+	// per-element colors (RecordLights.cpp): 0 none, 1 fire, 2 frost, 3 shock
+	[[nodiscard]] int                ElementOf(const RE::EffectSetting* a_effect);
+	[[nodiscard]] int                ElementOfForm(const RE::TESForm* a_form);                                // a projectile or explosion
+	void                             PrepareElementLights(const RE::TESObjectLIGH* a_record, int a_element);  // data load
+	void                             PrepareElementLightsFor(const std::string& a_model, int a_element);      // data load: every light the model can wear
+	[[nodiscard]] RE::TESObjectLIGH* ElementLight(RE::TESObjectLIGH* a_record, int a_element);                // the element's colored copy, or a_record on Auto
+	[[nodiscard]] std::string        RecordReport();                                                          // for DevBench
 
 	// ------------------------------------------------------------------ Configs.cpp: what the configs light
 	struct Coverage

@@ -68,6 +68,13 @@ namespace Plugin
 				std::string out;
 				++i;  // the opening quote
 				while (i < s.size() && s[i] != '"') {
+					// a run with no escape is copied in one piece (the speed pass, 2026-10-08: one push per character was the
+					// reader's cost)
+					if (const auto stop = s.find_first_of("\"\\", i); stop != std::string::npos && stop > i) {
+						out.append(s, i, stop - i);
+						i = stop;
+						continue;
+					}
 					if (s[i] == '\\' && i + 1 < s.size()) {
 						++i;
 						const char c = s[i];
@@ -254,18 +261,32 @@ namespace Plugin
 			return out;
 		}
 
+		using Clock = std::chrono::steady_clock;
+		double gReadMs = 0.0, gParseMs = 0.0;  // the load's two costs, logged by ReadCoverage (the speed pass)
+
 		void ReadConfig(const fs::path& a_file, Coverage& a_cov)
 		{
-			std::ifstream in(a_file, std::ios::binary);
+			const auto    t0 = Clock::now();
+			std::ifstream in(a_file, std::ios::binary | std::ios::ate);
 			if (!in) {
 				return;
 			}
-			std::stringstream buf;
-			buf << in.rdbuf();
-			std::string text = buf.str();
+			// the whole file in one read into one buffer
+			const auto  size = static_cast<std::size_t>((std::max)(std::streamoff{ 0 }, static_cast<std::streamoff>(in.tellg())));
+			std::string text(size, '\0');
+			in.seekg(0);
+			in.read(text.data(), static_cast<std::streamsize>(size));
+			text.resize(static_cast<std::size_t>((std::max)(std::streamsize{ 0 }, in.gcount())));
 			if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF) {
-				text = text.substr(3);  // a byte order mark
+				text.erase(0, 3);  // a byte order mark
 			}
+			const auto t1 = Clock::now();
+			gReadMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
+			struct Timed
+			{
+				Clock::time_point start;
+				~Timed() { gParseMs += std::chrono::duration<double, std::milli>(Clock::now() - start).count(); }
+			} timed{ t1 };
 			Reader     r{ text };
 			const auto root = r.Value();
 			if (r.bad || root.kind != Json::Kind::kArray) {
@@ -364,6 +385,8 @@ namespace Plugin
 	{
 		gCoverage = Coverage{};
 		DropConfigLights();
+		gReadMs = gParseMs = 0.0;
+		const auto started = Clock::now();
 		for (const auto folder : { kOurFolder, kCSFolder }) {
 			std::error_code ec;
 			const auto      dir = LightPlacerDir(folder);
@@ -380,6 +403,9 @@ namespace Plugin
 				}
 			}
 		}
+		const double total = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+		SKSE::log::info("configs: read in {:.1f} ms - files {:.1f} ms, parsing {:.1f} ms, finding them {:.1f} ms", total, gReadMs, gParseMs,
+			total - gReadMs - gParseMs);
 		return gCoverage;
 	}
 }

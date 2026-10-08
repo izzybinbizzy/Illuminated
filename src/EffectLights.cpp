@@ -28,7 +28,8 @@ namespace Plugin
 		RE::TESObjectLIGH*  own;
 		std::string         model;
 		std::string         label;
-		bool                always;  // named or a poison spray: dark whatever the settings say
+		bool                always;        // named or a poison spray: dark whatever the settings say
+		int                 element{ 0 };  // the element of the effects that fire it (RecordLights.cpp): its color setting
 	};
 	std::vector<EffectTarget> gEffectTargets;
 	const Coverage*           gEffectCoverage = nullptr;
@@ -39,7 +40,7 @@ namespace Plugin
 		for (auto& t : gEffectTargets) {
 			if (RecordRoute()) {
 				// the record light its model's rows give it now; else its own (a named one or a poison spray: none)
-				auto* const record = RecordLightFor(t.model);
+				auto* const record = YieldToRELight() ? nullptr : ElementLight(RecordLightFor(t.model), t.element);
 				auto* const want = record ? record : t.always ? nullptr :
 				                                                t.own;
 				if (*t.slot != want) {
@@ -156,6 +157,12 @@ namespace Plugin
 				// without Light Placer it is followed too: its model's record light is the first light it ever had
 			}
 			gEffectTargets.push_back({ &form->data.light, form->data.light, model, std::string(a_kind) + " " + Label(form), force || poisonSpray });
+			if (RecordRoute()) {
+				if (const int e = ElementOfForm(form); e > 0) {
+					gEffectTargets.back().element = e;
+					PrepareElementLightsFor(model, e);
+				}
+			}
 			++followed;
 		}
 		SKSE::log::info(

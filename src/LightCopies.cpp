@@ -57,6 +57,81 @@ namespace Plugin
 		std::atomic<bool>  gRefresh{ false };
 		std::atomic<float> gBrightness{ 1.0f };
 
+		// HIS GO-TO PICKS (2026-10-07 ~20:45, "do all of them" 2026-10-08): smarter brightness and a light budget
+		constexpr std::string_view kSmartBrightness = "IlluminatedSmartBrightness";  // 0 off, 1 a little, 2 more
+		constexpr std::string_view kHandLights = "IlluminatedHandLights";            // 0 everyone, 1 nearby, 2 + followers, 3 player only
+		constexpr float            kNearby = 2800.0f;                                // "about forty paces" in game units
+		std::atomic<float>         gDaylight{ 1.0f };                                // what Brightness is multiplied by now: 1 at night and in the dark
+		std::atomic<int>           gHandBudget{ 0 };                                 // the Hand lights for choice, read by every caster's update
+		float                      gDaylightClock{ 0.0f };
+
+		// how much dimmer the lights are now: outdoors by the hour (full by day, none at night, a ramp at dawn and dusk);
+		// indoors by how bright the room's own light is
+		float DaylightFactor()
+		{
+			const int pick = SettingValue(kSmartBrightness, 0);
+			if (pick <= 0) {
+				return 1.0f;
+			}
+			const float most = pick == 1 ? 0.25f : 0.5f;
+			auto*       player = RE::PlayerCharacter::GetSingleton();
+			auto*       cell = player ? player->GetParentCell() : nullptr;
+			if (!cell) {
+				return 1.0f;
+			}
+			float bright = 0.0f;
+			if (cell->IsInteriorCell()) {
+				if (const auto* l = cell->GetLighting()) {
+					const auto lum = [](const RE::Color& a_c) { return (0.2126f * a_c.red + 0.7152f * a_c.green + 0.0722f * a_c.blue) / 255.0f; };
+					bright = std::clamp(((std::max)(lum(l->ambient), lum(l->directional)) - 0.15f) / 0.3f, 0.0f, 1.0f);
+				}
+			} else if (const auto* calendar = RE::Calendar::GetSingleton()) {
+				const float h = calendar->GetHour();
+				bright = h < 5.0f || h >= 20.0f ? 0.0f : h < 8.0f ? (h - 5.0f) / 3.0f :
+				                                     h < 17.0f    ? 1.0f :
+				                                                    (20.0f - h) / 3.0f;
+			}
+			return 1.0f - most * bright;
+		}
+
+		// every two seconds on the main thread: a change worth seeing moves every light the way a Brightness change does
+		void WatchDaylight(float a_delta)
+		{
+			gDaylightClock += a_delta;
+			if (gDaylightClock < 2.0f) {
+				return;
+			}
+			gDaylightClock = 0.0f;
+			if (const float now = DaylightFactor(); std::abs(now - gDaylight.load()) >= 0.02f) {
+				gDaylight = now;
+				RequestRefresh();
+			}
+		}
+
+		// the light budget: a hand light the Hand lights for choice leaves out is put out after the game wrote it this frame
+		void ApplyHandBudget(RE::ActorMagicCaster* a_caster)
+		{
+			const int budget = gHandBudget.load(std::memory_order_relaxed);
+			if (budget == 0 || !a_caster) {
+				return;
+			}
+			auto* actor = a_caster->GetCasterAsActor();
+			auto* light = a_caster->light ? a_caster->light->light.get() : nullptr;
+			if (!actor || !light || actor->IsPlayerRef()) {
+				return;
+			}
+			bool keep = false;
+			if (budget == 1) {
+				const auto* player = RE::PlayerCharacter::GetSingleton();
+				keep = player && actor->GetPosition().GetSquaredDistance(player->GetPosition()) <= kNearby * kNearby;
+			} else if (budget == 2) {
+				keep = actor->IsPlayerTeammate();
+			}
+			if (!keep) {
+				light->GetLightRuntimeData().fade = 0.0f;
+			}
+		}
+
 		// what a lit light of a config's copy needs, by the copy's editor ID. Written at data load and on the main thread.
 		struct Lit
 		{
@@ -239,6 +314,7 @@ namespace Plugin
 			{
 				func(a_this, a_delta);
 				AdvanceRecordFlicker(a_delta);
+				WatchDaylight(a_delta);
 				Frame();
 				Fade::UpdateHands(a_delta);
 			}
@@ -257,6 +333,7 @@ namespace Plugin
 				func(a_this, a_delta);
 				ScaleOwned(a_this->GetCasterAsActor());
 				RecordFlicker(a_this);  // without Light Placer: the hand light's flicker (RecordLights.cpp), before the fading module scales it
+				ApplyHandBudget(a_this);
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 			static void                                    Install()
@@ -410,9 +487,14 @@ namespace Plugin
 
 	void ApplyLightStrength(bool a_log)
 	{
-		const int   brightness = SettingValue(kBrightness, 100);
-		const int   reach = SettingValue(kReach, 100);
-		const float scale = static_cast<float>(brightness) / 100.0f;
+		const int brightness = SettingValue(kBrightness, 100);
+		const int reach = SettingValue(kReach, 100);
+		gHandBudget = SettingValue(kHandLights, 0);
+		// read now too, so a change of the setting shows at once (run 8: it waited for WatchDaylight's next look); at data
+		// load the player is in no cell yet, so 1
+		gDaylight = DaylightFactor();
+		const float daylight = gDaylight.load();
+		const float scale = static_cast<float>(brightness) / 100.0f * daylight;
 		const float stretch = static_cast<float>(reach) / 100.0f;
 		gBrightness = scale;
 		std::size_t set = 0;
@@ -430,7 +512,8 @@ namespace Plugin
 			}
 			++set;
 		}
-		SKSE::log::info("light strength: brightness {}%, reach {}%, on {} light copies", brightness, reach, set);
+		SKSE::log::info("light strength: brightness {}% x daylight {:.2f}, reach {}%, hand lights for {}, on {} light copies", brightness, daylight, reach,
+			gHandBudget.load(), set);
 		if (a_log) {
 			for (const auto& c : LightCopies()) {
 				if (c.form) {
