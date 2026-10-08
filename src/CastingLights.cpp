@@ -59,7 +59,7 @@ namespace Plugin
 		for (auto& t : gCastingTargets) {
 			if (RecordRoute()) {
 				// the record light its art's rows give it now, or its own when no row lights the art
-				auto* const record = YieldToRELight() || (t.enbLight && YieldToENBLight()) ?
+				auto* const record = t.enbLight && YieldToENBLight() ?
 				                         nullptr :
 				                         ElementLight(t.autoLight ? (SettingValue(kAutoSetting, 1) != 0 ? t.autoLight : nullptr) : RecordLightFor(t.model), t.element);
 				auto* const want = record ? record : t.own;

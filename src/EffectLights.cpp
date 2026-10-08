@@ -40,7 +40,7 @@ namespace Plugin
 		for (auto& t : gEffectTargets) {
 			if (RecordRoute()) {
 				// the record light its model's rows give it now; else its own (a named one or a poison spray: none)
-				auto* const record = YieldToRELight() ? nullptr : ElementLight(RecordLightFor(t.model), t.element);
+				auto* const record = ElementLight(RecordLightFor(t.model), t.element);
 				auto* const want = record ? record : t.always ? nullptr :
 				                                                t.own;
 				if (*t.slot != want) {

@@ -5,7 +5,7 @@
 // Spells in hand. A readied spell's light and glow follow the caster's magicka, the way a weapon's follow its charge.
 // Like the weapons, nothing is made: whatever hangs at the casting hand is scaled - the game's own casting light (the
 // effect's hand light), and every light and glowing mesh under the hand's magic node, where the casting art is attached
-// and where Light Placer, Illuminated, RELight and spell art mods hang theirs. So it works with all of them, and with
+// and where Light Placer, Illuminated and spell art mods hang theirs. So it works with all of them, and with
 // none.
 //
 // Also here: the kind of an enchantment's or a spell's strongest effect (element and school), which the category

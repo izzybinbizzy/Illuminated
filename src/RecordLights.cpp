@@ -330,16 +330,10 @@ namespace Plugin
 	// ------------------------------------------------------------------ stepping aside for other light mods
 	// HIS GO-TO PICK (2026-10-07 ~20:48, "4 make it optional"): where another light mod lights the same spell, a switch says
 	// whether Illuminated steps aside, so nothing is lit twice. Without Light Placer:
-	//   RELight (or RELight - Spell Addon): it lights spells with RE::Light; stepping aside, Illuminated keeps the game's
-	//   own spell lights instead of its record lights.
 	//   ENB Light (ENB Light.esp, ENB only): a spell whose effect or casting art ENB Light changed keeps the light ENB Light
 	//   gave it (its mesh's ENB light).
-	bool YieldToRELight()
-	{
-		static const bool loaded = REX::W32::GetModuleHandleA("Relight.dll") || REX::W32::GetModuleHandleA("RelightSpellAddon.dll");
-		return loaded && SettingValue("IlluminatedYieldRELight", 1) != 0;
-	}
-
+	// (RELight is never used with Illuminated - his word 2026-10-08: "two separate mods and will never be used together" - so
+	// nothing here looks for it.)
 	bool YieldToENBLight()
 	{
 		static const bool loaded = [] {

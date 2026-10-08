@@ -17,8 +17,8 @@ Ships with Illuminated - Spell & Weapon Light NG and is required by it.
   back when a later plugin replaced it, and Thaumaturgy's own copies wear VAER's swirl too.
 - **Brightness** and **Reach** sliders, **presets**, **Dim in daylight**, and a **light budget** for big fights.
 - Without Light Placer: **Fire, Frost and Shock colors**, **automatic lights** for spells from mods with no patch,
-  a **Lighting** choice (found by itself, Community Shaders, ENB or Vanilla), and switches that leave spells to
-  RELight or ENB Light where those light them.
+  a **Lighting** choice (found by itself, Community Shaders, ENB or Vanilla), and a switch that leaves spells to
+  ENB Light where it lights them.
 - Every setting is live - a change shows in game within a second.
 
 Settings are in SKSE Menu Framework's Mod Control Panel.

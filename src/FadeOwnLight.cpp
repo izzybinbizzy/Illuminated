@@ -215,8 +215,8 @@ namespace Fade
 	}
 
 	// 2026-10-03, his "wrong light colours" (a summoning staff white, a fear staff blue beside its red spell light): the
-	// enchantment's own records often carry no colour by the time we look (Luma empties a covered effect's light, RELight
-	// swaps it for its copy), so the guess from the records missed. The light the spell itself shows at the casting hand is
+	// enchantment's own records often carry no colour by the time we look (Luma empties a covered effect's light, a light
+	// mod swaps it for its copy), so the guess from the records missed. The light the spell itself shows at the casting hand is
 	// the truth; our light takes its hue at full brightness, and only when it changes (the cooling keeps working on top).
 	void TintOwnLight(std::uint64_t a_key, const RE::NiColor& a_color)
 	{
