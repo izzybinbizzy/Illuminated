@@ -59,7 +59,8 @@ namespace DevBenchGlue
 		if (!a_args.is_object() || !a_args.contains(a_key))
 			return {};
 		const auto& v = a_args[a_key];
-		return v.is_string() ? v.get<std::string>() : v.is_number() ? v.dump() : std::string();
+		return v.is_string() ? v.get<std::string>() : v.is_number() ? v.dump() :
+		                                                              std::string();
 	}
 
 	// a number field, sent as a number or as its text ("5", "-1", "0.25"); nullopt when it is missing, not a number or

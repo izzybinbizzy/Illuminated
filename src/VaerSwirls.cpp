@@ -116,7 +116,7 @@ namespace Plugin
 		std::size_t BrighterStrands()
 		{
 			std::size_t pointed = 0, absent = 0;
-			auto* dh = RE::TESDataHandler::GetSingleton();
+			auto*       dh = RE::TESDataHandler::GetSingleton();
 			for (auto* art : dh->GetFormArray<RE::BGSArtObject>()) {
 				if (!art) {
 					continue;
@@ -131,7 +131,7 @@ namespace Plugin
 					continue;
 				}
 				const std::string ours = std::string(kOurMeshes) + model.substr(kVaerMeshes.size());
-				std::error_code ec;
+				std::error_code   ec;
 				if (!fs::exists(fs::path("Data") / "meshes" / ours, ec)) {
 					++absent;
 					continue;
@@ -194,7 +194,7 @@ namespace Plugin
 		std::size_t ThaumaturgyCopies()
 		{
 			std::size_t set = 0, missing = 0;
-			auto* dh = RE::TESDataHandler::GetSingleton();
+			auto*       dh = RE::TESDataHandler::GetSingleton();
 			for (const auto& c : kSwirlCopies) {
 				auto* effect = dh->LookupForm<RE::EffectSetting>(c.effect, c.effectPlugin);
 				auto* art = dh->LookupForm<RE::BGSArtObject>(c.art, c.artPlugin);

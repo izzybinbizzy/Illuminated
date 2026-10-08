@@ -6,8 +6,12 @@
 // group, a checkbox or a pick-one list per setting. A change is saved and shows in game within a second. The look is
 // the shared MenuStyle.h in candle gold.
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
+#ifndef WIN32_LEAN_AND_MEAN
+#	define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#	define NOMINMAX  // the build defines it too (lagen.XMAKE_EDITS)
+#endif
 #include "Plugin.h"
 
 #include "SKSEMenuFramework.h"
@@ -37,7 +41,7 @@ namespace Plugin
 			if (a_s.isSlider) {
 				// the slider moves freely while it is held; the value is saved, on its step, when it is let go
 				static std::unordered_map<std::size_t, int> held;
-				int v = held.contains(a_index) ? held[a_index] : a_s.value;
+				int                                         v = held.contains(a_index) ? held[a_index] : a_s.value;
 				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, "%d%%");
 				v = AllowedValue(a_s, v);
 				if (ImGuiMCP::IsItemActive()) {
@@ -89,20 +93,24 @@ namespace Plugin
 				return;
 			}
 			const MenuStyle::Page style;
-			const auto& page = gPages[a_page];
+			const auto&           page = gPages[a_page];
 			if (a_page == 0) {
 				ImGuiMCP::TextColored(MenuStyle::kMuted, T("Lighting: %s"), T(LightingName(LightingPick())));
 				if (!InverseSquare()) {
 					ImGuiMCP::TextWrapped("%s", T("Lights are drawn by the game's own lighting: each reaches as far as it does with "
-												"Community Shaders' inverse square lighting. Reach and Brightness still apply."));
+												  "Community Shaders' inverse square lighting. Reach and Brightness still apply."));
+				}
+				if (RecordRoute()) {
+					ImGuiMCP::TextWrapped("%s", T("Light Placer is not loaded: Illuminated gives each spell's own hand, bolt, explosion and "
+												  "hazard light its color and reach instead. Brightness and Reach apply from the next cast."));
 				}
 				ImGuiMCP::Separator();
 			}
 			if (a_page == 0 && !gCSLight.empty()) {
 				ImGuiMCP::TextColored(kWarn, T("%s is loaded."), gCSLight.c_str());
 				ImGuiMCP::TextWrapped("%s", T("Illuminated does not need CS Light. If you keep CS Light for its world lights, untick its Magic FX, "
-											"Mysticsm, Bound Weapons, Praedy Staves, Regular soulgems, Spiders, Misc Effects and Dwarven "
-											"Spiders options in its own installer, or those lights glow twice."));
+											  "Mysticsm, Bound Weapons, Praedy Staves, Regular soulgems, Spiders, Misc Effects and Dwarven "
+											  "Spiders options in its own installer, or those lights glow twice."));
 				ImGuiMCP::Separator();
 			}
 			if (a_page == 0) {

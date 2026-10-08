@@ -31,7 +31,7 @@ namespace Plugin
 
 	std::string Label(const RE::TESForm* a_form)
 	{
-		const auto id = EditorID(a_form);
+		const auto  id = EditorID(a_form);
 		const auto* file = a_form ? a_form->GetFile(0) : nullptr;
 		return std::format("{} | {:08X} | {}", id.empty() ? "(no editor ID)" : id, a_form ? a_form->GetFormID() : 0,
 			file ? file->GetFilename() : "(created)");

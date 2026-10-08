@@ -10,14 +10,17 @@ namespace Plugin
 {
 	// ------------------------------------------------------------------ pass 4: spray lights
 	const std::set<std::string> kSprayNotSpells{ "trapspotlightprojectile", "sum_any_projectile_defaultcloakprojectile" };
-	constexpr std::uint32_t kSprayFlags = 0x2001;  // Dynamic | Portal-strict
+	constexpr std::uint32_t     kSprayFlags = 0x2001;  // Dynamic | Portal-strict
 
 	std::string SprayFamily(const std::string& a_editorID)
 	{
 		const auto id = Lower(a_editorID);
-		if (Contains(id, "frost") || Contains(id, "ice")) return "frost";
-		if (Contains(id, "flame") || Contains(id, "fire")) return "fire";
-		if (Contains(id, "shock") || Contains(id, "lightning")) return "shock";
+		if (Contains(id, "frost") || Contains(id, "ice"))
+			return "frost";
+		if (Contains(id, "flame") || Contains(id, "fire"))
+			return "fire";
+		if (Contains(id, "shock") || Contains(id, "lightning"))
+			return "shock";
 		return {};
 	}
 
@@ -67,7 +70,7 @@ namespace Plugin
 				SKSE::log::warn("[SPRAY-FAILED] {} | could not read its range", Label(proj));
 				continue;
 			}
-			const int radius = sc.radiusAbs > 0 ? sc.radiusAbs : static_cast<int>(std::lround(range * sc.radiusPc / 100.0));
+			const int  radius = sc.radiusAbs > 0 ? sc.radiusAbs : static_cast<int>(std::lround(range * sc.radiusPc / 100.0));
 			const auto family = SprayFamily(id);
 			auto*      copy = CopyLight(bulb);
 			if (!copy) {
@@ -98,14 +101,14 @@ namespace Plugin
 				SKSE::log::warn("[SPRAY-FAILED] {} | the new light did not take", Label(proj));
 				continue;
 			}
-			LightCopies().push_back({ .id = "spray " + EditorID(proj), .base = EditorID(bulb), .form = copy, .startFade = copy->fade,
-				.startRadius = copy->data.radius });
+			LightCopies().push_back({ .id = "spray " + EditorID(proj), .base = EditorID(bulb), .form = copy, .startFade = copy->fade, .startRadius = copy->data.radius });
 			++raised;
 			SKSE::log::info("[SPRAY-RAISED] {} | range {} | radius {} | from {} | family {} | colour {},{},{}", Label(proj), range,
 				radius, EditorID(bulb), family, copy->data.color.red, copy->data.color.green, copy->data.color.blue);
 		}
-		SKSE::log::info("spray lights: {} spray projectiles seen; {} raised, {} with no light of their own, {} poison left dark, "
-						"{} named as not spray spells, {} failed",
+		SKSE::log::info(
+			"spray lights: {} spray projectiles seen; {} raised, {} with no light of their own, {} poison left dark, "
+			"{} named as not spray spells, {} failed",
 			seen, raised, noLight, poison, named, failed);
 	}
 }

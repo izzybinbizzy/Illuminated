@@ -4,13 +4,15 @@
 //
 // Pass 1: a magic effect whose casting art is lit loses the game's own casting light - for as long as the menu's
 // settings keep that art lit. Each effect's own light is remembered, so switching an option off gives it back.
+// Without Light Placer (RecordLights.cpp) the effect is pointed at the record light made for its art instead of losing
+// its light, and an effect that had no casting light gets one.
 
 #include "Plugin.h"
 
 namespace Plugin
 {
 	// ------------------------------------------------------------------ pass 1: casting lights
-	constexpr std::size_t kMaxCounterEffects = 512;
+	constexpr std::size_t          kMaxCounterEffects = 512;
 	const std::vector<std::string> kSkipPrefixes{ "trap", "hazard", "voice", "ench", "test" };
 
 	bool SkippedPrefix(const std::string& a_editorID)
@@ -44,8 +46,21 @@ namespace Plugin
 
 	void ApplyCastingLights(bool a_log)
 	{
-		std::size_t nulled = 0, restored = 0;
+		std::size_t nulled = 0, restored = 0, recorded = 0;
 		for (auto& t : gCastingTargets) {
+			if (RecordRoute()) {
+				// the record light its art's rows give it now, or its own when no row lights the art
+				auto* const record = RecordLightFor(t.model);
+				auto* const want = record ? record : t.own;
+				if (t.effect->data.light != want) {
+					t.effect->data.light = want;
+					++(record ? recorded : restored);
+					if (a_log && record) {
+						SKSE::log::info("[CAST-RECORD] {} | {} | {}", Label(t.effect), t.model, t.own ? "its own light replaced" : "had none");
+					}
+				}
+				continue;
+			}
 			const bool lit = gCastingCoverage && gCastingCoverage->ModelLit(t.model);
 			if (lit && t.effect->data.light) {
 				t.effect->data.light = nullptr;
@@ -61,8 +76,8 @@ namespace Plugin
 				}
 			}
 		}
-		SKSE::log::info("casting lights for the settings as they are: {} taken off, {} given back, {} effects followed", nulled, restored,
-			gCastingTargets.size());
+		SKSE::log::info("casting lights for the settings as they are: {} taken off, {} pointed at a record light, {} given back, {} effects followed",
+			nulled, recorded, restored, gCastingTargets.size());
 	}
 
 	void CastingLights(const Coverage& a_cov)
@@ -93,8 +108,11 @@ namespace Plugin
 			}
 			if (!effect->data.light) {
 				++clean;
-				SKSE::log::info("[CAST-CLEAN] {} | {}", Label(effect), model);
-				continue;
+				if (!RecordRoute()) {
+					SKSE::log::info("[CAST-CLEAN] {} | {}", Label(effect), model);
+					continue;
+				}
+				// without Light Placer it is followed too: its art's record light is the first casting light it ever had
 			}
 			if (CounterEffectCount(effect) > kMaxCounterEffects) {
 				++bloated;
@@ -102,8 +120,9 @@ namespace Plugin
 			}
 			gCastingTargets.push_back({ effect, effect->data.light, model });
 		}
-		SKSE::log::info("casting lights: {} lit effects seen; {} followed, {} already had none, skipped: {} constant effect, "
-						"{} light archetype, {} editor ID prefix, {} oversized",
+		SKSE::log::info(
+			"casting lights: {} lit effects seen; {} followed, {} had none of their own, skipped: {} constant effect, "
+			"{} light archetype, {} editor ID prefix, {} oversized",
 			scanned, gCastingTargets.size(), clean, constant, archetype, prefix, bloated);
 		ApplyCastingLights(true);
 	}

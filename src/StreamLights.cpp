@@ -51,27 +51,27 @@ namespace Plugin
 		constexpr float            kWardRadius = 220.0f;  // a ward dome is about waist-high and an arm in front
 		constexpr float            kWardFade = 1.0f;
 		// a ward with no color of its own: the pale blue-white of the vanilla dome
-		constexpr float            kWardRed = 0.62f, kWardGreen = 0.78f, kWardBlue = 1.0f;
-		constexpr std::size_t      kMaxLightsPerStream = 3;
-		constexpr float            kStepUnits = 300.0f;   // one light per this much stream, up to the maximum
-		constexpr float            kRadiusOfStep = 1.4f;  // each light reaches a little past the next step
-		constexpr float            kShortestStream = 120.0f;
-		constexpr const char*      kLightName = "IlluminatedStream";
-		constexpr float            kLightSize = 1.414f;   // the light's size, which lives in the radius' z (from ReLight)
-		constexpr float            kFieldOfView = 90.0f;  // what a light that casts no shadow is given (from ReLight)
+		constexpr float       kWardRed = 0.62f, kWardGreen = 0.78f, kWardBlue = 1.0f;
+		constexpr std::size_t kMaxLightsPerStream = 3;
+		constexpr float       kStepUnits = 300.0f;   // one light per this much stream, up to the maximum
+		constexpr float       kRadiusOfStep = 1.4f;  // each light reaches a little past the next step
+		constexpr float       kShortestStream = 120.0f;
+		constexpr const char* kLightName = "IlluminatedStream";
+		constexpr float       kLightSize = 1.414f;   // the light's size, which lives in the radius' z (from ReLight)
+		constexpr float       kFieldOfView = 90.0f;  // what a light that casts no shadow is given (from ReLight)
 		// rule 2: a flame spray's one light sits this far out (half the range for a short spray) and reaches from there
 		// to the end of the spray and a little past, never less than the shortest reach
-		constexpr float            kFlameForward = 128.0f;
-		constexpr float            kFlameEndReach = 1.15f;
-		constexpr float            kFlameShortestReach = 133.0f;
+		constexpr float kFlameForward = 128.0f;
+		constexpr float kFlameEndReach = 1.15f;
+		constexpr float kFlameShortestReach = 133.0f;
 		// rule 3: a beam's light rides the tip, on this node when the mesh has it
-		constexpr float            kBeamRadius = 420.0f;
-		constexpr const char*      kBeamNode = "BeamEnd";
+		constexpr float       kBeamRadius = 420.0f;
+		constexpr const char* kBeamNode = "BeamEnd";
 		// rule 4: the house K, 0.8 * 69.99² - the same number gen.py writes every config's cutoff from
-		constexpr float            kK = 3918.88f;
-		constexpr float            kLowestCutoff = 0.01f, kHighestCutoff = 0.99f;
+		constexpr float kK = 3918.88f;
+		constexpr float kLowestCutoff = 0.01f, kHighestCutoff = 0.99f;
 		// no one projectile base keeps more than this many of its refs lit at a time
-		constexpr std::size_t      kMaxLivePerBase = 4;
+		constexpr std::size_t kMaxLivePerBase = 4;
 
 		// one master light, made once and cloned for every use: ReLight found that a freshly made light, attached
 		// straight away, crashes
@@ -95,30 +95,30 @@ namespace Plugin
 
 		struct Recipe
 		{
-			bool          ward{ false };   // a ward dome: one light where the dome sits, and its own setting
-			bool          flame{ false };  // a flamethrower-type spray: one light at the root (rule 2)
-			bool          beam{ false };   // a beam: one light on its BeamEnd node (rule 3)
-			std::size_t   lights{ 1 };
-			float         gap{ 0.0f };  // units between lights along the stream
-			float         radius{ 300.0f };
-			float         fade{ 1.0f };
-			float         falloff{ 2.0f };
-			RE::NiColor   color{ 1.0f, 1.0f, 1.0f };
+			bool        ward{ false };   // a ward dome: one light where the dome sits, and its own setting
+			bool        flame{ false };  // a flamethrower-type spray: one light at the root (rule 2)
+			bool        beam{ false };   // a beam: one light on its BeamEnd node (rule 3)
+			std::size_t lights{ 1 };
+			float       gap{ 0.0f };  // units between lights along the stream
+			float       radius{ 300.0f };
+			float       fade{ 1.0f };
+			float       falloff{ 2.0f };
+			RE::NiColor color{ 1.0f, 1.0f, 1.0f };
 		};
 
-		std::unordered_map<RE::FormID, Recipe>                             gRecipes;   // projectile base form -> what to hang on it
-		std::unordered_map<RE::FormID, RE::TESObjectLIGH*>                 gHandLight;  // its own light, to give back
-		std::unordered_map<std::uint32_t, std::vector<RE::NiPointer<RE::BSLight>>> gLive;  // live 3D -> the lights this pass made
+		std::unordered_map<RE::FormID, Recipe>                                     gRecipes;    // projectile base form -> what to hang on it
+		std::unordered_map<RE::FormID, RE::TESObjectLIGH*>                         gHandLight;  // its own light, to give back
+		std::unordered_map<std::uint32_t, std::vector<RE::NiPointer<RE::BSLight>>> gLive;       // live 3D -> the lights this pass made
 		// the live count, by projectile BASE rather than by reference: a held spray key spawns a new reference
 		// several times a second, and it is the base that has to be capped
-		std::unordered_map<RE::FormID, RE::FormID>                          gLiveBase;   // live reference -> its base form
-		std::unordered_map<RE::FormID, std::size_t>                         gLiveCount;  // base form -> how many of its references are lit
-		std::unordered_map<RE::FormID, RE::NiPointer<RE::NiPointLight>>     gLiveNi;     // live reference -> its first NiPointLight
-		std::mutex                                                          gLiveLock;
+		std::unordered_map<RE::FormID, RE::FormID>                      gLiveBase;   // live reference -> its base form
+		std::unordered_map<RE::FormID, std::size_t>                     gLiveCount;  // base form -> how many of its references are lit
+		std::unordered_map<RE::FormID, RE::NiPointer<RE::NiPointLight>> gLiveNi;     // live reference -> its first NiPointLight
+		std::mutex                                                      gLiveLock;
 		// rule 5: what a loader thread built or released, waiting for the main thread (under gLiveLock)
-		std::vector<RE::ObjectRefHandle>                                    gToHang;
-		std::vector<RE::FormID>                                             gToDrop;
-		bool                                                                gTaken = false;  // the hand lights are off right now
+		std::vector<RE::ObjectRefHandle> gToHang;
+		std::vector<RE::FormID>          gToDrop;
+		bool                             gTaken = false;  // the hand lights are off right now
 
 		// fire, frost or shock, read from the editor ID the way the spray pass reads it
 		std::string StreamFamily(const std::string& a_editorID)
@@ -291,11 +291,11 @@ namespace Plugin
 				}
 			}
 			Told("making its lights", a_ref);
-			const bool  isl = InverseSquare();
+			const bool isl = InverseSquare();
 			// ENB and Vanilla (Lighting.cpp): the reach asked for, drawn by the game's own lighting
-			const auto  plain = Plain(r.fade, 0.0f, r.radius);
-			const float radius = (isl ? r.radius : plain.radius) * Percent("IlluminatedReach");
-			const float fade = (isl ? r.fade : plain.fade) * Percent("IlluminatedBrightness");
+			const auto                              plain = Plain(r.fade, 0.0f, r.radius);
+			const float                             radius = (isl ? r.radius : plain.radius) * Percent("IlluminatedReach");
+			const float                             fade = (isl ? r.fade : plain.fade) * Percent("IlluminatedBrightness");
 			std::vector<RE::NiPointer<RE::BSLight>> made;
 			RE::NiPointLight*                       first = nullptr;
 			for (std::size_t i = 0; i < r.lights; ++i) {
@@ -357,7 +357,9 @@ namespace Plugin
 			if (told < 12) {
 				++told;
 				SKSE::log::info("[STREAM-LIT] {} | {} | {} light(s) of {} asked for | radius {:.0f} | fade {:.2f} | node {}",
-					Label(a_ref->GetBaseObject()), r.flame ? "flame spray" : r.beam ? "bolt" : r.ward ? "ward" : "spray",
+					Label(a_ref->GetBaseObject()), r.flame ? "flame spray" : r.beam ? "bolt" :
+																		 r.ward     ? "ward" :
+																					  "spray",
 					made.size(), r.lights, radius, fade, parent->name.empty() ? "(unnamed)" : parent->name.c_str());
 			}
 			if (made.empty()) {
@@ -365,7 +367,7 @@ namespace Plugin
 				return;
 			}
 			std::lock_guard l{ gLiveLock };
-			auto& kept = gLive[a_ref->GetFormID()];
+			auto&           kept = gLive[a_ref->GetFormID()];
 			kept.insert(kept.end(), made.begin(), made.end());
 			gLiveBase[a_ref->GetFormID()] = base->GetFormID();
 			++gLiveCount[base->GetFormID()];
@@ -538,10 +540,13 @@ namespace Plugin
 				++beams;
 			}
 			SKSE::log::info("[STREAM] {} | {} | range {:.0f} | {} light(s) every {:.0f} | radius {:.0f} | fade {:.2f} | model {}",
-				Label(proj), flame ? "flame spray" : cone ? "spray" : "bolt", range, r.lights, r.gap, r.radius, r.fade, model);
+				Label(proj), flame ? "flame spray" : cone ? "spray" :
+															"bolt",
+				range, r.lights, r.gap, r.radius, r.fade, model);
 		}
-		SKSE::log::info("stream lights: {} flame spray(s), {} spray(s) and {} bolt(s) can carry a light of their own, "
-						"{} left alone; no one projectile keeps more than {} lit at a time; the setting is {}",
+		SKSE::log::info(
+			"stream lights: {} flame spray(s), {} spray(s) and {} bolt(s) can carry a light of their own, "
+			"{} left alone; no one projectile keeps more than {} lit at a time; the setting is {}",
 			flames, cones, beams, skipped, kMaxLivePerBase, StreamLightsOn() ? "on" : "off");
 		WardLights();
 		Load3D<RE::ConeProjectile>::Install();

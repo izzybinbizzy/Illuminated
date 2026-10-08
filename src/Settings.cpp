@@ -71,66 +71,66 @@ namespace Plugin
 			std::map<std::string, std::string> block;
 			std::string                        kind;
 			const auto                         flush = [&]() {
-                if (kind == "setting") {
-                    Setting s;
-                    s.id = block["id"];
-                    s.ini = block["ini"];
-                    s.page = block["page"];
-                    s.group = block["group"];
-                    s.label = block["label"];
-                    s.isChoice = block["kind"] == "choice";
-                    s.isSlider = block["kind"] == "slider";
-                    s.choices = Split(block["choices"], '|');
-                    ParseInt(block["default"], s.defaultValue);
-                    if (s.isSlider) {
-                        ParseInt(block["min"], s.minValue);
-                        ParseInt(block["max"], s.maxValue);
-                        ParseInt(block["step"], s.stepValue);
-                    }
-                    s.restart = block["restart"] == "1";
-                    s.needs = Split(block["requires"], '|');
-                    const auto& autoText = block["auto"];
-                    if (const auto colon = autoText.find(':'); colon != std::string::npos) {
-                        s.autoAll = autoText.substr(0, colon) == "and";
-                        s.autoPlugins = Split(std::string_view(autoText).substr(colon + 1), '|');
-                    }
-                    for (std::size_t i = 0; i < (std::max)(s.choices.size(), std::size_t{ 1 }); ++i) {
-                        s.tips.push_back(Unescape(block["tip" + std::to_string(i)]));
-                    }
-                    const bool shapeOk = s.isChoice ? s.choices.size() >= 2 :
-                                         s.isSlider ? s.stepValue > 0 && s.minValue < s.maxValue && (s.maxValue - s.minValue) % s.stepValue == 0 :
-                                                      true;
-                    if (!s.id.empty() && !gIndex.contains(Lower(s.id)) && shapeOk) {
-                        s.value = s.defaultValue;
-                        gIndex[Lower(s.id)] = gSettings.size();
-                        gSettings.push_back(std::move(s));
-                    }
-                } else if (kind == "light") {
-                    LightCopy c;
-                    c.id = block["id"];
-                    c.base = block["base"];
-                    if (!ParseFloat(block["fade"], c.fade) || !std::isfinite(c.fade)) {
-                        c.fade = 0.0f;  // not given, or not a finite number
-                    }
-                    ParseInt(block["radius"], c.radius);
-                    if (!ParseFloat(block["cutoff"], c.cutoff) || !std::isfinite(c.cutoff)) {
-                        c.cutoff = 0.0f;
-                    }
-                    c.flicker = block["flicker"] == "1";
-                    if (!c.id.empty() && !c.base.empty() && gLightIds.insert(Lower(c.id)).second) {
-                        gLights.push_back(std::move(c));
-                    }
-                } else if (kind == "note") {
-                    gNotes.push_back({ block["page"], block["group"], block["label"], Unescape(block["text"]) });
-                } else if (kind == "marker") {
-                    SprayMarker m;
-                    m.name = Lower(block["name"]);
-                    m.when = ParseConditions(Split(block["when"], ';'));
-                    m.values = block["values"];
-                    gMarkers.push_back(std::move(m));
-                }
-                block.clear();
-                kind.clear();
+				if (kind == "setting") {
+					Setting s;
+					s.id = block["id"];
+					s.ini = block["ini"];
+					s.page = block["page"];
+					s.group = block["group"];
+					s.label = block["label"];
+					s.isChoice = block["kind"] == "choice";
+					s.isSlider = block["kind"] == "slider";
+					s.choices = Split(block["choices"], '|');
+					ParseInt(block["default"], s.defaultValue);
+					if (s.isSlider) {
+						ParseInt(block["min"], s.minValue);
+						ParseInt(block["max"], s.maxValue);
+						ParseInt(block["step"], s.stepValue);
+					}
+					s.restart = block["restart"] == "1";
+					s.needs = Split(block["requires"], '|');
+					const auto& autoText = block["auto"];
+					if (const auto colon = autoText.find(':'); colon != std::string::npos) {
+						s.autoAll = autoText.substr(0, colon) == "and";
+						s.autoPlugins = Split(std::string_view(autoText).substr(colon + 1), '|');
+					}
+					for (std::size_t i = 0; i < (std::max)(s.choices.size(), std::size_t{ 1 }); ++i) {
+						s.tips.push_back(Unescape(block["tip" + std::to_string(i)]));
+					}
+					const bool shapeOk = s.isChoice ? s.choices.size() >= 2 :
+					                     s.isSlider ? s.stepValue > 0 && s.minValue < s.maxValue && (s.maxValue - s.minValue) % s.stepValue == 0 :
+					                                  true;
+					if (!s.id.empty() && !gIndex.contains(Lower(s.id)) && shapeOk) {
+						s.value = s.defaultValue;
+						gIndex[Lower(s.id)] = gSettings.size();
+						gSettings.push_back(std::move(s));
+					}
+				} else if (kind == "light") {
+					LightCopy c;
+					c.id = block["id"];
+					c.base = block["base"];
+					if (!ParseFloat(block["fade"], c.fade) || !std::isfinite(c.fade)) {
+						c.fade = 0.0f;  // not given, or not a finite number
+					}
+					ParseInt(block["radius"], c.radius);
+					if (!ParseFloat(block["cutoff"], c.cutoff) || !std::isfinite(c.cutoff)) {
+						c.cutoff = 0.0f;
+					}
+					c.flicker = block["flicker"] == "1";
+					if (!c.id.empty() && !c.base.empty() && gLightIds.insert(Lower(c.id)).second) {
+						gLights.push_back(std::move(c));
+					}
+				} else if (kind == "note") {
+					gNotes.push_back({ block["page"], block["group"], block["label"], Unescape(block["text"]) });
+				} else if (kind == "marker") {
+					SprayMarker m;
+					m.name = Lower(block["name"]);
+					m.when = ParseConditions(Split(block["when"], ';'));
+					m.values = block["values"];
+					gMarkers.push_back(std::move(m));
+				}
+				block.clear();
+				kind.clear();
 			};
 			std::string line;
 			while (std::getline(in, line)) {
@@ -192,8 +192,8 @@ namespace Plugin
 		// the saved picks onto the settings; a setting the INI does not name keeps its default
 		void ApplyIni()
 		{
-			const auto ini = ReadIni();
-			const auto sec = ini.find(Lower(kSettingsSection));
+			const auto            ini = ReadIni();
+			const auto            sec = ini.find(Lower(kSettingsSection));
 			std::set<std::string> detectedBefore;
 			if (const auto d = ini.find(Lower(kDetectedSection)); d != ini.end()) {
 				if (const auto k = d->second.find(Lower(kDetectedKey)); k != d->second.end()) {
@@ -305,7 +305,7 @@ namespace Plugin
 		gMarkers.clear();
 		gLights.clear();
 		gLightIds.clear();
-		std::error_code ec;
+		std::error_code       ec;
 		std::vector<fs::path> files;
 		if (fs::is_directory(SettingsFolder(), ec)) {
 			// the error code form: stepping on through a folder that cannot be read ends the walk instead of throwing
@@ -340,7 +340,8 @@ namespace Plugin
 			gSettings.size(), files.size(), gNotes.size(), gMarkers.size(), gLights.size(), made);
 		for (const auto& s : gSettings) {
 			SKSE::log::info("[SETTING] {} = {}{}", s.id, s.value,
-				s.isChoice && s.value < static_cast<int>(s.choices.size()) ? " (" + s.choices[s.value] + ")" : s.isSlider ? "%" : "");
+				s.isChoice && s.value < static_cast<int>(s.choices.size()) ? " (" + s.choices[s.value] + ")" : s.isSlider ? "%" :
+																															"");
 		}
 	}
 
@@ -360,8 +361,8 @@ namespace Plugin
 		std::error_code ec;
 		fs::create_directories(IniPath().parent_path(), ec);
 		// keep every line of a section this plugin does not own
-		const auto               old = ReadIni();
-		std::ofstream            out(IniPath(), std::ios::trunc);
+		const auto    old = ReadIni();
+		std::ofstream out(IniPath(), std::ios::trunc);
 		out << "[" << kSettingsSection << "]\n";
 		for (const auto& s : gSettings) {
 			out << s.ini << "=" << s.value << "\n";
@@ -386,7 +387,8 @@ namespace Plugin
 				}
 			}
 		}
-		out << "\n[" << kDetectedSection << "]\n" << kDetectedKey << "=" << list;
+		out << "\n[" << kDetectedSection << "]\n"
+			<< kDetectedKey << "=" << list;
 		out << "\n";
 		for (const auto& [section, keys] : old) {
 			if (section == Lower(kSettingsSection) || section == Lower(kDetectedSection) || section.empty()) {
@@ -434,7 +436,7 @@ namespace Plugin
 	int SettingValue(std::string_view a_id, int a_fallback)
 	{
 		std::lock_guard l{ gSettingsLock };
-		const auto it = gIndex.find(Lower(a_id));
+		const auto      it = gIndex.find(Lower(a_id));
 		return it == gIndex.end() ? a_fallback : gSettings[it->second].value;
 	}
 

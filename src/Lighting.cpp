@@ -25,7 +25,7 @@ namespace Plugin
 	{
 		constexpr const char* kIslShader = "Data/Shaders/InverseSquareLighting/InverseSquareLighting.hlsli";
 		constexpr const char* kEnbFiles[] = { "enbseries.ini", "enblocal.ini" };
-		constexpr float       kK = 3918.88f;               // the house K, 0.8 * 69.99² (StreamLights.cpp rule 4, gen.py)
+		constexpr float       kK = 3918.88f;                  // the house K, 0.8 * 69.99² (StreamLights.cpp rule 4, gen.py)
 		constexpr float       kPlainReach = 178.0f / 133.0f;  // Dynamic Wards' house light: reach 133 drawn at radius 178
 		constexpr float       kPlainFade = 1.14f;
 
@@ -75,12 +75,13 @@ namespace Plugin
 		gIslShader = fs::exists(fs::current_path() / kIslShader, ec);
 		const auto pick = ReadPick();
 		gFromFile = pick.has_value();
-		gPick = pick ? *pick : gIslShader ? Lighting::kShaders : EnbInstalled() ? Lighting::kEnb : Lighting::kVanilla;
+		gPick = pick ? *pick : gIslShader ? Lighting::kShaders :
+		                   EnbInstalled() ? Lighting::kEnb :
+		                                    Lighting::kVanilla;
 		if (gPick == Lighting::kShaders && !gIslShader) {
 			SKSE::log::warn("lighting: Community Shaders was picked but its inverse square lighting is not installed; lights are drawn plain");
 		}
-		SKSE::log::info("lighting: {} ({}); inverse square shader {}; lights drawn {}", LightingName(gPick), gFromFile ? "the installer's pick" :
-			"no Lighting.txt, looked at the game", gIslShader ? "installed" : "not installed", InverseSquare() ? "inverse square" : "plain");
+		SKSE::log::info("lighting: {} ({}); inverse square shader {}; lights drawn {}", LightingName(gPick), gFromFile ? "the installer's pick" : "no Lighting.txt, looked at the game", gIslShader ? "installed" : "not installed", InverseSquare() ? "inverse square" : "plain");
 	}
 
 	Lighting LightingPick()

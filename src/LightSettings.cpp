@@ -53,9 +53,9 @@ namespace Plugin
 
 	void LightSettings()
 	{
-		auto*       dh = RE::TESDataHandler::GetSingleton();
+		auto*                                                            dh = RE::TESDataHandler::GetSingleton();
 		std::unordered_map<const RE::TESObjectLIGH*, RE::TESObjectLIGH*> ours;
-		std::size_t made = 0, missing = 0, renamed = 0, failed = 0;
+		std::size_t                                                      made = 0, missing = 0, renamed = 0, failed = 0;
 		for (const auto& s : kLightSettings) {
 			auto* light = dh->LookupForm<RE::TESObjectLIGH>(s.localID, s.file);
 			if (!light) {
@@ -113,14 +113,13 @@ namespace Plugin
 			RememberEditorID(copy, (std::string(s.editorID) + " (Illuminated)").c_str());
 			ours[light] = copy;
 			// the Brightness and Reach sliders reach the game's own magic lights too (a casting art's hand light)
-			LightCopies().push_back({ .id = std::string(s.editorID) + " (Illuminated)", .base = s.editorID, .form = copy,
-				.startFade = fade, .startRadius = radius, .startCutoff = (flags & kInverseSquare) ? s.falloff : 0.0f });
+			LightCopies().push_back({ .id = std::string(s.editorID) + " (Illuminated)", .base = s.editorID, .form = copy, .startFade = fade, .startRadius = radius, .startCutoff = (flags & kInverseSquare) ? s.falloff : 0.0f });
 			++made;
 			SKSE::log::info("[LIGHT-OURS] {} | radius {} | color {},{},{} | flags {:X} | size {} | fade {}", Label(light), radius,
 				s.r, s.g, s.b, flags, s.fov, fade);
 		}
 		std::size_t pointed = 0;
-		const auto point = [&](RE::TESObjectLIGH*& a_slot) {
+		const auto  point = [&](RE::TESObjectLIGH*& a_slot) {
 			if (a_slot) {
 				if (const auto it = ours.find(a_slot); it != ours.end()) {
 					a_slot = it->second;
@@ -129,7 +128,8 @@ namespace Plugin
 			}
 		};
 		for (auto* f : dh->GetFormArray<RE::EffectSetting>()) {
-			if (f) point(f->data.light);
+			if (f)
+				point(f->data.light);
 		}
 		for (auto* f : dh->GetFormArray<RE::BGSProjectile>()) {
 			if (f) {
@@ -138,13 +138,16 @@ namespace Plugin
 			}
 		}
 		for (auto* f : dh->GetFormArray<RE::BGSExplosion>()) {
-			if (f) point(f->data.light);
+			if (f)
+				point(f->data.light);
 		}
 		for (auto* f : dh->GetFormArray<RE::BGSHazard>()) {
-			if (f) point(f->data.light);
+			if (f)
+				point(f->data.light);
 		}
-		SKSE::log::info("light settings: {} of {} lights of our own made, {} uses pointed at them, {} not in this load order, "
-						"{} renamed and left alone, {} failed",
+		SKSE::log::info(
+			"light settings: {} of {} lights of our own made, {} uses pointed at them, {} not in this load order, "
+			"{} renamed and left alone, {} failed",
 			made, std::size(kLightSettings), pointed, missing, renamed, failed);
 	}
 }

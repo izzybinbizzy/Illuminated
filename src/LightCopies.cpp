@@ -33,8 +33,17 @@
 //   a cell's animations      } their made-with strength.
 // Light Placer skips a culled or distant light, so a value it did not rewrite is never scaled twice. Nothing in this
 // part runs while Brightness is 100%.
+//
+// The fading module (Fade*.cpp) scales some of the same lights by charge and magicka, in the same three places (the
+// player's update, an effect's update, the cell's animations). Each place has ONE wrapper, here: Brightness first,
+// then the fading module, always in that order. The two never take the other's write for a new value from Light
+// Placer: the fading module reports every fade it writes (NoteFadeWrite - taken only when it started from a value this
+// pass had scaled, or a light never scaled yet would look done), and a slider change tells it how far a
+// steady light moved (Fade::Rebase). Lock order is always the fading module's lock, then gFlickerLock - never the
+// other way round (Fade::Rebase is called after gFlickerLock is let go).
 
 #include "Plugin.h"
+#include "Fade.h"
 
 namespace Plugin
 {
@@ -43,7 +52,7 @@ namespace Plugin
 		constexpr std::string_view kBrightness = "IlluminatedBrightness";
 		constexpr std::string_view kReach = "IlluminatedReach";
 		constexpr float            kLowestCutoff = 0.01f, kHighestCutoff = 1.0f;  // what Light Placer keeps a cutoff within
-		constexpr std::uint32_t    kInverseSquare = 1u << 14;                      // Community Shaders' flag on a light record
+		constexpr std::uint32_t    kInverseSquare = 1u << 14;                     // Community Shaders' flag on a light record
 
 		std::atomic<bool>  gRefresh{ false };
 		std::atomic<float> gBrightness{ 1.0f };
@@ -65,9 +74,9 @@ namespace Plugin
 		struct Flicker
 		{
 			RE::NiPointer<RE::NiPointLight> light;
-			RE::FormID                      owner{ 0 };       // the reference it hangs on
-			const RE::TESObjectCELL*        cell{ nullptr };  // where that reference was when the light was found
-			float                           written{ -1.0f }; // what the light held after our last write
+			RE::FormID                      owner{ 0 };        // the reference it hangs on
+			const RE::TESObjectCELL*        cell{ nullptr };   // where that reference was when the light was found
+			float                           written{ -1.0f };  // what the light held after our last write
 		};
 		std::unordered_map<const RE::NiPointLight*, Flicker> gFlickers;
 		std::mutex                                           gFlickerLock;
@@ -162,9 +171,10 @@ namespace Plugin
 		}
 
 		// the main thread's look at the scene's lights: new flickering lights are listed; on the frame a slider changed
-		// (Brightness by a_ratio) every lit light takes its copy's cutoff and a steady light's fade moves with it
+		// (Brightness by a_ratio) every lit light takes its copy's cutoff and a steady light's fade moves with it - those
+		// go into a_moved, for the fading module to hear about once gFlickerLock is let go
 		template <class List>
-		void VisitList(const List& a_list, bool a_changed, float a_ratio)
+		void VisitList(const List& a_list, bool a_changed, float a_ratio, std::vector<std::pair<RE::NiPointLight*, float>>& a_moved)
 		{
 			for (const auto& bsLight : a_list) {
 				auto*      light = bsLight ? netimmerse_cast<RE::NiPointLight*>(bsLight->light.get()) : nullptr;
@@ -179,6 +189,7 @@ namespace Plugin
 				if (!lit->flicker) {
 					if (a_changed) {
 						data.fade *= a_ratio;
+						a_moved.emplace_back(light, data.fade);
 					}
 				} else if (auto [it, added] = gFlickers.try_emplace(light); added) {
 					const auto* owner = OwnerOf(light);
@@ -200,26 +211,36 @@ namespace Plugin
 			if (!scene || (!changed && !Scaling())) {
 				return;
 			}
-			const auto&     lights = scene->GetRuntimeData();
-			std::lock_guard l{ gFlickerLock };
-			VisitList(lights.activeLights, changed, gBrightness / before);
-			VisitList(lights.lightQueueAdd, changed, gBrightness / before);  // added before the next draw
-			if (Scaling()) {
-				std::erase_if(gFlickers, [](const auto& a_kv) { return a_kv.second.light->GetRefCount() <= 1; });  // only we hold it: gone
-			} else {
-				gFlickers.clear();  // Light Placer's own values stand from here on
+			const auto&                                      lights = scene->GetRuntimeData();
+			const float                                      ratio = gBrightness / before;
+			std::vector<std::pair<RE::NiPointLight*, float>> moved;
+			{
+				std::lock_guard l{ gFlickerLock };
+				VisitList(lights.activeLights, changed, ratio, moved);
+				VisitList(lights.lightQueueAdd, changed, ratio, moved);  // added before the next draw
+				if (Scaling()) {
+					std::erase_if(gFlickers, [](const auto& a_kv) { return a_kv.second.light->GetRefCount() <= 1; });  // only we hold it: gone
+				} else {
+					gFlickers.clear();  // Light Placer's own values stand from here on
+				}
+			}
+			for (const auto& [light, now] : moved) {
+				Fade::Rebase(light, ratio, now);  // the scene's lists hold each light, so it is alive this frame
 			}
 		}
 
 		// ------------------------------------------------------------------ the hooks
 		// All installed at data load, long after Light Placer installed its own at plugin load, so each wraps Light
-		// Placer's: ours runs after it, on the values it just wrote.
+		// Placer's: ours runs after it, on the values it just wrote. The fading module's work in the same places is
+		// called from here, after Brightness (the header has why).
 		struct PlayerUpdate
 		{
 			static void thunk(RE::PlayerCharacter* a_this, float a_delta)
 			{
 				func(a_this, a_delta);
+				AdvanceRecordFlicker(a_delta);
 				Frame();
+				Fade::UpdateHands(a_delta);
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 			static void                                    Install()
@@ -235,6 +256,7 @@ namespace Plugin
 			{
 				func(a_this, a_delta);
 				ScaleOwned(a_this->GetCasterAsActor());
+				RecordFlicker(a_this);  // without Light Placer: the hand light's flicker (RecordLights.cpp), before the fading module scales it
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 			static void                                    Install()
@@ -253,6 +275,7 @@ namespace Plugin
 				if (Scaling()) {
 					ScaleOwned(a_this->target.get().get());
 				}
+				Fade::AfterReferenceEffect(a_this, std::is_same_v<T, RE::ModelReferenceEffect>);  // an art model, not a shader's actor
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 			static void                                    Install()
@@ -302,6 +325,7 @@ namespace Plugin
 			{
 				func(a_cell);
 				ScaleCell(a_cell);
+				Fade::ReapplyAll();  // this frame's fading numbers again, without advancing any timer
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 		};
@@ -315,7 +339,7 @@ namespace Plugin
 			if (REL::Module::IsVR()) {
 				return;
 			}
-			SKSE::AllocTrampoline(3 * 14);
+			// the trampoline is made once, in main.cpp's SKSE::Init (room for these three and the fading module's three)
 			WrapCall<ExplosionUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42664, 43836), 0x11 }, "explosion update");
 			WrapCall<HazardUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42791, 43959), REL::VariantOffset(0x11, 0x1F, 0x11) }, "hazard update");
 			WrapCall<CellAnimations>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(18458, 18889), 0x52 }, "cell animations");
@@ -345,7 +369,8 @@ namespace Plugin
 			c.startFade = c.fade > 0.0f ? c.fade : base->fade;
 			c.startRadius = c.radius > 0 ? static_cast<std::uint32_t>(c.radius) : base->data.radius;
 			// the config's own cutoff, or the record's when the record itself is an inverse-square light
-			c.startCutoff = c.cutoff > 0.0f ? c.cutoff : (base->data.flags.underlying() & kInverseSquare) ? base->data.fallofExponent : 0.0f;
+			c.startCutoff = c.cutoff > 0.0f ? c.cutoff : (base->data.flags.underlying() & kInverseSquare) ? base->data.fallofExponent :
+			                                                                                                0.0f;
 			if (!InverseSquare() && c.startCutoff > 0.0f) {
 				// ENB and Vanilla (Lighting.cpp): the reach it has under Community Shaders, drawn plain; Reach moves the radius
 				const float size = base->data.fov >= 50.0f ? 1.414f : std::clamp(base->data.fov, 0.01f, 50.0f);  // Light Placer's GetSize
@@ -369,6 +394,18 @@ namespace Plugin
 	void RequestRefresh()
 	{
 		gRefresh = true;
+	}
+
+	void NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after)
+	{
+		std::lock_guard l{ gFlickerLock };
+		// Only when the fading module started from OUR scaled value: then its write carries Brightness already and must
+		// not be scaled again. Measured 2026-10-08: noting every write froze two steady lights of a flickering copy at full
+		// strength - on the frame Brightness changed the fading module wrote before this pass had ever scaled them, and
+		// the note made them look done.
+		if (const auto it = gFlickers.find(a_light); it != gFlickers.end() && it->second.written == a_before) {
+			it->second.written = a_after;
+		}
 	}
 
 	void ApplyLightStrength(bool a_log)

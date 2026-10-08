@@ -4,7 +4,10 @@
 //
 // Pass 2: projectiles, explosions and hazards whose model is lit lose the game's own light - for as long as the
 // menu's settings keep that model lit. Each one's own light is remembered, so switching an option off gives it back.
-// Also RefreshLights, which runs passes 1, 2 and 6 again (and puts the sliders onto the light copies) whenever a setting changes.
+// Without Light Placer (RecordLights.cpp) each is pointed at the record light made for its model instead, and one that
+// had no light gets one.
+// Also RefreshLights, which runs passes 1, 2 and 6 again (and puts the sliders and the record lights' colors onto the
+// lights) whenever a setting changes.
 
 #include "Plugin.h"
 
@@ -32,8 +35,23 @@ namespace Plugin
 
 	void ApplyEffectLights(bool a_log)
 	{
-		std::size_t nulled = 0, restored = 0;
+		std::size_t nulled = 0, restored = 0, recorded = 0;
 		for (auto& t : gEffectTargets) {
+			if (RecordRoute()) {
+				// the record light its model's rows give it now; else its own (a named one or a poison spray: none)
+				auto* const record = RecordLightFor(t.model);
+				auto* const want = record ? record : t.always ? nullptr :
+				                                                t.own;
+				if (*t.slot != want) {
+					*t.slot = want;
+					++(record ? recorded : want ? restored :
+												  nulled);
+					if (a_log && record) {
+						SKSE::log::info("[FX-RECORD] {} | {} | {}", t.label, t.model, t.own ? "its own light replaced" : "had none");
+					}
+				}
+				continue;
+			}
 			const bool lit = t.always || (gEffectCoverage && gEffectCoverage->ModelLit(t.model));
 			if (lit && *t.slot) {
 				*t.slot = nullptr;
@@ -49,8 +67,10 @@ namespace Plugin
 				}
 			}
 		}
-		SKSE::log::info("projectile, explosion and hazard lights for the settings as they are: {} taken off, {} given back, {} followed",
-			nulled, restored, gEffectTargets.size());
+		SKSE::log::info(
+			"projectile, explosion and hazard lights for the settings as they are: {} taken off, {} pointed at a record light, {} given back, "
+			"{} followed",
+			nulled, recorded, restored, gEffectTargets.size());
 	}
 
 	// A projectile a Light-archetype effect fires (Magelight) IS the lamp that stays where it lands: it keeps the game's
@@ -80,7 +100,7 @@ namespace Plugin
 	void EffectLights(const Coverage& a_cov, std::string_view a_kind)
 	{
 		gEffectCoverage = &a_cov;
-		std::size_t scanned = 0, clean = 0, followed = 0, coneKept = 0, poison = 0, forced = 0, lamps = 0;
+		std::size_t                        scanned = 0, clean = 0, followed = 0, coneKept = 0, poison = 0, forced = 0, lamps = 0;
 		std::set<const RE::BGSProjectile*> lightSpells;
 		if constexpr (std::is_same_v<T, RE::BGSProjectile>) {
 			lightSpells = LightSpellProjectiles();
@@ -129,14 +149,18 @@ namespace Plugin
 			++scanned;
 			if (!form->data.light) {
 				++clean;
-				SKSE::log::info("[FX-CLEAN] {} {} | {}", a_kind, Label(form), model);
-				continue;
+				if (!RecordRoute()) {
+					SKSE::log::info("[FX-CLEAN] {} {} | {}", a_kind, Label(form), model);
+					continue;
+				}
+				// without Light Placer it is followed too: its model's record light is the first light it ever had
 			}
 			gEffectTargets.push_back({ &form->data.light, form->data.light, model, std::string(a_kind) + " " + Label(form), force || poisonSpray });
 			++followed;
 		}
-		SKSE::log::info("{} lights: {} lit or named seen; {} followed, {} already had none, {} cone/flame kept on purpose, "
-						"{} poison sprays, {} named, {} Light spell lamps kept",
+		SKSE::log::info(
+			"{} lights: {} lit or named seen; {} followed, {} had none of their own, {} cone/flame kept on purpose, "
+			"{} poison sprays, {} named, {} Light spell lamps kept",
 			a_kind, scanned, followed, clean, coneKept, poison, forced, lamps);
 	}
 
@@ -148,6 +172,7 @@ namespace Plugin
 	void RefreshLights()
 	{
 		const auto started = std::chrono::steady_clock::now();
+		ApplyRecordColors();
 		ApplyLightStrength(false);
 		ApplyStreamLights(false);  // switched off: the hand lights come back first, and pass 2 then has its say over them
 		ApplyCastingLights(false);

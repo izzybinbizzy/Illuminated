@@ -60,18 +60,19 @@ namespace Plugin
 
 	struct FixResult
 	{
-		std::size_t dropped{ 0 }, failed{ 0 };
+		std::size_t                dropped{ 0 }, failed{ 0 };
 		const RE::TESEffectShader* kept{ nullptr };
 	};
 
 	// One enchantment, the keep-the-first rule. `a_log` writes a row per moved effect.
 	FixResult FixEnchantment(RE::EnchantmentItem* a_ench, std::vector<Swap>& a_out, bool a_log)
 	{
-		FixResult r;
+		FixResult   r;
 		std::size_t lit = 0;
 		for (auto* eff : a_ench->effects) {
 			if (const auto* shader = LitShaderOf(eff)) {
-				if (!r.kept) r.kept = shader;
+				if (!r.kept)
+					r.kept = shader;
 				++lit;
 			}
 		}
@@ -117,7 +118,7 @@ namespace Plugin
 				gLitShaderNames[shader] = id;
 			}
 		}
-		std::size_t scanned = 0, fixed = 0, dropped = 0, failed = 0;
+		std::size_t     scanned = 0, fixed = 0, dropped = 0, failed = 0;
 		std::lock_guard lock(gSwapLock);
 		for (auto* ench : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::EnchantmentItem>()) {
 			if (!ench) {
@@ -132,8 +133,9 @@ namespace Plugin
 				SKSE::log::info("[ENCH-KEPT] {} | {} | {} other light(s) removed", Label(ench), gLitShaderNames[r.kept], r.dropped);
 			}
 		}
-		SKSE::log::info("enchantments: {} scanned, {} lit shader(s), {} fixed, {} effect(s) moved to {} unlit effect copies and {} "
-						"shader copies, {} failed",
+		SKSE::log::info(
+			"enchantments: {} scanned, {} lit shader(s), {} fixed, {} effect(s) moved to {} unlit effect copies and {} "
+			"shader copies, {} failed",
 			scanned, gLitShaders.size(), fixed, dropped, gQuietEffects.size(), gQuietShaders.size(), failed);
 	}
 
@@ -142,7 +144,7 @@ namespace Plugin
 	{
 		// timed on purpose: this walks every form in the game on each save and load, and whether that costs
 		// anything is a measurement, not a guess (see the log line below)
-		const auto started = std::chrono::steady_clock::now();
+		const auto                        started = std::chrono::steady_clock::now();
 		std::vector<RE::EnchantmentItem*> created;
 		{
 			const auto& [map, mapLock] = RE::TESForm::GetAllForms();
