@@ -26,11 +26,22 @@
 // Without Light Placer, passes 1 and 2 give the game's own light records Illuminated's lights instead of taking
 // theirs off (RecordLights.cpp).
 //
-// Where each part lives: main.cpp (this file) runs the passes in order; Plugin.h lists what the files
-// share; Text.cpp, EditorIDs.cpp, Configs.cpp, SprayMarkers.cpp and FormCopies.cpp are the helpers;
-// Settings.cpp holds the settings and Menu.cpp the menu pages (SKSEMenuFramework.h is that mod's own header);
-// CastingLights.cpp, EffectLights.cpp, PoisonRune.cpp, SprayLights.cpp and Enchantments.cpp are passes 1 to 5;
-// LightSettings.cpp is pass 0.
+// THE FILES, AND WHAT EACH ONE IS FOR
+//   main.cpp           this file - the passes in order, and the SKSE messages
+//   Plugin.h           what the files share; LightKit.h the small helpers RELight - Spell Addon carries too
+//   Text.cpp           lower case, paths, trimming, number parsing      EditorIDs.cpp  the passes' way to an editor ID
+//   Settings.cpp       the settings files, the INI and the game globals Menu.cpp       the menu pages
+//   DevBench.cpp       DevBench's inspect and control (optional)       Lighting.cpp   Community Shaders, ENB or Vanilla
+//   Configs.cpp        what the Light Placer configs light              FormCopies.cpp copies of forms, in memory
+//   LightSettings.cpp  pass 0      CastingLights.cpp  pass 1      EffectLights.cpp  pass 2 (and RefreshLights)
+//   PoisonRune.cpp     pass 3      SprayLights.cpp    pass 4      Enchantments.cpp  pass 5
+//   StreamLights.cpp   pass 6      VaerSwirls.cpp     pass 7      Wards.cpp         one dome per ward
+//   SprayMarkers.cpp   the spray settings                         LightCopies.cpp   the sliders, and every hook
+//   RecordLights.cpp   the game's own light records, lit without Light Placer
+//   Fade*.cpp, Fade*.h the fading module (identical in RELight - Spell Addon but for FadeConfig.h, FadeOwnLight.cpp
+//                      and FadeDevBench.cpp - PC Runner\fade copies check.py)
+//   SKSEMenuFramework.h, DevBenchAPI.*  those mods' own files; DevBenchGlue.h, MenuStyle.h, Translation.h are
+//                      shared word for word with our other plugins
 
 #include "Fade.h"
 #include "Plugin.h"
@@ -48,7 +59,7 @@ namespace
 		return REX::W32::GetModuleHandleA(kOtherPluginDll.data()) != nullptr;
 	}
 
-	void OnDataLoaded()
+	void LoadEverything()
 	{
 		const auto loadStarted = std::chrono::steady_clock::now();
 		if (OtherPluginLoaded()) {
@@ -62,6 +73,7 @@ namespace
 		ReadLighting();  // before pass 0: on ENB and Vanilla its lights are made plain
 		RegisterMenu();
 		Fade::OnDataLoaded();  // the fading module: lights follow charge and magicka (its own settings, rules, hooks, menu pages)
+		RegisterMenuTail();    // Praedy's Staves last, below the fading pages (his word 2026-10-09)
 		LightSettings();
 		MakeLightCopies();    // after pass 0 (the copies take its flags), before Light Placer reads its configs
 		VaerSwirls();         // pass 7: VAER Reborn's swirls - the settings are loaded by now (HIS CALL 2026-09-22)
@@ -75,6 +87,7 @@ namespace
 		if (cov.files == 0) {
 			SKSE::log::warn("no Illuminated configs were found under Data\\LightPlacer; nothing was changed");
 			StreamLights();  // pass 6: the lights that travel with a spray or a bolt, and its two hooks
+			RecordTablesReady();
 			return;
 		}
 		CastingLights(cov);
@@ -92,9 +105,24 @@ namespace
 		if (AnyLitShaders()) {
 			WatchCraftingMenu();
 		}
-		ForgetEditorIDs();
+		RecordTablesReady();          // last: the hooks installed earlier may read the record tables from here on
+		Fade::ForgetPassEditorIDs();  // the passes have run: only what a fading rule file can name stays
 		SKSE::log::info("done in {:.1f} ms",
 			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - loadStarted).count());
+	}
+
+	// an exception never leaves into the game: one thrown by the load work (a file it cannot read, memory) is logged, and
+	// the passes that already ran keep what they did
+	void OnDataLoaded()
+	{
+		try {
+			LoadEverything();
+		} catch (const std::exception& e) {
+			SKSE::log::critical(
+				"the data-load work stopped part way: {} - the passes before it keep their work, the rest is not done "
+				"this session",
+				e.what());
+		}
 	}
 
 	void OnMessage(SKSE::MessagingInterface::Message* a_msg)
@@ -104,6 +132,12 @@ namespace
 		}
 		switch (a_msg->type) {
 		case SKSE::MessagingInterface::kPostLoad:
+			Fade::OnPluginLoad();                        // the one editor-ID recorder (weapons, enchantments, magic effects), before the plugins load
+			Fade::RecordEditorIDs<RE::BGSProjectile>();  // and what the passes read besides
+			Fade::RecordEditorIDs<RE::BGSExplosion>();
+			Fade::RecordEditorIDs<RE::BGSHazard>();
+			Fade::RecordEditorIDs<RE::TESObjectLIGH>();
+			Fade::RecordEditorIDs<RE::TESEffectShader>();
 			OfferToDevBench();
 			Fade::OnPostLoad();
 			break;
@@ -114,7 +148,11 @@ namespace
 			// the save is written inside the call this message comes before; the copies return on the next frame
 			if (AnyLitShaders()) {
 				UseOriginals("saving");
-				SKSE::GetTaskInterface()->AddTask([]() { UseQuiet("save written"); });
+				if (auto* tasks = SKSE::GetTaskInterface()) {
+					tasks->AddTask([]() { UseQuiet("save written"); });
+				} else {
+					UseQuiet("save written");
+				}
 			}
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
@@ -142,14 +180,7 @@ namespace
 SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
 	SKSE::Init(a_skse, { .trampoline = true, .trampolineSize = 128 });
-	Fade::OnPluginLoad();  // the fading module: editor IDs recorded before the plugins load
-	EditorIDHook<RE::EffectSetting>::Install();
-	EditorIDHook<RE::BGSProjectile>::Install();
-	EditorIDHook<RE::BGSExplosion>::Install();
-	EditorIDHook<RE::BGSHazard>::Install();
-	EditorIDHook<RE::TESObjectLIGH>::Install();
-	EditorIDHook<RE::TESEffectShader>::Install();
-	EditorIDHook<RE::EnchantmentItem>::Install();
+	// the editor-ID recorders are installed at SKSE's post-load (OnMessage), still before the game reads its plugins
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
 	SKSE::log::info("Illuminated plugin loaded; waiting for the game's data");
 	return true;

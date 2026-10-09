@@ -90,13 +90,9 @@ namespace Fade
 
 		json SettingValue(std::string_view a_key)
 		{
-			const auto s = Config();
-			for (const auto& k : SettingsText::kKeys) {
-				if (std::string_view(k.name) == a_key) {
-					return k.get(s);
-				}
-			}
-			return nullptr;
+			// the same case-insensitive lookup Fading.ini and ApplySetting use (the re-score: this one matched case-sensitively)
+			const auto* k = SettingsText::Find(a_key);
+			return k ? json(k->get(Config())) : json(nullptr);
 		}
 
 		json RulesNow()

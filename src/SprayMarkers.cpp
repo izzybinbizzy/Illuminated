@@ -11,33 +11,36 @@
 namespace Plugin
 {
 	// ------------------------------------------------------------------ the spray markers
-	std::map<std::string, std::string> ReadMarkerValues(std::string_view a_values)
+	namespace
 	{
-		std::map<std::string, std::string> out;
-		std::size_t                        start = 0;
-		while (start <= a_values.size()) {
-			const auto end = a_values.find(';', start);
-			const auto t = Trim(a_values.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start));
-			if (const auto eq = t.find('='); !t.empty() && t[0] != '#' && eq != std::string::npos && eq > 0) {
-				out[Lower(Trim(t.substr(0, eq)))] = Trim(t.substr(eq + 1));
+		std::map<std::string, std::string> ReadMarkerValues(std::string_view a_values)
+		{
+			std::map<std::string, std::string> out;
+			std::size_t                        start = 0;
+			while (start <= a_values.size()) {
+				const auto end = a_values.find(';', start);
+				const auto t = Trim(a_values.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start));
+				if (const auto eq = t.find('='); !t.empty() && t[0] != '#' && eq != std::string::npos && eq > 0) {
+					out[Lower(Trim(t.substr(0, eq)))] = Trim(t.substr(eq + 1));
+				}
+				if (end == std::string_view::npos) {
+					break;
+				}
+				start = end + 1;
 			}
-			if (end == std::string_view::npos) {
-				break;
-			}
-			start = end + 1;
+			return out;
 		}
-		return out;
-	}
 
-	bool ParseRgb(std::string_view a_text, Rgb& a_out)
-	{
-		const auto c1 = a_text.find(',');
-		const auto c2 = c1 == std::string_view::npos ? c1 : a_text.find(',', c1 + 1);
-		if (c1 == std::string_view::npos || c2 == std::string_view::npos) {
-			return false;
+		bool ParseRgb(std::string_view a_text, Rgb& a_out)
+		{
+			const auto c1 = a_text.find(',');
+			const auto c2 = c1 == std::string_view::npos ? c1 : a_text.find(',', c1 + 1);
+			if (c1 == std::string_view::npos || c2 == std::string_view::npos) {
+				return false;
+			}
+			return ParseInt(a_text.substr(0, c1), a_out.r) && ParseInt(a_text.substr(c1 + 1, c2 - c1 - 1), a_out.g) &&
+			       ParseInt(a_text.substr(c2 + 1), a_out.b);
 		}
-		return ParseInt(a_text.substr(0, c1), a_out.r) && ParseInt(a_text.substr(c1 + 1, c2 - c1 - 1), a_out.g) &&
-		       ParseInt(a_text.substr(c2 + 1), a_out.b);
 	}
 
 	SprayChoice ReadSprayChoice()
@@ -58,25 +61,32 @@ namespace Plugin
 			sc.found += "on ";
 			int   n = 0;
 			float f = 0.0f;
-			if (ParseInt(kv["radiuspc"], n) && n > 0)
+			if (ParseInt(kv["radiuspc"], n) && n > 0) {
 				sc.radiusPc = n;
-			if (ParseInt(kv["radius"], n) && n >= 0)
+			}
+			if (ParseInt(kv["radius"], n) && n >= 0) {
 				sc.radiusAbs = n;
-			if (ParseFloat(kv["fade"], f))
+			}
+			if (ParseFloat(kv["fade"], f)) {
 				sc.fade = f;
-			if (ParseFloat(kv["frostfade"], f))
+			}
+			if (ParseFloat(kv["frostfade"], f)) {
 				sc.frostFade = f;
-			if (ParseFloat(kv["falloff"], f))
+			}
+			if (ParseFloat(kv["falloff"], f)) {
 				sc.falloff = f;
+			}
 		}
 		for (auto& [name, kv] : markers) {
 			float f = 0.0f;
 			if (name == "illuminated sprays - reduced.txt") {
 				sc.found += "reduced ";
-				if (ParseFloat(kv["fade"], f))
+				if (ParseFloat(kv["fade"], f)) {
 					sc.fade = f;
-				if (ParseFloat(kv["frostfade"], f))
+				}
+				if (ParseFloat(kv["frostfade"], f)) {
 					sc.frostFade = f;
+				}
 			} else if (name == "illuminated sprays - frost.txt" && ParseRgb(kv["frost"], sc.frost)) {
 				sc.frostSet = true;
 				sc.found += "frost ";

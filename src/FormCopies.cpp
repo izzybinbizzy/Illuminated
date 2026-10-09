@@ -11,7 +11,7 @@ namespace Plugin
 	// ------------------------------------------------------------------ making copies in memory
 	RE::TESObjectLIGH* CopyLight(const RE::TESObjectLIGH* a_src)
 	{
-		auto* out = NewForm<RE::TESObjectLIGH>();
+		auto* out = a_src ? NewForm<RE::TESObjectLIGH>() : nullptr;
 		if (!out) {
 			return nullptr;
 		}
@@ -26,7 +26,7 @@ namespace Plugin
 
 	RE::TESEffectShader* CopyShader(const RE::TESEffectShader* a_src)
 	{
-		auto* out = NewForm<RE::TESEffectShader>();
+		auto* out = a_src ? NewForm<RE::TESEffectShader>() : nullptr;
 		if (!out) {
 			return nullptr;
 		}
@@ -41,7 +41,7 @@ namespace Plugin
 
 	RE::EffectSetting* CopyEffect(RE::EffectSetting* a_src)
 	{
-		auto* out = NewForm<RE::EffectSetting>();
+		auto* out = a_src ? NewForm<RE::EffectSetting>() : nullptr;
 		if (!out) {
 			return nullptr;
 		}

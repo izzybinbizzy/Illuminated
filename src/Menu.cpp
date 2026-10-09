@@ -14,7 +14,10 @@
 #endif
 #include "Plugin.h"
 
+// SKSE Menu Framework's own header (theirs, MIT): its warnings are not ours, and ours are errors (xmake.lua)
+#pragma warning(push, 0)
 #include "SKSEMenuFramework.h"
+#pragma warning(pop)
 #include "Translation.h"
 #include "MenuStyle.h"
 
@@ -24,11 +27,38 @@ namespace Plugin
 	{
 		constexpr std::size_t    kMaxPages = 24;
 		std::vector<std::string> gPages;
-		std::string              gCSLight;  // the CS Light plugin that is loaded, if one is
+		// his word 2026-10-09: "put praedy staves last" - after the fading module's pages too (RegisterMenuTail)
+		constexpr std::string_view kLastPage = "Praedy's Staves";
+		std::string                gCSLight;  // the CS Light plugin that is loaded, if one is
 
 		const ImGuiMCP::ImVec4 kWarn{ 1.0f, 0.72f, 0.3f, 1.0f };
 		// every shown line goes through T(): Translation.json beside Settings.txt (lagen.py writes the English one)
 		using Translation::T;
+
+		// HIS MENU OF 2026-10-09 ~11:05: "Default to ENB Light Settings" sits under the Lighting pick and is "greyed out if enb
+		// is not selected" - on while the pick is ENB, or Found by itself and the game was found to be ENB
+		constexpr std::string_view kLightingId = "IlluminatedLighting";
+		constexpr std::string_view kYieldENBId = "IlluminatedYieldENBLight";
+		constexpr int              kLightingChoiceENB = 2;     // lagen.py EXTRA_SETTINGS: Found by itself, Community Shaders, ENB, Vanilla
+		constexpr std::string_view kVersionGroup = "Version";  // lagen.py: the Lighting pick's heading, first on Lights
+
+		bool EnbPicked()
+		{
+			const int pick = SettingValue(kLightingId, 0);
+			return pick == kLightingChoiceENB || (pick == 0 && LightingPick() == Lighting::kEnb);
+		}
+
+		// the hover text: the setting's own tip, and a restart-only setting says so there (no line of text under it - his
+		// word 2026-10-09: "all of the subtext in lights menu is not needed")
+		void SettingTip(const Setting& a_s, std::size_t a_tip)
+		{
+			const char* tip = a_tip < a_s.tips.size() && !a_s.tips[a_tip].empty() ? T(a_s.tips[a_tip].c_str()) : "";
+			if (a_s.restart) {
+				ImGuiMCP::SetItemTooltip("%s%s%s", tip, *tip ? "\n" : "", T("(takes effect the next time the game starts)"));
+			} else if (*tip) {
+				ImGuiMCP::SetItemTooltip("%s", tip);
+			}
+		}
 
 		void DrawSetting(std::size_t a_index, Setting& a_s)
 		{
@@ -38,10 +68,12 @@ namespace Plugin
 				ImGuiMCP::PopID();
 				return;
 			}
+			const bool greyed = a_s.id == kYieldENBId && !EnbPicked();
+			ImGuiMCP::BeginDisabled(greyed);
 			if (a_s.isSlider) {
 				// the slider moves freely while it is held; the value is saved, on its step, when it is let go
 				static std::unordered_map<std::size_t, int> held;
-				int                                         v = held.contains(a_index) ? held[a_index] : a_s.value;
+				int                                         v = held.contains(a_index) ? held[a_index] : a_s.value.load();
 				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, "%d%%");
 				v = AllowedValue(a_s, v);
 				if (ImGuiMCP::IsItemActive()) {
@@ -55,35 +87,25 @@ namespace Plugin
 						SetSetting(a_index, v);
 					}
 				}
-				if (!a_s.tips.empty() && !a_s.tips[0].empty()) {
-					ImGuiMCP::SetItemTooltip("%s", T(a_s.tips[0].c_str()));
-				}
+				SettingTip(a_s, 0);
 			} else if (a_s.isChoice) {
 				std::vector<const char*> items;
 				for (const auto& c : a_s.choices) {
 					items.push_back(T(c.c_str()));
 				}
-				int v = a_s.value;
+				int v = a_s.value.load();
 				if (ImGuiMCP::Combo(T(a_s.label.c_str()), &v, items.data(), static_cast<int>(items.size()))) {
 					SetSetting(a_index, v);
 				}
-				const auto shown = static_cast<std::size_t>(std::clamp(a_s.value, 0, static_cast<int>(a_s.tips.size()) - 1));
-				if (!a_s.tips.empty() && !a_s.tips[shown].empty()) {
-					ImGuiMCP::SetItemTooltip("%s", T(a_s.tips[shown].c_str()));
-				}
+				SettingTip(a_s, static_cast<std::size_t>(std::clamp(a_s.value.load(), 0, std::max(0, static_cast<int>(a_s.tips.size()) - 1))));
 			} else {
 				bool on = a_s.value != 0;
 				if (ImGuiMCP::Checkbox(T(a_s.label.c_str()), &on)) {
 					SetSetting(a_index, on ? 1 : 0);
 				}
-				if (!a_s.tips.empty() && !a_s.tips[0].empty()) {
-					ImGuiMCP::SetItemTooltip("%s", T(a_s.tips[0].c_str()));
-				}
+				SettingTip(a_s, 0);
 			}
-			if (a_s.restart) {
-				ImGuiMCP::SameLine();
-				ImGuiMCP::TextDisabled("%s", T("(takes effect the next time the game starts)"));
-			}
+			ImGuiMCP::EndDisabled();
 			ImGuiMCP::PopID();
 		}
 
@@ -138,6 +160,39 @@ namespace Plugin
 			}
 		}
 
+		// HIS MENU OF 2026-10-09: "soul gems needs to have 1 submenu with praedy's in the dropdown along with vanilla and none".
+		// The two settings the installers made stay (the configs' conditions read both); the menu shows them as ONE pick:
+		// None = no soul gem lights, Vanilla = the vanilla gems, Praedy's = the vanilla gems + Praedy's (offered only with
+		// Praedy's SoulGems.esp loaded, as its own switch was).
+		constexpr std::string_view kSoulGems = "IlluminatedSoulGems";
+		constexpr std::string_view kPraedysGems = "IlluminatedPraedys";
+
+		void DrawSoulGems(std::size_t a_gems, const Setting& a_s)
+		{
+			auto&       settings = Settings();
+			std::size_t praedy = settings.size();
+			for (std::size_t i = 0; i < settings.size(); ++i) {
+				if (settings[i].id == kPraedysGems) {
+					praedy = i;
+				}
+			}
+			const bool  withPraedy = praedy < settings.size() && SettingAvailable(settings[praedy]);
+			const char* items[] = { T("None"), T("Vanilla"), T("Praedy's") };
+			int         v = a_s.value == 0 ? 0 : (withPraedy && settings[praedy].value != 0) ? 2 :
+			                                                                                   1;
+			ImGuiMCP::PushID(static_cast<int>(a_gems));
+			if (ImGuiMCP::Combo(T("Soul gems"), &v, items, withPraedy ? 3 : 2)) {
+				SetSetting(a_gems, v == 0 ? 0 : 1);
+				if (withPraedy) {
+					SetSetting(praedy, v == 2 ? 1 : 0);
+				}
+			}
+			ImGuiMCP::SetItemTooltip("%s", T("Which soul gems glow. Vanilla uses one mesh for a full gem and an empty one, so empty gems "
+											 "stay dark. Praedy's: Praedy's Soul Gems, meshes and all (delete Soulgems.json from the "
+											 "Subtle Soul Gems mod folder if you have it)."));
+			ImGuiMCP::PopID();
+		}
+
 		void DrawPage(std::size_t a_page)
 		{
 			if (a_page >= gPages.size()) {
@@ -145,31 +200,25 @@ namespace Plugin
 			}
 			const MenuStyle::Page style;
 			const auto&           page = gPages[a_page];
-			if (a_page == 0) {
-				ImGuiMCP::TextColored(MenuStyle::kMuted, T("Lighting: %s"), T(LightingName(LightingPick())));
-				if (!InverseSquare()) {
-					ImGuiMCP::TextWrapped("%s", T("Lights are drawn by the game's own lighting: each reaches as far as it does with "
-												  "Community Shaders' inverse square lighting. Reach and Brightness still apply."));
+			// HIS MENU OF 2026-10-09 ~11:05: "start the menu with (lightbulb) Presets", and "all of the subtext in lights menu is
+			// not needed" - the status lines that stood here are gone (the Lighting pick shows what is in use; devbench and the
+			// log still say it); CS Light loaded stays one warning line, its how-to in the hover text
+			// 🔁 HIS WORD 2026-10-09 ~11:40: the Version heading (the Lighting pick + "Default to ENB Light Settings") "goes before
+			// presets as the first thing in the menu" - Presets is drawn when the first heading after Version starts
+			bool       presetsDrawn = a_page != 0;
+			const auto presets = [&] {
+				if (presetsDrawn) {
+					return;
 				}
-				if (RecordRoute()) {
-					ImGuiMCP::TextWrapped("%s", T("Light Placer is not loaded: Illuminated gives each spell's own hand, bolt, explosion and "
-												  "hazard light its color and reach instead. Brightness and Reach apply from the next cast."));
-					ImGuiMCP::TextColored(MenuStyle::kMuted, T("Spells lit automatically (from mods without a patch): %d"),
-						static_cast<int>(AutoCastingCount()));
-				}
-				ImGuiMCP::Separator();
-			}
-			if (a_page == 0 && !gCSLight.empty()) {
-				ImGuiMCP::TextColored(kWarn, T("%s is loaded."), gCSLight.c_str());
-				ImGuiMCP::TextWrapped("%s", T("Illuminated does not need CS Light. If you keep CS Light for its world lights, untick its Magic FX, "
-											  "Mysticsm, Bound Weapons, Praedy Staves, Regular soulgems, Spiders, Misc Effects and Dwarven "
-											  "Spiders options in its own installer, or those lights glow twice."));
-				ImGuiMCP::Separator();
-			}
-			if (a_page == 0) {
-				MenuStyle::Note(T("Changes show in game within a second."));
+				presetsDrawn = true;
 				DrawPresets();
-			}
+				if (!gCSLight.empty()) {
+					ImGuiMCP::TextColored(kWarn, T("%s is loaded."), gCSLight.c_str());
+					ImGuiMCP::SetItemTooltip("%s", T("Illuminated does not need CS Light. If you keep CS Light for its world lights, untick its "
+													 "Magic FX, Mysticsm, Bound Weapons, Praedy Staves, Regular soulgems, Spiders, Misc Effects "
+													 "and Dwarven Spiders options in its own installer, or those lights glow twice."));
+				}
+			};
 			std::string group;
 			auto&       settings = Settings();
 			for (const auto& n : Notes()) {
@@ -183,12 +232,23 @@ namespace Plugin
 				if (s.page != page) {
 					continue;
 				}
+				if (s.id == kPraedysGems) {
+					continue;  // drawn inside the one soul gem pick
+				}
 				if (s.group != group) {
+					if (s.group != kVersionGroup) {
+						presets();
+					}
 					group = s.group;
 					MenuStyle::Header(MenuStyle::Icon::kBulb, T(group.c_str()));
 				}
+				if (s.id == kSoulGems) {
+					DrawSoulGems(i, s);
+					continue;
+				}
 				DrawSetting(i, s);
 			}
+			presets();
 		}
 
 		template <std::size_t I>
@@ -227,10 +287,29 @@ namespace Plugin
 			gPages.resize(kMaxPages);
 		}
 		MenuStyle::gTheme = MenuStyle::MakeTheme(0xFFC94D);  // candle gold
-		SKSEMenuFramework::SetSection(T(std::string(kOurFolder).c_str()));
+		// the framework may keep the pointer: the text lives for the whole session (a temporary's c_str() would dangle)
+		static const std::string kSection(kOurFolder);
+		SKSEMenuFramework::SetSection(T(kSection.c_str()));
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
-			SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
+			if (gPages[i] != kLastPage) {
+				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
+			}
 		}
 		SKSE::log::info("menu: {} page(s) added to SKSE Menu Framework {}", gPages.size(), SKSEMenuFramework::GetMenuFrameworkVersion());
+	}
+
+	// after the fading module's pages: the last page goes at the bottom of the section
+	void RegisterMenuTail()
+	{
+		if (!SKSEMenuFramework::IsInstalled()) {
+			return;
+		}
+		static const std::string kSection(kOurFolder);
+		for (std::size_t i = 0; i < gPages.size(); ++i) {
+			if (gPages[i] == kLastPage) {
+				SKSEMenuFramework::SetSection(T(kSection.c_str()));
+				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
+			}
+		}
 	}
 }

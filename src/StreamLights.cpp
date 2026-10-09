@@ -57,8 +57,7 @@ namespace Plugin
 		constexpr float       kRadiusOfStep = 1.4f;  // each light reaches a little past the next step
 		constexpr float       kShortestStream = 120.0f;
 		constexpr const char* kLightName = "IlluminatedStream";
-		constexpr float       kLightSize = 1.414f;   // the light's size, which lives in the radius' z (from ReLight)
-		constexpr float       kFieldOfView = 90.0f;  // what a light that casts no shadow is given (from ReLight)
+		constexpr float       kLightSize = LightKit::kLightSize;  // the light's size, which lives in the radius' z (from ReLight)
 		// rule 2: a flame spray's one light sits this far out (half the range for a short spray) and reaches from there
 		// to the end of the spray and a little past, never less than the shortest reach
 		constexpr float kFlameForward = 128.0f;
@@ -67,31 +66,11 @@ namespace Plugin
 		// rule 3: a beam's light rides the tip, on this node when the mesh has it
 		constexpr float       kBeamRadius = 420.0f;
 		constexpr const char* kBeamNode = "BeamEnd";
-		// rule 4: the house K, 0.8 * 69.99² - the same number gen.py writes every config's cutoff from
-		constexpr float kK = 3918.88f;
-		constexpr float kLowestCutoff = 0.01f, kHighestCutoff = 0.99f;
+		// rule 4: the house K, 0.8 * 69.99² - the same number gen.py writes every config's cutoff from (LightKit.h)
+		using LightKit::kK;
+		constexpr float kLowestCutoff = LightKit::Isl::kLowestCutoff;
 		// no one projectile base keeps more than this many of its refs lit at a time
 		constexpr std::size_t kMaxLivePerBase = 4;
-
-		// one master light, made once and cloned for every use: ReLight found that a freshly made light, attached
-		// straight away, crashes
-		RE::NiPointer<RE::NiPointLight> gMaster;
-
-		RE::NiPointLight* CloneMaster()
-		{
-			if (!gMaster) {
-				const RE::NiPointer<RE::NiPointLight> fresh(RE::NiPointLight::Create());  // let go once cloned
-				if (!fresh) {
-					return nullptr;
-				}
-				auto* clone = netimmerse_cast<RE::NiPointLight*>(fresh->Clone());
-				if (!clone) {
-					return nullptr;
-				}
-				gMaster.reset(clone);
-			}
-			return netimmerse_cast<RE::NiPointLight*>(gMaster->Clone());
-		}
 
 		struct Recipe
 		{
@@ -106,39 +85,45 @@ namespace Plugin
 			RE::NiColor color{ 1.0f, 1.0f, 1.0f };
 		};
 
-		std::unordered_map<RE::FormID, Recipe>                                     gRecipes;    // projectile base form -> what to hang on it
-		std::unordered_map<RE::FormID, RE::TESObjectLIGH*>                         gHandLight;  // its own light, to give back
-		std::unordered_map<std::uint32_t, std::vector<RE::NiPointer<RE::BSLight>>> gLive;       // live 3D -> the lights this pass made
-		// the live count, by projectile BASE rather than by reference: a held spray key spawns a new reference
-		// several times a second, and it is the base that has to be capped
-		std::unordered_map<RE::FormID, RE::FormID>                      gLiveBase;   // live reference -> its base form
-		std::unordered_map<RE::FormID, std::size_t>                     gLiveCount;  // base form -> how many of its references are lit
-		std::unordered_map<RE::FormID, RE::NiPointer<RE::NiPointLight>> gLiveNi;     // live reference -> its first NiPointLight
-		std::mutex                                                      gLiveLock;
-		// rule 5: what a loader thread built or released, waiting for the main thread (under gLiveLock)
-		std::vector<RE::ObjectRefHandle> gToHang;
-		std::vector<RE::FormID>          gToDrop;
-		bool                             gTaken = false;  // the hand lights are off right now
+		std::unordered_map<RE::FormID, Recipe>             gRecipes;    // projectile base form -> what to hang on it
+		std::unordered_map<RE::FormID, RE::TESObjectLIGH*> gHandLight;  // its own light, to give back
 
-		// fire, frost or shock, read from the editor ID the way the spray pass reads it
-		std::string StreamFamily(const std::string& a_editorID)
+		// One lit projectile, keyed by its 3D ROOT, not its reference ID: a projectile's reference is temporary and the game
+		// hands its ID to a new one, so an ID-keyed entry could be taken for the new projectile or dropped by the old one's
+		// late release. The root is held here, so its address is never another 3D's while it is listed (the re-score's
+		// Illuminated issue 3).
+		struct Live
+		{
+			RE::NiPointer<RE::NiAVObject>           root;
+			RE::FormID                              base{ 0 };
+			std::vector<RE::NiPointer<RE::BSLight>> lights;
+		};
+		std::unordered_map<const RE::NiAVObject*, Live> gLive;
+		// the live count, by projectile BASE rather than by reference: a held spray key spawns a new reference several times
+		// a second, and it is the base that has to be capped
+		std::unordered_map<RE::FormID, std::size_t> gLiveCount;
+		std::mutex                                  gLiveLock;
+		// rule 5: what a loader thread built or released, waiting for the main thread (under gLiveLock). The reference is
+		// held (it is refcounted) - never a handle made off the main thread (the fading module's rule; re-score issue 2)
+		std::vector<RE::NiPointer<RE::TESObjectREFR>> gToHang;
+		std::vector<const RE::NiAVObject*>            gToDrop;
+		std::uint32_t                                 gSweepClock = 0;  // frames since the last sweep (main thread)
+		bool                                          gTaken = false;   // the hand lights are off right now
+
+		// fire, frost or shock, read from the editor ID (the spray pass's words, and spark / storm for the shock streams)
+		Family StreamFamily(std::string_view a_editorID)
 		{
 			const auto id = Lower(a_editorID);
 			if (Contains(id, "frost") || Contains(id, "ice")) {
-				return "frost";
+				return Family::kFrost;
 			}
 			if (Contains(id, "flame") || Contains(id, "fire")) {
-				return "fire";
+				return Family::kFire;
 			}
 			if (Contains(id, "shock") || Contains(id, "lightning") || Contains(id, "spark") || Contains(id, "storm")) {
-				return "shock";
+				return Family::kShock;
 			}
-			return {};
-		}
-
-		bool StreamLightsOn()
-		{
-			return SettingValue(kStreamSetting, 0) != 0;
+			return Family::kNone;
 		}
 
 		// every ward belongs to Dynamic Wards: when that mod is here, this pass does not light a ward
@@ -182,41 +167,39 @@ namespace Plugin
 			return { a_light->data.color.red / 255.0f, a_light->data.color.green / 255.0f, a_light->data.color.blue / 255.0f };
 		}
 
-		// ------------------------------------------------------------------ forgetting one live reference
-		// gLiveLock is held by every caller.
-		void Forget(RE::FormID a_ref, RE::ShadowSceneNode* a_scene)
+		// ------------------------------------------------------------------ forgetting one live projectile
+		// gLiveLock is held by every caller; the main thread's (the scene node is touched)
+		void Forget(const RE::NiAVObject* a_root, RE::ShadowSceneNode* a_scene)
 		{
-			if (const auto it = gLive.find(a_ref); it != gLive.end()) {
-				if (a_scene) {
-					for (auto& bs : it->second) {
-						if (bs) {
-							a_scene->RemoveLight(bs);
-						}
+			const auto it = gLive.find(a_root);
+			if (it == gLive.end()) {
+				return;
+			}
+			if (a_scene) {
+				for (auto& bs : it->second.lights) {
+					if (bs) {
+						a_scene->RemoveLight(bs);
 					}
 				}
-				gLive.erase(it);
 			}
-			if (const auto it = gLiveBase.find(a_ref); it != gLiveBase.end()) {
-				if (const auto c = gLiveCount.find(it->second); c != gLiveCount.end() && c->second) {
-					--c->second;
-				}
-				gLiveBase.erase(it);
+			if (const auto c = gLiveCount.find(it->second.base); c != gLiveCount.end() && c->second) {
+				--c->second;
 			}
-			gLiveNi.erase(a_ref);
+			gLive.erase(it);  // the last reference to the projectile's 3D may go here, on the main thread
 		}
 
-		// the sweep (RE::Light's rule): a light whose parent is gone has left the scene, so its reference is not live
-		// gLiveLock is held by the caller.
+		// the sweep: a projectile 3D the game has taken out of the world (no parent) is not live, whether or not its release
+		// reached this pass. gLiveLock is held by the caller.
 		std::size_t SweepGone(RE::ShadowSceneNode* a_scene)
 		{
-			std::vector<RE::FormID> gone;
-			for (const auto& [ref, light] : gLiveNi) {
-				if (!light || !light->parent) {
-					gone.push_back(ref);
+			std::vector<const RE::NiAVObject*> gone;
+			for (const auto& [root, live] : gLive) {
+				if (!live.root || !live.root->parent) {
+					gone.push_back(root);
 				}
 			}
-			for (const auto ref : gone) {
-				Forget(ref, a_scene);
+			for (const auto* root : gone) {
+				Forget(root, a_scene);
 			}
 			return gone.size();
 		}
@@ -269,9 +252,9 @@ namespace Plugin
 			// the cap, before any light is made
 			{
 				std::lock_guard l{ gLiveLock };
-				if (gLive.find(a_ref->GetFormID()) != gLive.end()) {
+				if (gLive.contains(root)) {  // keyed by the 3D itself: this very 3D already carries our lights
 					++gAlready;
-					Told("this reference is already lit", a_ref);
+					Told("this projectile is already lit", a_ref);
 					return;
 				}
 				if (gLiveCount[base->GetFormID()] >= kMaxLivePerBase) {
@@ -297,9 +280,8 @@ namespace Plugin
 			const float                             radius = (isl ? r.radius : plain.radius) * Percent("IlluminatedReach");
 			const float                             fade = (isl ? r.fade : plain.fade) * Percent("IlluminatedBrightness");
 			std::vector<RE::NiPointer<RE::BSLight>> made;
-			RE::NiPointLight*                       first = nullptr;
 			for (std::size_t i = 0; i < r.lights; ++i) {
-				auto* light = CloneMaster();
+				auto* light = LightKit::CloneLight();  // ReLight's master-and-clone (LightKit.h)
 				if (!light) {
 					break;
 				}
@@ -309,7 +291,7 @@ namespace Plugin
 				data.fade = fade;
 				// x and y are the reach; z carries the light's SIZE, not a third radius (ReLight and Light Placer both do this)
 				data.radius = { radius, radius, kLightSize };
-				// no ambient colour with inverse square lighting: Community Shaders reuses those fields. Without it a new light's
+				// no ambient color with inverse square lighting: Community Shaders reuses those fields. Without it a new light's
 				// ambient is white, so it takes RE::Light's rule (Truman): a tenth of the diffuse (Dynamic Wards does the same)
 				// without this a light has no attenuation of its own and never brightens anything (Light Placer does it too)
 				light->SetLightAttenuation(radius);
@@ -318,10 +300,8 @@ namespace Plugin
 				}
 				// rule 4: inverse square flag and cutoff, after SetLightAttenuation - Community Shaders only
 				if (isl) {
-					auto* words = reinterpret_cast<std::uint32_t*>(&data);
-					words[0] |= 1u << 10;  // kInverseSquare
-					words[1] = std::bit_cast<std::uint32_t>(
-						std::clamp(kK * fade / (radius * radius + kLightSize * kLightSize), kLowestCutoff, kHighestCutoff));
+					LightKit::Isl::SetOn(light);
+					LightKit::Isl::SetCutoff(light, LightKit::CutoffFor(fade, radius, kLightSize));
 				}
 				light->local.translate = { 0.0f, r.gap * static_cast<float>(i + 1), 0.0f };
 				light->local.scale = 1.0f;
@@ -329,25 +309,8 @@ namespace Plugin
 				// give it a world position now, rather than waiting for whatever updates the projectile next
 				RE::NiUpdateData update{};
 				light->Update(update);
-				RE::ShadowSceneNode::LIGHT_CREATE_PARAMS params{};
-				params.dynamic = true;
-				params.shadowLight = false;
-				params.portalStrict = true;
-				params.affectLand = true;
-				params.affectWater = true;
-				params.neverFades = true;
-				params.fov = kFieldOfView;
-				params.falloff = r.falloff;
-				params.nearDistance = 5.0f;
-				params.depthBias = 1.0f;
-				params.sceneGraphIndex = 0;
-				params.restrictedNode = nullptr;
-				params.lensFlareData = nullptr;
-				if (auto* bs = scene->AddLight(light, params)) {
+				if (auto* bs = LightKit::AddToScene(scene, light, r.falloff)) {
 					made.emplace_back(bs);
-					if (!first) {
-						first = light;
-					}
 				} else {
 					parent->DetachChild(light);
 				}
@@ -367,25 +330,25 @@ namespace Plugin
 				return;
 			}
 			std::lock_guard l{ gLiveLock };
-			auto&           kept = gLive[a_ref->GetFormID()];
-			kept.insert(kept.end(), made.begin(), made.end());
-			gLiveBase[a_ref->GetFormID()] = base->GetFormID();
+			gLive.emplace(root, Live{ RE::NiPointer<RE::NiAVObject>(root), base->GetFormID(), std::move(made) });
 			++gLiveCount[base->GetFormID()];
-			if (first) {
-				gLiveNi[a_ref->GetFormID()] = RE::NiPointer<RE::NiPointLight>(first);
-			}
 		}
 
+		// called before the game releases the reference's 3D, so its root is still there to find the entry by
 		void DropLights(RE::TESObjectREFR* a_ref)
 		{
-			if (!a_ref) {
+			const auto* root = a_ref ? a_ref->Get3D() : nullptr;
+			if (!root) {
 				return;
 			}
 			std::lock_guard l{ gLiveLock };
+			if (!gLive.contains(root)) {
+				return;
+			}
 			if (OnMainThread()) {
-				Forget(a_ref->GetFormID(), SceneNode());
+				Forget(root, SceneNode());
 			} else {
-				gToDrop.push_back(a_ref->GetFormID());
+				gToDrop.push_back(root);  // the entry holds the root, so the address stays this 3D's until the main thread drops it
 			}
 		}
 
@@ -401,7 +364,7 @@ namespace Plugin
 					HangLights(a_this, object);
 				} else if (object) {
 					std::lock_guard l{ gLiveLock };
-					gToHang.push_back(a_this->CreateRefHandle());
+					gToHang.emplace_back(a_this);  // held by its refcount, no handle made on this thread
 				}
 				return object;
 			}
@@ -432,13 +395,18 @@ namespace Plugin
 		};
 	}
 
+	bool StreamLightsOn()
+	{
+		return SettingValue(kStreamSetting, 0) != 0;
+	}
+
 	// ------------------------------------------------------------------ wards: one light where the dome sits
 	// every ward belongs to Dynamic Wards: this lights a ward only when Dynamic Wards is not installed. The
 	// color is the ward's own light when it has one, else the pale blue-white of the vanilla dome.
 	void WardLights()
 	{
 		std::size_t wards = 0, colored = 0;
-		for (auto* proj : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::BGSProjectile>()) {
+		for (auto* proj : LightKit::FormsOf<RE::BGSProjectile>()) {
 			if (!proj || !proj->data.types.any(RE::BGSProjectileData::Type::kBarrier)) {
 				continue;
 			}
@@ -471,7 +439,7 @@ namespace Plugin
 		gHandLight.clear();
 		const auto  sc = ReadSprayChoice();
 		std::size_t cones = 0, beams = 0, flames = 0, skipped = 0;
-		for (auto* proj : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::BGSProjectile>()) {
+		for (auto* proj : LightKit::FormsOf<RE::BGSProjectile>()) {
 			if (!proj) {
 				continue;
 			}
@@ -515,7 +483,7 @@ namespace Plugin
 			}
 			r.falloff = sc.falloff > 0.0f ? sc.falloff : 2.0f;
 			const auto family = StreamFamily(id);
-			r.fade = family == "frost" ? sc.frostFade : sc.fade;
+			r.fade = family == Family::kFrost ? sc.frostFade : sc.fade;
 			if (r.fade <= 0.0f) {
 				r.fade = 1.0f;
 			}
@@ -523,9 +491,9 @@ namespace Plugin
 				// no further than one light of this fade carries (rule 4 at the lowest cutoff): a dragon's breath ranges 3000
 				r.radius = std::clamp((range - r.gap) * kFlameEndReach, kFlameShortestReach, std::sqrt(kK * r.fade / kLowestCutoff));
 			}
-			if (family == "frost" && sc.frostSet) {
+			if (family == Family::kFrost && sc.frostSet) {
 				r.color = { sc.frost.r / 255.0f, sc.frost.g / 255.0f, sc.frost.b / 255.0f };
-			} else if (family == "shock" && sc.shockSet) {
+			} else if (family == Family::kShock && sc.shockSet) {
 				r.color = { sc.shock.r / 255.0f, sc.shock.g / 255.0f, sc.shock.b / 255.0f };
 			} else {
 				r.color = ColorOf(proj->data.light);
@@ -564,22 +532,29 @@ namespace Plugin
 	// rule 5: once a frame, on the main thread - what the loader threads left to do
 	void StreamLightsFrame()
 	{
-		std::vector<RE::ObjectRefHandle> hang;
+		std::vector<RE::NiPointer<RE::TESObjectREFR>> hang;
 		{
 			std::lock_guard l{ gLiveLock };
+			// about every five seconds, the lights whose 3D is gone are let go even when no cap was reached
+			if (++gSweepClock >= 300 && !gLive.empty()) {
+				gSweepClock = 0;
+				SweepGone(SceneNode());
+			}
 			if (gToHang.empty() && gToDrop.empty()) {
 				return;
 			}
 			auto* scene = SceneNode();
-			for (const auto ref : gToDrop) {
-				Forget(ref, scene);
+			for (const auto* root : gToDrop) {
+				Forget(root, scene);
 			}
 			gToDrop.clear();
 			hang.swap(gToHang);
 		}
-		for (const auto& handle : hang) {
-			if (const auto ref = handle.get()) {
-				HangLights(ref.get(), ref->Get3D());
+		for (const auto& ref : hang) {
+			// a 3D released before this frame is gone (or another one now): HangLights lights whatever the reference holds
+			// now, and only when that 3D is in the world
+			if (auto* root = ref ? ref->Get3D() : nullptr; root && root->parent) {
+				HangLights(ref.get(), root);
 			}
 		}
 	}
@@ -616,16 +591,16 @@ namespace Plugin
 			// every stream light still lit comes off the scene node now, with every map that counts it: a light
 			// only forgotten stays registered and keeps shining where its stream was, and a count left behind keeps
 			// the cap full so the pass never lights anything again. A ward's light follows its own setting.
-			auto*                   scene = SceneNode();
-			std::lock_guard         l{ gLiveLock };
-			std::vector<RE::FormID> streams;
-			for (const auto& [ref, base] : gLiveBase) {
-				if (const auto r = gRecipes.find(base); r == gRecipes.end() || !r->second.ward) {
-					streams.push_back(ref);
+			auto*                              scene = SceneNode();
+			std::lock_guard                    l{ gLiveLock };
+			std::vector<const RE::NiAVObject*> streams;
+			for (const auto& [root, live] : gLive) {
+				if (const auto r = gRecipes.find(live.base); r == gRecipes.end() || !r->second.ward) {
+					streams.push_back(root);
 				}
 			}
-			for (const auto ref : streams) {
-				Forget(ref, scene);
+			for (const auto* root : streams) {
+				Forget(root, scene);
 			}
 		}
 	}

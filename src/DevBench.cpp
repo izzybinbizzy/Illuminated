@@ -27,20 +27,21 @@ namespace Plugin
 			R"json({"description":"Illuminated - every setting's value, and every light copy (id, base light, flicker, the fade, radius and cutoff it holds now and the ones it was made with). Read only.","inputSchema":{"type":"object","properties":{}},"readOnly":true})json";
 
 		constexpr const char* kTool =
-			R"json({"description":"Illuminated (Light Placer spell, weapon and effect lights with an SKSE menu): change its settings. action=setting sets one setting by its id or INI key to a whole number exactly as the menu does (saved, applied at the next frame) and replies with the value it now holds; action=settings lists every setting with its id, INI key, value, range and menu page. Read the lights with inspect kind=illuminated.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["setting","settings"]},"key":{"type":"string","description":"setting: a setting id or INI key (action=settings lists them)"},"value":{"type":"number","description":"setting: a whole number (a switch 0/1, a choice's index, a slider's percent)"}},"required":["action"]}})json";
+			R"json({"description":"Illuminated (spell, weapon and effect lights on Vanilla, ENB or Community Shaders, with an SKSE menu): change its settings. action=setting sets one setting by its id or INI key to a whole number exactly as the menu does (saved, applied at the next frame) and replies with the value it now holds; action=settings lists every setting with its id, INI key, value, range and menu page. Read the lights with inspect kind=illuminated.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["setting","settings"]},"key":{"type":"string","description":"setting: a setting id or INI key (action=settings lists them)"},"value":{"type":"number","description":"setting: a whole number (a switch 0/1, a choice's index, a slider's percent)"}},"required":["action"]}})json";
 
 		constexpr const char* kMenu =
 			R"json({"description":"Illuminated - set=setting key=<setting id or INI key> value=<whole number> changes a setting exactly as the menu does: saved, and applied at the next frame. The same as the illuminated.control tool.","inputSchema":{"type":"object","properties":{"set":{"type":"string"},"key":{"type":"string"},"value":{"type":"number"}}}})json";
 
-		void InspectNow(void* a_sink, DevBenchAPI::WriteFn a_write)
+		[[nodiscard]] json InspectNow()
 		{
 			json out;
 			out["settings"] = json::object();
 			for (const auto& s : Settings()) {
-				out["settings"][s.id] = s.value;
+				out["settings"][s.id] = s.value.load();
 			}
 			out["lighting"] = json::parse(LightingReport());
-			out["records"] = json::parse(RecordReport());  // the game's own light records, lit without Light Placer
+			out["records"] = json::parse(RecordReport());                                             // the game's own light records, lit without Light Placer
+			out["groundLights"] = { { "now", GroundLightCount() }, { "made", GroundLightsMade() } };  // GroundLights.cpp
 			out["copies"] = json::array();
 			for (const auto& c : LightCopies()) {
 				if (c.form) {
@@ -49,12 +50,12 @@ namespace Plugin
 						{ "madeRadius", c.startRadius }, { "madeCutoff", c.startCutoff } });
 				}
 			}
-			DevBenchGlue::Reply(a_sink, a_write, out);
+			return out;
 		}
 
 		json SettingJson(const Setting& a_s)
 		{
-			return json{ { "id", a_s.id }, { "ini", a_s.ini }, { "value", a_s.value }, { "default", a_s.defaultValue }, { "min", a_s.minValue },
+			return json{ { "id", a_s.id }, { "ini", a_s.ini }, { "value", a_s.value.load() }, { "default", a_s.defaultValue }, { "min", a_s.minValue },
 				{ "max", a_s.maxValue }, { "page", a_s.page }, { "label", a_s.label }, { "restart", a_s.restart } };
 		}
 
@@ -84,7 +85,7 @@ namespace Plugin
 					}
 					SetSetting(i, static_cast<int>(std::lround(*v)));
 					const auto now = SettingJson(settings[i]);
-					DevBenchGlue::Emit("illuminated.settingChanged", json{ { "id", settings[i].id }, { "ini", settings[i].ini }, { "value", settings[i].value } });
+					DevBenchGlue::Emit("illuminated.settingChanged", json{ { "id", settings[i].id }, { "ini", settings[i].ini }, { "value", settings[i].value.load() } });
 					return json{ { "ok", true }, { "setting", now }, { "note", "applied to the lights at the next frame" } };
 				}
 			}
@@ -99,7 +100,9 @@ namespace Plugin
 		void Inspect(void*, const char*, void* a_sink, DevBenchAPI::WriteFn a_write) noexcept
 		{
 			try {
-				InspectNow(a_sink, a_write);
+				// the light copies are game forms the main thread writes: read them there
+				const auto now = DevBenchGlue::OnMainThread([]() { return InspectNow(); });
+				DevBenchGlue::Reply(a_sink, a_write, now ? *now : DevBenchGlue::NotRunYet());
 			} catch (...) {
 				DevBenchGlue::Reply(a_sink, a_write, DevBenchGlue::Refusal("Illuminated could not build its report"));
 			}
@@ -108,7 +111,9 @@ namespace Plugin
 		void Control(void*, const char* a_args, void* a_sink, DevBenchAPI::WriteFn a_write) noexcept
 		{
 			try {
-				DevBenchGlue::Reply(a_sink, a_write, Act(DevBenchGlue::Args(a_args)));
+				// a change is made on the main thread, as the game's forms and the lit scene are its
+				const auto now = DevBenchGlue::OnMainThread([args = DevBenchGlue::Args(a_args)]() { return Act(args); });
+				DevBenchGlue::Reply(a_sink, a_write, now ? *now : DevBenchGlue::NotRunYet());
 			} catch (...) {
 				DevBenchGlue::Reply(a_sink, a_write, DevBenchGlue::Refusal("Illuminated could not handle that"));
 			}

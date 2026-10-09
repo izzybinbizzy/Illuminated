@@ -52,7 +52,7 @@ namespace Plugin
 		constexpr std::string_view kBrightness = "IlluminatedBrightness";
 		constexpr std::string_view kReach = "IlluminatedReach";
 		constexpr float            kLowestCutoff = 0.01f, kHighestCutoff = 1.0f;  // what Light Placer keeps a cutoff within
-		constexpr std::uint32_t    kInverseSquare = 1u << 14;                     // Community Shaders' flag on a light record
+		constexpr std::uint32_t    kInverseSquare = LightKit::kRecordInverseSquare;
 
 		std::atomic<bool>  gRefresh{ false };
 		std::atomic<float> gBrightness{ 1.0f };
@@ -65,34 +65,8 @@ namespace Plugin
 		std::atomic<int>           gHandBudget{ 0 };                                 // the Hand lights for choice, read by every caster's update
 		float                      gDaylightClock{ 0.0f };
 
-		// how much dimmer the lights are now: outdoors by the hour (full by day, none at night, a ramp at dawn and dusk);
-		// indoors by how bright the room's own light is
-		float DaylightFactor()
-		{
-			const int pick = SettingValue(kSmartBrightness, 0);
-			if (pick <= 0) {
-				return 1.0f;
-			}
-			const float most = pick == 1 ? 0.25f : 0.5f;
-			auto*       player = RE::PlayerCharacter::GetSingleton();
-			auto*       cell = player ? player->GetParentCell() : nullptr;
-			if (!cell) {
-				return 1.0f;
-			}
-			float bright = 0.0f;
-			if (cell->IsInteriorCell()) {
-				if (const auto* l = cell->GetLighting()) {
-					const auto lum = [](const RE::Color& a_c) { return (0.2126f * a_c.red + 0.7152f * a_c.green + 0.0722f * a_c.blue) / 255.0f; };
-					bright = std::clamp(((std::max)(lum(l->ambient), lum(l->directional)) - 0.15f) / 0.3f, 0.0f, 1.0f);
-				}
-			} else if (const auto* calendar = RE::Calendar::GetSingleton()) {
-				const float h = calendar->GetHour();
-				bright = h < 5.0f || h >= 20.0f ? 0.0f : h < 8.0f ? (h - 5.0f) / 3.0f :
-				                                     h < 17.0f    ? 1.0f :
-				                                                    (20.0f - h) / 3.0f;
-			}
-			return 1.0f - most * bright;
-		}
+		// how much dimmer the lights are now (LightKit.h: by the hour outdoors, by the room's own light indoors)
+		float DaylightFactor() { return LightKit::Daylight(SettingValue(kSmartBrightness, 0)); }
 
 		// every two seconds on the main thread: a change worth seeing moves every light the way a Brightness change does
 		void WatchDaylight(float a_delta)
@@ -132,6 +106,25 @@ namespace Plugin
 			}
 		}
 
+		// Without Light Placer the hand light is the game's own casting light, and Light Placer's sneak condition has no twin on
+		// it (his report 2026-10-09: "lights still dont go off while sneaking in the new version"), so the Sneaking setting is
+		// applied here: 0 (the default) puts a sneaking caster's hand light out after the game wrote it this frame, 1 keeps it.
+		// (The ground: GroundLights.cpp - setting the game light's own land flag afterwards was measured not enough.)
+		constexpr std::string_view kSneaking = "IlluminatedSneaking";
+
+		void ApplyRecordHand(RE::ActorMagicCaster* a_caster)
+		{
+			if (!a_caster || !RecordRoute()) {
+				return;
+			}
+			auto* bs = a_caster->light.get();
+			auto* light = bs ? bs->light.get() : nullptr;
+			auto* actor = a_caster->GetCasterAsActor();
+			if (light && actor && actor->IsSneaking() && SettingValue(kSneaking, 0) == 0) {
+				light->GetLightRuntimeData().fade = 0.0f;
+			}
+		}
+
 		// what a lit light of a config's copy needs, by the copy's editor ID. Written at data load and on the main thread.
 		struct Lit
 		{
@@ -154,9 +147,31 @@ namespace Plugin
 			float                           written{ -1.0f };  // what the light held after our last write
 		};
 		std::unordered_map<const RE::NiPointLight*, Flicker> gFlickers;
-		std::mutex                                           gFlickerLock;
+		// the same lights by owner and by cell, so a caster's or a cell's update scales only its own (it runs for every caster
+		// every frame); remade with the list each frame, a light added between frames joins at once
+		std::unordered_map<RE::FormID, std::vector<Flicker*>>               gByOwner;
+		std::unordered_map<const RE::TESObjectCELL*, std::vector<Flicker*>> gByCell;
+		std::mutex                                                          gFlickerLock;
 
-		// Light Placer names a light "LP_Light[<config>|<light record's editor ID>]..."
+		// gFlickerLock is held by every caller. A map node never moves, so the pointers stay good until the entry goes.
+		void Index(Flicker& a_flicker)
+		{
+			gByOwner[a_flicker.owner].push_back(&a_flicker);
+			gByCell[a_flicker.cell].push_back(&a_flicker);
+		}
+
+		void Reindex()
+		{
+			gByOwner.clear();
+			gByCell.clear();
+			for (auto& flicker : gFlickers | std::views::values) {
+				Index(flicker);
+			}
+		}
+
+		// Light Placer names a light "LP_Light[<config>|<light record's editor ID>]...". Read with no allocation: a prefix
+		// test turns away every other light, and the editor ID is looked up as a view (a cache by the light's address
+		// would still need a lookup per light, and a check that the address is the same light)
 		const Lit* LitOf(const RE::NiPointLight& a_light)
 		{
 			const std::string_view name = a_light.name.c_str();
@@ -203,11 +218,10 @@ namespace Plugin
 			if (!a_owner || !Scaling()) {
 				return;
 			}
-			const auto      id = a_owner->GetFormID();
 			std::lock_guard l{ gFlickerLock };
-			for (auto& [light, flicker] : gFlickers) {
-				if (flicker.owner == id) {
-					Scale(flicker);
+			if (const auto it = gByOwner.find(a_owner->GetFormID()); it != gByOwner.end()) {
+				for (auto* flicker : it->second) {
+					Scale(*flicker);
 				}
 			}
 		}
@@ -218,9 +232,9 @@ namespace Plugin
 				return;
 			}
 			std::lock_guard l{ gFlickerLock };
-			for (auto& [light, flicker] : gFlickers) {
-				if (flicker.cell == a_cell) {
-					Scale(flicker);
+			if (const auto it = gByCell.find(a_cell); it != gByCell.end()) {
+				for (auto* flicker : it->second) {
+					Scale(*flicker);
 				}
 			}
 		}
@@ -238,6 +252,7 @@ namespace Plugin
 					auto [it, added] = gFlickers.try_emplace(a_light);
 					if (added) {
 						it->second = { RE::NiPointer<RE::NiPointLight>(a_light), a_owner->GetFormID(), a_owner->GetParentCell() };
+						Index(it->second);
 					}
 					Scale(it->second);
 				}
@@ -259,7 +274,7 @@ namespace Plugin
 				}
 				auto& data = light->GetLightRuntimeData();
 				if (a_changed && lit->cutoff > 0.0f) {
-					data.ambient.green = lit->cutoff;  // where Light Placer put the cutoff when it made the light
+					LightKit::Isl::SetCutoff(light, lit->cutoff, kLowestCutoff, kHighestCutoff);  // where Light Placer put it
 				}
 				if (!lit->flicker) {
 					if (a_changed) {
@@ -298,6 +313,7 @@ namespace Plugin
 				} else {
 					gFlickers.clear();  // Light Placer's own values stand from here on
 				}
+				Reindex();
 			}
 			for (const auto& [light, now] : moved) {
 				Fade::Rebase(light, ratio, now);  // the scene's lists hold each light, so it is alive this frame
@@ -317,6 +333,7 @@ namespace Plugin
 				WatchDaylight(a_delta);
 				Frame();
 				Fade::UpdateHands(a_delta);
+				TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 			static void                                    Install()
@@ -334,6 +351,7 @@ namespace Plugin
 				ScaleOwned(a_this->GetCasterAsActor());
 				RecordFlicker(a_this);  // without Light Placer: the hand light's flicker (RecordLights.cpp), before the fading module scales it
 				ApplyHandBudget(a_this);
+				ApplyRecordHand(a_this);
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 			static void                                    Install()
@@ -350,7 +368,9 @@ namespace Plugin
 			{
 				func(a_this);
 				if (Scaling()) {
-					ScaleOwned(a_this->target.get().get());
+					// the owner by the effect's own 3D, not its target handle: this hook runs off the main thread, where making or
+					// reading a handle is not ours to do (the fading module's rule; the re-score's Illuminated issue 2)
+					ScaleOwned(OwnerOf(a_this->Get3D()));
 				}
 				Fade::AfterReferenceEffect(a_this, std::is_same_v<T, RE::ModelReferenceEffect>);  // an art model, not a shader's actor
 			}
@@ -366,7 +386,7 @@ namespace Plugin
 		template <class Thunk>
 		void WrapCall(REL::Relocation<std::uintptr_t> a_site, std::string_view a_what)
 		{
-			if (*reinterpret_cast<const std::uint8_t*>(a_site.address()) != 0xE8) {
+			if (!LightKit::IsCallAt(a_site.address())) {
 				SKSE::log::warn("{}: the expected call is not there (another plugin rewrote it?); its flickering lights keep their made-with strength",
 					a_what);
 				return;

@@ -26,7 +26,7 @@ namespace Plugin
 	{
 		constexpr const char* kIslShader = "Data/Shaders/InverseSquareLighting/InverseSquareLighting.hlsli";
 		constexpr const char* kEnbFiles[] = { "enbseries.ini", "enblocal.ini" };
-		constexpr float       kK = 3918.88f;                  // the house K, 0.8 * 69.99² (StreamLights.cpp rule 4, gen.py)
+		constexpr float       kK = LightKit::kK;              // the house K, 0.8 * 69.99² (LightKit.h, gen.py)
 		constexpr float       kPlainReach = 178.0f / 133.0f;  // Dynamic Wards' house light: reach 133 drawn at radius 178
 		constexpr float       kPlainFade = 1.14f;
 

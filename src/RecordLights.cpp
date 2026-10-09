@@ -54,8 +54,8 @@ namespace Plugin
 			// controller.h): step, linear, or cubic Hermite (the configs give no tangents, so they are 0)
 			[[nodiscard]] float At(float a_time) const
 			{
-				const float t = start + std::fmod(std::max(a_time, 0.0f), duration);
-				const auto  next = std::upper_bound(keys.begin(), keys.end(), t, [](float a_t, const auto& a_key) { return a_t < a_key.first; });
+				const float t = start + std::fmod((std::max)(a_time, 0.0f), duration);
+				const auto  next = std::ranges::upper_bound(keys, t, {}, &std::pair<float, float>::first);
 				if (next == keys.begin()) {
 					return keys.front().second;
 				}
@@ -114,9 +114,8 @@ namespace Plugin
 			return static_cast<float>(bits % 10007u) / 10007.0f * a_duration;
 		}
 
-		// the record light this caster's hand light was made from: one of the hand's spell's effects' lights, of a flicker
-		// row, in the light's own color (a spell whose light comes from another effect is left alone)
-		// the record light of ours a caster's hand light was made from, found through the hand's spell and matched by color
+		// the record light of ours a caster's hand light was made from: one of the hand's spell's effects' lights, matched by
+		// color (a spell whose light comes from another effect is left alone)
 		[[nodiscard]] const RE::TESObjectLIGH* RecordOf(RE::ActorMagicCaster& a_caster, const RE::NiLight& a_light)
 		{
 			const auto source = a_caster.GetCastingSource();
@@ -148,13 +147,7 @@ namespace Plugin
 			return nullptr;
 		}
 
-		// one channel of a linear-light color as the screen color that shows the same (wardgen.srgb)
-		[[nodiscard]] std::uint8_t ScreenChannel(std::uint8_t a_linear)
-		{
-			const float x = static_cast<float>(a_linear) / 255.0f;
-			const float v = x <= 0.0031308f ? 12.92f * x : 1.055f * std::pow(x, 1.0f / 2.4f) - 0.055f;
-			return static_cast<std::uint8_t>(std::clamp(std::lround(v * 255.0f), 0L, 255L));
-		}
+		using LightKit::ScreenChannel;  // a linear-light channel as the screen color that shows the same
 
 		[[nodiscard]] float Strength(const LightCopy& a_copy)
 		{
@@ -252,7 +245,7 @@ namespace Plugin
 				}
 			}
 			if (!choices.empty()) {
-				std::stable_sort(choices.begin(), choices.end(), [](const Choice& a, const Choice& b) { return a.strength > b.strength; });
+				std::ranges::stable_sort(choices, std::greater{}, &Choice::strength);
 				gChoices.emplace(model, std::move(choices));
 			}
 		}
@@ -340,7 +333,7 @@ namespace Plugin
 			auto* dh = RE::TESDataHandler::GetSingleton();
 			return dh && (dh->LookupLoadedModByName("ENB Light.esp") || dh->LookupLoadedLightModByName("ENB Light.esp"));
 		}();
-		return loaded && LightingPick() == Lighting::kEnb && SettingValue("IlluminatedYieldENBLight", 1) != 0;
+		return loaded && LightingPick() == Lighting::kEnb && SettingValue("IlluminatedYieldENBLight", 0) != 0;
 	}
 
 	bool TouchedByENBLight(const RE::TESForm* a_form)
@@ -359,10 +352,10 @@ namespace Plugin
 	namespace
 	{
 		constexpr std::string_view kElementSetting[] = { "", "IlluminatedFireColor", "IlluminatedFrostColor", "IlluminatedShockColor" };
-		// the named colors (lagen.py ELEMENT_COLORS, in the same order): Dynamic Wards' preset hues, so the two mods match
-		constexpr std::uint32_t                                                kNamedColors[] = { 0xD0102E, 0xFF6A10, 0xFFC420, 0x2ED452, 0x00D2B0, 0x40DCFF, 0x2468FF, 0x7A3CFF, 0xFF2EC4, 0xFFFFFF };
+		// the named colors are LightKit.h's (lagen.py ELEMENT_COLORS, in the same order): Dynamic Wards' preset hues
 		std::map<std::pair<const RE::TESObjectLIGH*, int>, RE::TESObjectLIGH*> gVariants;
 		std::unordered_map<const RE::TESForm*, int>                            gElementOfForm;  // projectiles and explosions
+		bool                                                                   gElementsBuilt = false;
 	}
 
 	int ElementOf(const RE::EffectSetting* a_effect)
@@ -384,10 +377,11 @@ namespace Plugin
 
 	int ElementOfForm(const RE::TESForm* a_form)
 	{
-		if (gElementOfForm.empty()) {
+		if (!gElementsBuilt) {
+			gElementsBuilt = true;
 			// once, at data load: a projectile or an explosion fired by effects of one element is that element; by more than
 			// one, none
-			for (const auto* effect : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::EffectSetting>()) {
+			for (const auto* effect : LightKit::FormsOf<RE::EffectSetting>()) {
 				const int e = ElementOf(effect);
 				for (const RE::TESForm* f : { static_cast<const RE::TESForm*>(effect ? effect->data.projectileBase : nullptr),
 						 static_cast<const RE::TESForm*>(effect ? effect->data.explosion : nullptr) }) {
@@ -399,7 +393,6 @@ namespace Plugin
 					}
 				}
 			}
-			gElementOfForm.try_emplace(nullptr, 0);  // never empty again: built once
 		}
 		const auto it = gElementOfForm.find(a_form);
 		return it == gElementOfForm.end() || it->second < 0 ? 0 : it->second;
@@ -446,12 +439,12 @@ namespace Plugin
 		}
 		const int  pick = SettingValue(kElementSetting[a_element], 0);
 		const auto it = gVariants.find({ a_record, a_element });
-		if (pick <= 0 || pick > static_cast<int>(std::size(kNamedColors)) || it == gVariants.end()) {
+		if (pick <= 0 || pick > LightKit::kNamedColorCount || it == gVariants.end()) {
 			return a_record;
 		}
 		// the named color, drawn as ApplyRecordColors last drew every record light (it runs first on each refresh), so
 		// "Light colors" reaches the element colors too (CodeRabbit, Illuminated #5: the variant skipped Paler)
-		const auto c = kNamedColors[pick - 1];
+		const auto c = LightKit::NamedColorRgb(pick);
 		const auto drawn = [](std::uint32_t a_c) { return gPale ? ScreenChannel(static_cast<std::uint8_t>(a_c)) : static_cast<std::uint8_t>(a_c); };
 		auto&      color = it->second->data.color;
 		color.red = drawn(c >> 16);
@@ -468,9 +461,18 @@ namespace Plugin
 		}
 	}
 
+	namespace
+	{
+		// the caster hook is installed with the other hooks part way through the data load (MakeLightCopies), while the
+		// tables below still grow; nothing reads them until the load is done (the re-score's Illuminated issue 4)
+		std::atomic<bool> gTablesReady{ false };
+	}
+
+	void RecordTablesReady() { gTablesReady.store(true, std::memory_order_release); }
+
 	void RecordFlicker(RE::ActorMagicCaster* a_caster)
 	{
-		if (!gOn || gOurRecords.empty() || !a_caster || REL::Module::IsVR()) {
+		if (!gTablesReady.load(std::memory_order_acquire) || !gOn || gOurRecords.empty() || !a_caster || REL::Module::IsVR()) {
 			return;
 		}
 		RE::NiLight* light = a_caster->light ? a_caster->light->light.get() : nullptr;
@@ -481,7 +483,15 @@ namespace Plugin
 		if (!record) {
 			return;
 		}
-		auto& fade = light->GetLightRuntimeData().fade;
+		// HIS REPORT 2026-10-09 ~11:05 on Vanilla, "reach still doesn't work": the game set the radius once, when the spell
+		// was readied, and Reach only changed the record - so a lit hand takes its record's radius too (GroundLights.cpp's
+		// twin copies it and re-attenuates when it moves)
+		auto&       data = light->GetLightRuntimeData();
+		const float radius = static_cast<float>(record->data.radius);
+		if (radius > 0.0f && data.radius.x != radius) {
+			data.radius = RE::NiPoint3{ radius, radius, radius };
+		}
+		auto& fade = data.fade;
 		if (const auto it = gFlickerOf.find(record); it != gFlickerOf.end()) {
 			const auto& flicker = it->second;
 			const float now = gClock.load(std::memory_order_relaxed) + PhaseOf(light, flicker.duration);
