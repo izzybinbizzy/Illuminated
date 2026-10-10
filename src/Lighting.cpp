@@ -9,7 +9,7 @@
 //   ENB                 } the game's own lighting: the inverse square flag means nothing, a light reaches its radius. Every
 //   Vanilla             } inverse-square light this mod makes or copies is turned into a plain one (Plain, below)
 //
-// AUTOMATIC ONLY - HIS WORD 2026-10-10: "i also want the detection to be automatic and users to not be able to manually switch
+// AUTOMATIC ONLY - HIS WORD: "i also want the detection to be automatic and users to not be able to manually switch
 // between versions" (it was a menu pick and an installer's Lighting.txt). The game is looked at once, at data load:
 // Community Shaders' inverse square shader -> Community Shaders, an ENB's settings in the game folder -> ENB, else Vanilla.
 //

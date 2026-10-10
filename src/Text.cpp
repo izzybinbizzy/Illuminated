@@ -2,7 +2,7 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Small text helpers: paths, trimming and number parsing (lower case is LightMath.h's LightKit::Lower).
+// Small text helpers for paths (lower case is LightMath.h's LightKit::Lower; trimming and numbers are ConfigText.h's).
 
 #include "Plugin.h"
 
@@ -19,39 +19,5 @@ namespace Plugin
 	bool Contains(std::string_view a_text, std::string_view a_part)
 	{
 		return a_text.find(a_part) != std::string_view::npos;
-	}
-
-	std::string Trim(std::string_view a_text)
-	{
-		const auto first = a_text.find_first_not_of(" \t\r\n");
-		if (first == std::string_view::npos) {
-			return {};
-		}
-		const auto last = a_text.find_last_not_of(" \t\r\n");
-		return std::string(a_text.substr(first, last - first + 1));
-	}
-
-	bool ParseInt(std::string_view a_text, int& a_out)
-	{
-		const auto t = Trim(a_text);
-		int        v{};
-		const auto r = std::from_chars(t.data(), t.data() + t.size(), v);
-		if (t.empty() || r.ec != std::errc() || r.ptr != t.data() + t.size()) {
-			return false;  // a_out keeps what it held: "12abc" is not 12
-		}
-		a_out = v;
-		return true;
-	}
-
-	bool ParseFloat(std::string_view a_text, float& a_out)
-	{
-		const auto t = Trim(a_text);
-		float      v{};
-		const auto r = std::from_chars(t.data(), t.data() + t.size(), v);
-		if (t.empty() || r.ec != std::errc() || r.ptr != t.data() + t.size()) {
-			return false;  // a_out keeps what it held: "12abc" is not 12
-		}
-		a_out = v;
-		return true;
 	}
 }

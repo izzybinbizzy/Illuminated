@@ -13,7 +13,7 @@
 // How the two sliders reach a light:
 //   Brightness  the fade.
 //   Reach       the radius - and, for an inverse-square light, the cutoff. Community Shaders works such a light's reach
-//               out from its fade and its cutoff alone (measured 2026-10-01: the stated radius changed nothing, and a
+// out from its fade and its cutoff alone (measured: the stated radius changed nothing, and a
 //               brighter light reached further). The cutoff is the made-with one x Brightness / Reach², which moves the
 //               reach by Reach and holds it still while Brightness changes.
 //               On ENB and Vanilla (Lighting.cpp) an inverse-square copy is made plain when it is made: no cutoff, the
@@ -25,7 +25,7 @@
 // A flickering light (`flicker=1`) is the one kind the record cannot carry: Light Placer writes its fade from the
 // config's keys every frame, never from the record. Those lights are kept in a list, and each is scaled by Brightness
 // straight after Light Placer wrote it - Light Placer does that in five places, most of them on the game's worker
-// threads (traced 2026-10-01), and each is wrapped here, after Light Placer's own hook:
+// threads (traced), and each is wrapped here, after Light Placer's own hook:
 //   a caster's update        the hands of every actor (the player's among them)
 //   an effect's update       enchantment and hit effects
 //   an explosion's update    } SE/AE only: these three are calls inside game functions, at the places Light Placer
@@ -57,7 +57,7 @@ namespace Plugin
 		std::atomic<bool>  gRefresh{ false };
 		std::atomic<float> gBrightness{ 1.0f };
 
-		// HIS GO-TO PICKS (2026-10-07 ~20:45, "do all of them" 2026-10-08): smarter brightness and a light budget
+		// HIS GO-TO PICKS ("do all of them"): smarter brightness and a light budget
 		constexpr std::string_view kSmartBrightness = "IlluminatedSmartBrightness";  // 0 off, 1 a little, 2 more
 		constexpr std::string_view kHandLights = "IlluminatedHandLights";            // 0 everyone, 1 nearby, 2 + followers, 3 player only
 		// "about forty paces" in game units: the advanced settings file's [Lights] NearbyDistance (gNearby, Plugin.h)
@@ -108,7 +108,7 @@ namespace Plugin
 		}
 
 		// Without Light Placer the hand light is the game's own casting light, and Light Placer's sneak condition has no twin on
-		// it (his report 2026-10-09: "lights still dont go off while sneaking in the new version"), so the Sneaking setting is
+		// it (his report: "lights still dont go off while sneaking in the new version"), so the Sneaking setting is
 		// applied here: 0 (the default) puts a sneaking caster's hand light out after the game wrote it this frame, 1 keeps it.
 		// (The ground: GroundLights.cpp - setting the game light's own land flag afterwards was measured not enough.)
 		constexpr std::string_view kSneaking = "IlluminatedSneaking";
@@ -499,7 +499,7 @@ namespace Plugin
 	{
 		std::lock_guard l{ gFlickerLock };
 		// Only when the fading module started from OUR scaled value: then its write carries Brightness already and must
-		// not be scaled again. Measured 2026-10-08: noting every write froze two steady lights of a flickering copy at full
+		// not be scaled again. Measured: noting every write froze two steady lights of a flickering copy at full
 		// strength - on the frame Brightness changed the fading module wrote before this pass had ever scaled them, and
 		// the note made them look done.
 		if (const auto it = gFlickers.find(a_light); it != gFlickers.end() && it->second.written == a_before) {

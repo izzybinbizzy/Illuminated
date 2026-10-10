@@ -70,7 +70,7 @@ namespace
 				kOtherPluginDll);
 			return;
 		}
-		// the advanced settings file's own values (his rule 2026-10-10) - read with the fading module's, in Fade::OnDataLoaded
+		// the advanced settings file's own values (his rule) - read with the fading module's, in Fade::OnDataLoaded
 		Fade::Tuning::Register("Lights", "NearbyDistance", 2800.0f, 300.0f, 30000.0f, "Hand lights for - Everyone nearby: how far from you, in game units", gNearby);
 		Fade::Tuning::Register("Vanilla and ENB", "GroundLights", 1.0f, 0.0f, 1.0f, "1: a hand light lights the ground too (its twin, made with land lighting on); 0: off", gGroundLightsOn);
 		Fade::Tuning::Register("Vanilla and ENB", "ArtLights", 1.0f, 0.0f, 1.0f, "1: bound weapons and lit art and weapons get their light without Light Placer; 0: off", gArtLightsOn);
@@ -78,15 +78,16 @@ namespace
 		ReadLighting();  // before pass 0: on ENB and Vanilla its lights are made plain
 		RegisterMenu();
 		Fade::OnDataLoaded();  // the fading module: lights follow charge and magicka (its own settings, rules, hooks, menu pages)
-		RegisterMenuTail();    // Praedy's Staves last, below the fading pages (his word 2026-10-09)
+		RegisterMenuTail();    // Praedy's Staves last, below the fading pages (his word)
 		LightSettings();
-		MakeLightCopies();    // after pass 0 (the copies take its flags), before Light Placer reads its configs
-		VaerSwirls();         // pass 7: VAER Reborn's swirls - the settings are loaded by now (HIS CALL 2026-09-22)
-		Wards();              // before pass 1: an effect it silences must not be followed by the casting-light pass
-		DecideRecordRoute();  // no Light Placer: the configs light the game's own light records instead (RecordLights.cpp)
+		MakeLightCopies();                   // after pass 0 (the copies take its flags), before Light Placer reads its configs
+		VaerSwirls();                        // pass 7: VAER Reborn's swirls - the settings are loaded by now (HIS CALL)
+		Wards();                             // before pass 1: an effect it silences must not be followed by the casting-light pass
+		DecideRecordRoute();                 // no Light Placer: the configs light the game's own light records instead (RecordLights.cpp)
+		const bool  record = RecordRoute();  // the route, decided once for the whole load
 		const auto& cov = ReadCoverage();
 		SKSE::log::info("configs: {} file(s), {} lit model(s), {} shader name(s)", cov.files, cov.models.size(), cov.shaders.size());
-		if (RecordRoute()) {
+		if (record) {
 			MakeRecordLights();  // before passes 1 and 2, which point the records at them
 		}
 		if (cov.files == 0) {
@@ -105,7 +106,7 @@ namespace
 		SprayLights();
 		ApplyLightStrength(false);  // the sliders onto pass 4's spray lights too
 		StreamLights();             // pass 6, after pass 4: a spray's hand light is its stretched copy by now; and its two hooks
-		if (!RecordRoute()) {       // pass 5 is about Light Placer's lit shaders: there are none without it
+		if (!record) {              // pass 5 is about Light Placer's lit shaders: there are none without it
 			DoubledEnchantments(cov);
 		}
 		if (AnyLitShaders()) {

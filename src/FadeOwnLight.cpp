@@ -75,7 +75,7 @@ namespace Fade
 				} else if (base->data.primaryAV == RE::ActorValue::kStamina) {
 					kind = K::kStamina;
 				} else if (base->data.primaryAV == RE::ActorValue::kHealth) {
-					// 2026-10-03, seen in game: a staff of Mending (Heal Other) took the drain red - a heal is not a drain
+					// seen in game: a staff of Mending (Heal Other) took the drain red - a heal is not a drain
 					kind = base->IsDetrimental() ? K::kHealth : K::kHeal;
 				}
 				break;
@@ -186,7 +186,7 @@ namespace Fade
 		return Hang(own, a_model, ColorOf(a_ench), Glow::kOwnLightReach) ? own.light.get() : nullptr;
 	}
 
-	// 2026-10-03, his "wrong light colours" (a summoning staff white, a fear staff blue beside its red spell light): the
+	// his "wrong light colours" (a summoning staff white, a fear staff blue beside its red spell light): the
 	// enchantment's own records often carry no colour by the time we look (Luma empties a covered effect's light, a light
 	// mod swaps it for its copy), so the guess from the records missed. The light the spell itself shows at the casting hand is
 	// the truth; our light takes its hue at full brightness, and only when it changes (the cooling keeps working on top).

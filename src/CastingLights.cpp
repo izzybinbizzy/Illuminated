@@ -6,7 +6,7 @@
 // settings keep that art lit. Each effect's own light is remembered, so switching an option off gives it back.
 // Without Light Placer (RecordLights.cpp) the effect is pointed at the record light made for its art instead of losing
 // its light, and an effect that had no casting light gets one.
-// AUTOMATIC LIGHTS (his go-to pick 2026-10-07, "do all of them" 2026-10-08), without Light Placer: a spell whose casting
+// AUTOMATIC LIGHTS (his go-to pick, "do all of them"), without Light Placer: a spell whose casting
 // art no config lights - another mod's spell Illuminated has no patch for - gets a light of ours too, behind the setting
 // "Spells without a patch": in the color of its own casting light when it has one, else in its element's color (the
 // color most of the tuned spells of that element wear: fire, frost, shock), at the middle strength and reach of the tuned
