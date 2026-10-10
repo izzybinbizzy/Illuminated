@@ -13,6 +13,25 @@ namespace Plugin
 {
 	namespace
 	{
+		// a claim written as "0xID~Plugin.esp" (a vanilla record a mod renames, gen.RENAMED_BASE_FORMS): its form in this load
+		// order, or nothing (not that form of claim, or its plugin is not loaded)
+		[[nodiscard]] std::optional<RE::FormID> FormOfToken(std::string_view a_text)
+		{
+			const auto tilde = a_text.find('~');
+			if (tilde == std::string_view::npos || tilde < 3 || !(a_text.starts_with("0x") || a_text.starts_with("0X"))) {
+				return std::nullopt;
+			}
+			const auto    hex = a_text.substr(2, tilde - 2);
+			std::uint32_t local = 0;
+			const auto    r = std::from_chars(hex.data(), hex.data() + hex.size(), local, 16);
+			if (r.ec != std::errc{} || r.ptr != hex.data() + hex.size()) {
+				return std::nullopt;
+			}
+			auto*      dh = RE::TESDataHandler::GetSingleton();
+			const auto id = dh ? dh->LookupFormID(local, a_text.substr(tilde + 1)) : 0;
+			return id ? std::optional<RE::FormID>(id) : std::nullopt;
+		}
+
 		// ------------------------------------------------------------------ a small JSON reader for the configs
 		// Its own reader, not nlohmann (which the DevBench glue and the fading rule files use): the configs are ~150 files and 12 MB read at every
 		// start, and this one keeps only what the passes ask for, copies strings in runs and is timed in the log (the
@@ -351,7 +370,10 @@ namespace Plugin
 							// light too (2026-10-10: Explosions.json's formIDs entries were dark on Vanilla) - kept under its
 							// own key, which EffectLights.cpp asks by the form's editor ID
 							if (sharedRows) {
-								const auto key = FormKey(low);
+								// a vanilla record a mod renames is claimed by its id, "0x4046D~Skyrim.esm" (gen.RENAMED_BASE_FORMS,
+								// 2026-10-10: Frenzy's explosion was dark without Mysticism): kept under the form itself
+								const auto id = FormOfToken(f.text);
+								const auto key = id ? FormIdKey(*id) : FormKey(low);
 								a_cov.modelTests[key].push_back(shared);
 								gConfigLights[key].push_back(sharedRows);
 							}
