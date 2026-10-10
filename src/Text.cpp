@@ -12,16 +12,14 @@ namespace Plugin
 	std::string Lower(std::string_view a_text)
 	{
 		std::string out(a_text);
-		for (auto& c : out) {
-			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-		}
+		std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		return out;
 	}
 
 	std::string NormalPath(std::string_view a_path)
 	{
 		std::string out = Lower(a_path);
-		std::replace(out.begin(), out.end(), '/', '\\');
+		std::ranges::replace(out, '/', '\\');
 		return out;
 	}
 
@@ -43,14 +41,24 @@ namespace Plugin
 	bool ParseInt(std::string_view a_text, int& a_out)
 	{
 		const auto t = Trim(a_text);
-		const auto r = std::from_chars(t.data(), t.data() + t.size(), a_out);
-		return r.ec == std::errc() && r.ptr == t.data() + t.size();
+		int        v{};
+		const auto r = std::from_chars(t.data(), t.data() + t.size(), v);
+		if (t.empty() || r.ec != std::errc() || r.ptr != t.data() + t.size()) {
+			return false;  // a_out keeps what it held: "12abc" is not 12
+		}
+		a_out = v;
+		return true;
 	}
 
 	bool ParseFloat(std::string_view a_text, float& a_out)
 	{
 		const auto t = Trim(a_text);
-		const auto r = std::from_chars(t.data(), t.data() + t.size(), a_out);
-		return r.ec == std::errc() && r.ptr == t.data() + t.size();
+		float      v{};
+		const auto r = std::from_chars(t.data(), t.data() + t.size(), v);
+		if (t.empty() || r.ec != std::errc() || r.ptr != t.data() + t.size()) {
+			return false;  // a_out keeps what it held: "12abc" is not 12
+		}
+		a_out = v;
+		return true;
 	}
 }

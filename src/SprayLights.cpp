@@ -9,24 +9,44 @@
 namespace Plugin
 {
 	// ------------------------------------------------------------------ pass 4: spray lights
-	const std::set<std::string> kSprayNotSpells{ "trapspotlightprojectile", "sum_any_projectile_defaultcloakprojectile" };
-	constexpr std::uint32_t     kSprayFlags = 0x2001;  // Dynamic | Portal-strict
-
-	std::string SprayFamily(const std::string& a_editorID)
+	namespace
 	{
-		const auto id = Lower(a_editorID);
-		if (Contains(id, "frost") || Contains(id, "ice"))
-			return "frost";
-		if (Contains(id, "flame") || Contains(id, "fire"))
-			return "fire";
-		if (Contains(id, "shock") || Contains(id, "lightning"))
-			return "shock";
-		return {};
-	}
+		constexpr std::array<std::string_view, 2> kSprayNotSpells{ "trapspotlightprojectile", "sum_any_projectile_defaultcloakprojectile" };
+		constexpr std::uint32_t                   kSprayFlags = 0x2001;  // Dynamic | Portal-strict
 
-	std::uint8_t Clamp255(int a_value)
-	{
-		return static_cast<std::uint8_t>(std::clamp(a_value, 0, 255));
+		Family SprayFamily(std::string_view a_editorID)
+		{
+			const auto id = Lower(a_editorID);
+			if (Contains(id, "frost") || Contains(id, "ice")) {
+				return Family::kFrost;
+			}
+			if (Contains(id, "flame") || Contains(id, "fire")) {
+				return Family::kFire;
+			}
+			if (Contains(id, "shock") || Contains(id, "lightning")) {
+				return Family::kShock;
+			}
+			return Family::kNone;
+		}
+
+		std::uint8_t Clamp255(int a_value)
+		{
+			return static_cast<std::uint8_t>(std::clamp(a_value, 0, 255));
+		}
+
+		constexpr std::string_view FamilyName(Family a_family)
+		{
+			switch (a_family) {
+			case Family::kFire:
+				return "fire";
+			case Family::kFrost:
+				return "frost";
+			case Family::kShock:
+				return "shock";
+			default:
+				return "";
+			}
+		}
 	}
 
 	void SprayLights()
@@ -39,7 +59,7 @@ namespace Plugin
 		SKSE::log::info("spray lights: installer says {}| radius {} | fade {} | frost fade {} | falloff {}", sc.found,
 			sc.radiusAbs, sc.fade, sc.frostFade, sc.falloff);
 		std::size_t seen = 0, raised = 0, noLight = 0, poison = 0, named = 0, failed = 0;
-		for (auto* proj : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::BGSProjectile>()) {
+		for (auto* proj : LightKit::FormsOf<RE::BGSProjectile>()) {
 			if (!proj) {
 				continue;
 			}
@@ -55,7 +75,7 @@ namespace Plugin
 				proj->data.light = nullptr;
 				continue;
 			}
-			if (kSprayNotSpells.contains(low)) {
+			if (std::ranges::find(kSprayNotSpells, low) != kSprayNotSpells.end()) {
 				++named;
 				continue;
 			}
@@ -79,18 +99,18 @@ namespace Plugin
 				continue;
 			}
 			copy->data.radius = static_cast<std::uint32_t>(radius);
-			copy->fade = family == "frost" ? sc.frostFade : sc.fade;
+			copy->fade = family == Family::kFrost ? sc.frostFade : sc.fade;
 			copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(kSprayFlags);
 			copy->data.fallofExponent = sc.falloff;
-			if (family == "frost" && sc.frostSet) {
+			if (family == Family::kFrost && sc.frostSet) {
 				copy->data.color.red = Clamp255(sc.frost.r);
 				copy->data.color.green = Clamp255(sc.frost.g);
 				copy->data.color.blue = Clamp255(sc.frost.b);
-			} else if (family == "shock" && sc.shockSet) {
+			} else if (family == Family::kShock && sc.shockSet) {
 				copy->data.color.red = Clamp255(sc.shock.r);
 				copy->data.color.green = Clamp255(sc.shock.g);
 				copy->data.color.blue = Clamp255(sc.shock.b);
-			} else if (family == "fire" && sc.fireSet) {
+			} else if (family == Family::kFire && sc.fireSet) {
 				copy->data.color.red = Clamp255(copy->data.color.red + sc.fireDelta.r);
 				copy->data.color.green = Clamp255(copy->data.color.green + sc.fireDelta.g);
 				copy->data.color.blue = Clamp255(copy->data.color.blue + sc.fireDelta.b);
@@ -103,8 +123,8 @@ namespace Plugin
 			}
 			LightCopies().push_back({ .id = "spray " + EditorID(proj), .base = EditorID(bulb), .form = copy, .startFade = copy->fade, .startRadius = copy->data.radius });
 			++raised;
-			SKSE::log::info("[SPRAY-RAISED] {} | range {} | radius {} | from {} | family {} | colour {},{},{}", Label(proj), range,
-				radius, EditorID(bulb), family, copy->data.color.red, copy->data.color.green, copy->data.color.blue);
+			SKSE::log::info("[SPRAY-RAISED] {} | range {} | radius {} | from {} | family {} | color {},{},{}", Label(proj), range,
+				radius, EditorID(bulb), FamilyName(family), copy->data.color.red, copy->data.color.green, copy->data.color.blue);
 		}
 		SKSE::log::info(
 			"spray lights: {} spray projectiles seen; {} raised, {} with no light of their own, {} poison left dark, "

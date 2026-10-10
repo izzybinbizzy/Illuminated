@@ -2,32 +2,16 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Editor IDs: recorded as each form loads, because the game throws most of them away.
+// Editor IDs: the game throws most of them away while it loads, so they are recorded as each form arrives - by the
+// fading module's recorder (FadeEditorIDs.cpp), the one hook on that vtable slot; main.cpp asks it for every form type
+// the passes read. This file is the passes' way in, and the log's label.
 
+#include "Fade.h"
 #include "Plugin.h"
 
 namespace Plugin
 {
-	// ------------------------------------------------------------------ editor IDs
-	// The game throws most editor IDs away while it loads. The passes' rules are written against them,
-	// so every form type these passes read has its editor ID recorded as it arrives.
-	std::unordered_map<const RE::TESForm*, std::string> gEditorIDs;
-	RE::BSSpinLock                                      gEditorIDLock;
-
-	std::string EditorID(const RE::TESForm* a_form)
-	{
-		if (!a_form) {
-			return {};
-		}
-		{
-			RE::BSSpinLockGuard guard(gEditorIDLock);
-			if (const auto it = gEditorIDs.find(a_form); it != gEditorIDs.end()) {
-				return it->second;
-			}
-		}
-		const char* own = a_form->GetFormEditorID();
-		return own ? std::string(own) : std::string();
-	}
+	std::string EditorID(const RE::TESForm* a_form) { return Fade::EditorID(a_form); }
 
 	std::string Label(const RE::TESForm* a_form)
 	{
@@ -37,18 +21,5 @@ namespace Plugin
 			file ? file->GetFilename() : "(created)");
 	}
 
-	void RememberEditorID(const RE::TESForm* a_form, const char* a_id)
-	{
-		if (a_form && a_id && *a_id) {
-			RE::BSSpinLockGuard guard(gEditorIDLock);
-			gEditorIDs[a_form] = a_id;
-		}
-	}
-
-	void ForgetEditorIDs()
-	{
-		RE::BSSpinLockGuard guard(gEditorIDLock);
-		gEditorIDs.clear();
-		gEditorIDs.rehash(0);
-	}
+	void RememberEditorID(const RE::TESForm* a_form, const char* a_id) { Fade::RememberEditorID(a_form, a_id); }
 }

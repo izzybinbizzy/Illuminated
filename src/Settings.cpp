@@ -9,19 +9,24 @@
 // reads its configs. The player's picks live in Data\SKSE\Plugins\Illuminated\Illuminated.ini, beside the list of
 // settings (*.txt, written by lagen.py).
 
+#include "Fade.h"
 #include "Plugin.h"
 
 namespace Plugin
 {
 	namespace
 	{
-		std::vector<Setting>                         gSettings;
-		std::unordered_map<std::string, std::size_t> gIndex;  // lower-case id -> index
-		std::vector<MenuNote>                        gNotes;
-		std::vector<SprayMarker>                     gMarkers;
-		std::vector<LightCopy>                       gLights;
-		std::unordered_set<std::string>              gLightIds;  // lower-case ids of gLights, for the duplicate check
-		std::recursive_mutex                         gSettingsLock;
+		std::vector<Setting>            gSettings;
+		Fade::StringMap<std::size_t>    gIndex;  // lower-case id -> index
+		std::vector<MenuNote>           gNotes;
+		std::vector<SprayMarker>        gMarkers;
+		std::vector<LightCopy>          gLights;
+		std::unordered_set<std::string> gLightIds;   // lower-case ids of gLights, for the duplicate check
+		std::vector<char>               gAvailable;  // per setting: are the mods it needs loaded (worked out once, main thread)
+		// THREADS: the lists above are filled once, by LoadSettings at data load on the main thread, before the menu is
+		// registered or DevBench is answered; after that only each setting's value changes (a relaxed atomic), so readers
+		// take no lock. The lock keeps two writers (the menu, DevBench on the main thread) from writing the file at once.
+		std::recursive_mutex gSettingsLock;
 
 		constexpr std::string_view kSettingsSection = "Settings";
 		constexpr std::string_view kDetectedSection = "Detected";
@@ -276,13 +281,12 @@ namespace Plugin
 
 	bool ConditionsHold(const std::vector<std::vector<Clause>>& a_tests)
 	{
-		std::lock_guard l{ gSettingsLock };
 		for (const auto& test : a_tests) {
 			bool any = false;
 			for (const auto& c : test) {
 				const auto it = gIndex.find(c.global);
 				// a setting no settings file names: treat it as 0, which is what the game reads from a missing global
-				const int value = it == gIndex.end() ? 0 : gSettings[it->second].value;
+				const int value = it == gIndex.end() ? 0 : gSettings[it->second].value.load();
 				if (value == c.value) {
 					any = true;
 					break;
@@ -311,15 +315,15 @@ namespace Plugin
 			// the error code form: stepping on through a folder that cannot be read ends the walk instead of throwing
 			for (auto it = fs::directory_iterator(SettingsFolder(), ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
 				std::error_code one;  // one unreadable entry is skipped, the walk goes on
-				if (it->is_regular_file(one) && Lower(it->path().extension().string()) == ".txt") {
+				if (it->is_regular_file(one) && Lower(Fade::PathText(it->path().extension())) == ".txt") {
 					files.push_back(it->path());
 				}
 			}
 		}
-		std::sort(files.begin(), files.end());  // Settings.txt (the main download) before Praedy's Staves Settings.txt
+		std::ranges::sort(files);  // Settings.txt (the main download) before Praedy's Staves Settings.txt
 		// stable: the rest keep the order above (a plain sort left it unspecified, and the first file to name a setting wins)
-		std::stable_sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
-			return (Lower(a.filename().string()) != "settings.txt") < (Lower(b.filename().string()) != "settings.txt");
+		std::ranges::stable_sort(files, [](const fs::path& a, const fs::path& b) {
+			return (Lower(Fade::PathText(a.filename())) != "settings.txt") < (Lower(Fade::PathText(b.filename())) != "settings.txt");
 		});
 		for (const auto& f : files) {
 			ReadSettingsFile(f);
@@ -333,15 +337,22 @@ namespace Plugin
 				SKSE::log::warn("[SETTING-FAILED] {} | could not make its global; lights that read it stay at 0", s.id);
 			}
 		}
+		// the load order is fixed after data load: the menu (render thread) reads this instead of the data handler
+		gAvailable.assign(gSettings.size(), 1);
+		for (std::size_t i = 0; i < gSettings.size(); ++i) {
+			const auto& needs = gSettings[i].needs;
+			gAvailable[i] = needs.empty() || std::ranges::any_of(needs, [](const std::string& p) { return Loaded(p); });
+		}
 		ApplyIni();
 		ApplyGlobals();
 		SaveSettings();  // so the file shows what the detected mods turned on
 		SKSE::log::info("settings: {} read from {} file(s), {} notes, {} spray markers, {} light copies; {} globals made in memory",
 			gSettings.size(), files.size(), gNotes.size(), gMarkers.size(), gLights.size(), made);
 		for (const auto& s : gSettings) {
-			SKSE::log::info("[SETTING] {} = {}{}", s.id, s.value,
-				s.isChoice && s.value < static_cast<int>(s.choices.size()) ? " (" + s.choices[s.value] + ")" : s.isSlider ? "%" :
-																															"");
+			const int v = s.value;
+			SKSE::log::info("[SETTING] {} = {}{}", s.id, v,
+				s.isChoice && v >= 0 && v < static_cast<int>(s.choices.size()) ? " (" + s.choices[static_cast<std::size_t>(v)] + ")" : s.isSlider ? "%" :
+																																					"");
 		}
 	}
 
@@ -361,11 +372,11 @@ namespace Plugin
 		std::error_code ec;
 		fs::create_directories(IniPath().parent_path(), ec);
 		// keep every line of a section this plugin does not own
-		const auto    old = ReadIni();
-		std::ofstream out(IniPath(), std::ios::trunc);
+		const auto         old = ReadIni();
+		std::ostringstream out;  // written beside the file and moved over it (below)
 		out << "[" << kSettingsSection << "]\n";
 		for (const auto& s : gSettings) {
-			out << s.ini << "=" << s.value << "\n";
+			out << s.ini << "=" << s.value.load() << "\n";
 		}
 		// the detected mods this save saw, so a mod installed later is ticked for the player the way the installer would
 		std::set<std::string> seen;
@@ -399,6 +410,22 @@ namespace Plugin
 				out << k << "=" << v << "\n";
 			}
 		}
+		// a crash or a full disk mid-write leaves the old file, never half of one
+		const auto tmp = fs::path(IniPath()).concat(".tmp");
+		{
+			std::ofstream file(tmp, std::ios::trunc);
+			file << out.str();
+			if (!file.flush()) {
+				SKSE::log::warn("settings: {} could not be written", Fade::PathText(IniPath()));
+				fs::remove(tmp, ec);
+				return;
+			}
+		}
+		fs::rename(tmp, IniPath(), ec);
+		if (ec) {
+			SKSE::log::warn("settings: {} could not be replaced ({})", Fade::PathText(IniPath()), ec.message());
+			fs::remove(tmp, ec);
+		}
 	}
 
 	void SetSetting(std::size_t a_index, int a_value)
@@ -409,15 +436,30 @@ namespace Plugin
 				return;
 			}
 			auto& s = gSettings[a_index];
-			s.value = AllowedValue(s, a_value);
-			if (s.global) {
-				s.global->value = static_cast<float>(s.value);
-			}
-			SKSE::log::info("[SETTING-CHANGED] {} = {}", s.id, s.value);
+			s.value = AllowedValue(s, a_value);  // a relaxed atomic: the menu shows it at once
+			SKSE::log::info("[SETTING-CHANGED] {} = {}", s.id, s.value.load());
 		}
-		SaveSettings();
-		// the forms and the lit scene are the game's: they follow at the next frame, on its main thread
-		RequestRefresh();
+		// The menu calls this on the RENDER thread: the game's globals, the file and the lit scene are the main thread's, so
+		// they follow in ONE SKSE task - a slider dragged over many steps queues one task, not one per step (the re-score's
+		// Illuminated issue 1)
+		static std::atomic<bool> queued{ false };
+		if (queued.exchange(true)) {
+			return;
+		}
+		const auto apply = [] {
+			queued = false;
+			ApplyGlobals();
+			SaveSettings();
+			RequestRefresh();
+		};
+		if (auto* tasks = SKSE::GetTaskInterface()) {
+			tasks->AddTask(apply);
+		} else {
+			// no way to reach the main thread: the globals are never written from the menu's thread; the new value
+			// applies with the next refresh
+			queued = false;
+			SKSE::log::warn("[SETTING-CHANGED] no SKSE task interface - setting {} applies with the next refresh", a_index);
+		}
 	}
 
 	int AllowedValue(const Setting& a_setting, int a_value)
@@ -435,9 +477,14 @@ namespace Plugin
 
 	int SettingValue(std::string_view a_id, int a_fallback)
 	{
-		std::lock_guard l{ gSettingsLock };
-		const auto      it = gIndex.find(Lower(a_id));
-		return it == gIndex.end() ? a_fallback : gSettings[it->second].value;
+		// called every frame: an id is lowered on the stack, no string made (every id is far shorter than this)
+		std::array<char, 96> low{};
+		if (a_id.size() > low.size()) {
+			return a_fallback;
+		}
+		std::ranges::transform(a_id, low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		const auto it = gIndex.find(std::string_view(low.data(), a_id.size()));
+		return it == gIndex.end() ? a_fallback : gSettings[it->second].value.load();
 	}
 
 	bool RegisterEditorID(RE::TESForm* a_form, const std::string& a_id)
@@ -465,6 +512,12 @@ namespace Plugin
 	{
 		if (a_setting.needs.empty()) {
 			return true;
+		}
+		if (!gSettings.empty() && &a_setting >= gSettings.data() && &a_setting < gSettings.data() + gSettings.size()) {
+			const auto i = static_cast<std::size_t>(&a_setting - gSettings.data());
+			if (i < gAvailable.size()) {
+				return gAvailable[i] != 0;
+			}
 		}
 		return std::any_of(a_setting.needs.begin(), a_setting.needs.end(), [](const std::string& p) { return Loaded(p); });
 	}

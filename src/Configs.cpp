@@ -6,6 +6,7 @@
 // settings its lights wait on, so the passes can follow the menu. Without Light Placer (RecordLights.cpp) it also keeps
 // every light row - the copy it names, its color, its flicker - until the game's own light records are made from them.
 
+#include "Fade.h"
 #include "Plugin.h"
 
 namespace Plugin
@@ -13,6 +14,10 @@ namespace Plugin
 	namespace
 	{
 		// ------------------------------------------------------------------ a small JSON reader for the configs
+		// Its own reader, not nlohmann (which the DevBench glue and the fading rule files use): the configs are ~150 files and 12 MB read at every
+		// start, and this one keeps only what the passes ask for, copies strings in runs and is timed in the log (the
+		// speed pass, 2026-10-08: configs 89 -> 67 ms). It never throws: a file it cannot read is logged and skipped, and
+		// its depth is capped (64) so no file can run it out of stack.
 		struct Json
 		{
 			enum class Kind
@@ -207,7 +212,7 @@ namespace Plugin
 			if (points.empty()) {
 				return;
 			}
-			std::sort(points.begin(), points.end());
+			std::ranges::sort(points);
 			a_out.controller = true;
 			a_out.flash = points.back().second == 0.0f;
 			if (a_out.flash) {
@@ -290,7 +295,7 @@ namespace Plugin
 			Reader     r{ text };
 			const auto root = r.Value();
 			if (r.bad || root.kind != Json::Kind::kArray) {
-				SKSE::log::warn("[CONFIG-UNREADABLE] {} | not a list of entries this plugin can read; its lights are not counted", a_file.filename().string());
+				SKSE::log::warn("[CONFIG-UNREADABLE] {} | not a list of entries this plugin can read; its lights are not counted", Fade::PathText(a_file.filename()));
 				return;
 			}
 			++a_cov.files;
@@ -322,10 +327,10 @@ namespace Plugin
 				if (tests.empty()) {
 					tests.emplace_back();
 				}
+				// one copy of the entry's tests (and rows), shared by every model and form it names
+				const auto shared = std::make_shared<const Coverage::Tests>(std::move(tests));
+				const auto sharedRows = rows.empty() ? nullptr : std::make_shared<const ConfigEntry>(std::move(rows));
 				if (const auto* models = entry.Get("models"); models && models->kind == Json::Kind::kArray) {
-					// one copy of the entry's tests (and rows), shared by every model it names
-					const auto shared = std::make_shared<const Coverage::Tests>(std::move(tests));
-					const auto sharedRows = rows.empty() ? nullptr : std::make_shared<const ConfigEntry>(std::move(rows));
 					for (const auto& m : models->items) {
 						const auto low = NormalPath(m.text);
 						if (low.size() > 4 && low.ends_with(".nif")) {
@@ -342,6 +347,14 @@ namespace Plugin
 						const auto low = NormalPath(f.text);
 						if (low.size() > 2) {
 							a_cov.shaders.insert(low);
+							// without Light Placer an explosion, projectile or hazard a config names by editor ID gets its record
+							// light too (2026-10-10: Explosions.json's formIDs entries were dark on Vanilla) - kept under its
+							// own key, which EffectLights.cpp asks by the form's editor ID
+							if (sharedRows) {
+								const auto key = FormKey(low);
+								a_cov.modelTests[key].push_back(shared);
+								gConfigLights[key].push_back(sharedRows);
+							}
 						}
 					}
 				}
@@ -398,7 +411,7 @@ namespace Plugin
 			for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
 				!ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
 				std::error_code one;  // one unreadable entry is skipped, the walk goes on
-				if (it->is_regular_file(one) && Lower(it->path().extension().string()) == ".json") {
+				if (it->is_regular_file(one) && Lower(Fade::PathText(it->path().extension())) == ".json") {
 					ReadConfig(it->path(), gCoverage);
 				}
 			}

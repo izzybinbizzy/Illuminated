@@ -11,18 +11,21 @@
 #include <SKSE/SKSE.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <bit>
 #include <cctype>
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <map>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <set>
 #include <sstream>
 #include <string>

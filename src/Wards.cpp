@@ -52,12 +52,6 @@ namespace Plugin
 		RE::BGSArtObject* gWornDome = nullptr;
 		RE::BGSArtObject* gWornHand = nullptr;
 
-		RE::BGSArtObject* NewArt()
-		{
-			auto* factory = RE::IFormFactory::GetConcreteFormFactoryByType<RE::BGSArtObject>();
-			return factory ? factory->Create() : nullptr;
-		}
-
 		// the bare mesh name, lower case: "Magic\WardBodyFX.nif" -> "wardbodyfx"
 		std::string MeshName(const char* a_model)
 		{
@@ -99,6 +93,9 @@ namespace Plugin
 			return;
 		}
 		auto* dh = RE::TESDataHandler::GetSingleton();
+		if (!dh) {
+			return;
+		}
 
 		// one dome
 		std::set<RE::EffectSetting*> extras;
@@ -159,10 +156,10 @@ namespace Plugin
 		}
 		// the worn wards: their own looping hand always, their own looping dome unless 360 Ward's sphere is the dome
 		if (!gWornDome) {
-			gWornDome = NewArt();
+			gWornDome = NewForm<RE::BGSArtObject>();
 		}
 		if (!gWornHand) {
-			gWornHand = NewArt();
+			gWornHand = NewForm<RE::BGSArtObject>();
 		}
 		if (gWornDome && gWornHand) {
 			gWornDome->SetModel("Magic\\Glow Wards\\Blue\\wardbodyfxworn.nif");

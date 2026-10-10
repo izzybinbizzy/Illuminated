@@ -15,7 +15,7 @@ namespace Plugin
 	void PoisonRuneArt()
 	{
 		RE::EffectSetting* rune = nullptr;
-		for (auto* effect : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::EffectSetting>()) {
+		for (auto* effect : LightKit::FormsOf<RE::EffectSetting>()) {
 			if (effect && EditorID(effect) == kPoisonRuneEffect) {
 				rune = effect;
 				break;

@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "PCH.h"
+#include "LightKit.h"
 
 namespace Plugin
 {
@@ -17,6 +17,13 @@ namespace Plugin
 	constexpr std::string_view kOurFolder = "Illuminated";
 	constexpr std::string_view kCSFolder = "CS Light";
 
+	using LightKit::Relaxed;  // a value one thread writes and another reads (LightKit.h)
+
+	// the mod's own values in the advanced settings file (his rule 2026-10-10, Fade::Tuning; registered in main.cpp)
+	inline std::atomic<float> gNearby{ 2800.0f };       // [Lights] NearbyDistance: Hand lights for - Everyone nearby
+	inline std::atomic<float> gGroundLightsOn{ 1.0f };  // [Vanilla and ENB] GroundLights
+	inline std::atomic<float> gArtLightsOn{ 1.0f };     // [Vanilla and ENB] ArtLights
+
 	// ------------------------------------------------------------------ Text.cpp: small text helpers
 	std::string Lower(std::string_view a_text);
 	std::string NormalPath(std::string_view a_path);
@@ -24,6 +31,15 @@ namespace Plugin
 	std::string Trim(std::string_view a_text);
 	bool        ParseInt(std::string_view a_text, int& a_out);
 	bool        ParseFloat(std::string_view a_text, float& a_out);
+
+	// fire, frost or shock, read off an editor ID (the spray and stream passes; each reads its own words)
+	enum class Family
+	{
+		kNone,
+		kFire,
+		kFrost,
+		kShock
+	};
 
 	// ------------------------------------------------------------------ Lighting.cpp: which lighting the game draws with
 	enum class Lighting : int
@@ -46,27 +62,11 @@ namespace Plugin
 	PlainLight  Plain(float a_fade, float a_radius, float a_reach);    // that light, drawn by the game's own lighting
 	std::string LightingReport();
 
-	// ------------------------------------------------------------------ EditorIDs.cpp: editor IDs, recorded as each form loads
+	// ------------------------------------------------------------------ EditorIDs.cpp: editor IDs, through the fading module's
+	// ONE recorder (Fade.h; main.cpp asks it for the form types the passes read)
 	void        RememberEditorID(const RE::TESForm* a_form, const char* a_id);
-	void        ForgetEditorIDs();  // once the passes have run: the names are not needed again
 	std::string EditorID(const RE::TESForm* a_form);
 	std::string Label(const RE::TESForm* a_form);
-
-	template <class T>
-	struct EditorIDHook
-	{
-		static bool thunk(RE::TESForm* a_this, const char* a_id)
-		{
-			RememberEditorID(a_this, a_id);
-			return func(a_this, a_id);
-		}
-		static inline REL::Relocation<decltype(thunk)> func;
-		static void                                    Install()
-		{
-			REL::Relocation<std::uintptr_t> vtbl{ T::VTABLE[0] };
-			func = vtbl.write_vfunc(0x33, thunk);
-		}
-	};
 
 	// ------------------------------------------------------------------ Settings.cpp: the menu's settings (Illuminated only)
 	struct Clause
@@ -80,7 +80,8 @@ namespace Plugin
 		std::string              id, ini, page, group, label;
 		bool                     isChoice{ false }, isSlider{ false }, restart{ false }, autoAll{ false };
 		std::vector<std::string> choices, tips, needs, autoPlugins;
-		int                      defaultValue{ 0 }, value{ 0 };
+		int                      defaultValue{ 0 };
+		Relaxed<int>             value{ 0 };                                    // the menu (render thread) sets it, the main thread reads it
 		int                      minValue{ 0 }, maxValue{ 1 }, stepValue{ 1 };  // a slider's range and step (percent)
 		RE::TESGlobal*           global{ nullptr };
 	};
@@ -128,12 +129,14 @@ namespace Plugin
 	std::vector<LightCopy>&          LightCopies();
 	void                             MakeLightCopies();                                                              // LightCopies.cpp
 	void                             StreamLights();                                                                 // StreamLights.cpp: pass 6, lights that travel with a spray or bolt
+	[[nodiscard]] bool               StreamLightsOn();                                                               // StreamLights.cpp: the setting
 	void                             ApplyStreamLights(bool a_log);                                                  // StreamLights.cpp: the setting, on or off
 	void                             StreamLightsFrame();                                                            // StreamLights.cpp: once a frame, what a loader thread left to do
 	void                             ApplyLightStrength(bool a_log);                                                 // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn)
 	void                             RequestRefresh();                                                               // LightCopies.cpp: RefreshLights at the next frame, on the main thread
 	void                             NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the fading module wrote it (never scaled twice)
 	void                             RegisterMenu();                                                                 // Menu.cpp
+	void                             RegisterMenuTail();                                                             // Menu.cpp: the last page, after the fading module's pages
 	void                             OfferToDevBench();                                                              // DevBench.cpp: the settings and the light copies, for a test bench
 	void                             RefreshLights();                                                                // EffectLights.cpp: the sliders and passes 1, 2 and 6 again, for the settings as they are now
 
@@ -160,11 +163,24 @@ namespace Plugin
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
 	void                             DecideRecordRoute();  // before ReadCoverage
 	[[nodiscard]] bool               RecordRoute();
-	void                             MakeRecordLights();                             // after MakeLightCopies and ReadCoverage, before pass 1
-	void                             ApplyRecordColors();                            // the Light colors setting onto every record light
-	void                             RecordFlicker(RE::ActorMagicCaster* a_caster);  // after a caster's update: its hand light's flicker
-	void                             AdvanceRecordFlicker(float a_delta);            // once a frame, on the main thread
-	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model);     // nullptr: no row lights that model now
+	void                             MakeRecordLights();                                                     // after MakeLightCopies and ReadCoverage, before pass 1
+	void                             ApplyRecordColors();                                                    // the Light colors setting onto every record light
+	void                             RecordFlicker(RE::ActorMagicCaster* a_caster);                          // after a caster's update: its hand light's flicker
+	void                             RecordTablesReady();                                                    // the data load is done: RecordFlicker may read the tables
+	void                             AdvanceRecordFlicker(float a_delta);                                    // once a frame, on the main thread
+	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model);                             // nullptr: no row lights that model now
+	[[nodiscard]] float              RecordFadeNow(const RE::TESObjectLIGH* a_record, const void* a_light);  // its fade now, a flicker's keys played
+	// ArtLights.cpp (his report 2026-10-10: "bound weapons not lighting up on vanilla"): a light of ours on every art effect and
+	// drawn weapon whose model a config row lights now; once a frame on the main thread
+	void                      TickArtLights();
+	void                      DropArtLights();  // a game loads
+	[[nodiscard]] std::size_t ArtLightCount();
+	[[nodiscard]] std::size_t ArtLightsMade();
+	// GroundLights.cpp (his report 2026-10-09: no light on the ground on Vanilla): a twin of each hand's casting light, made the
+	// way Dynamic Wards makes its hand light (land lighting on); once a frame on the main thread
+	void                      TickGroundLights();
+	[[nodiscard]] std::size_t GroundLightCount();
+	[[nodiscard]] std::size_t GroundLightsMade();
 	// automatic lights (his go-to pick, 2026-10-07): a light of ours in a_color, at the middle strength and reach of the tuned
 	// hand lights a_tuned (made once per color, at data load; follows the sliders and the Light colors setting)
 	[[nodiscard]] RE::TESObjectLIGH* AutoLight(RE::Color a_color, const std::vector<const RE::TESObjectLIGH*>& a_tuned);
@@ -196,6 +212,8 @@ namespace Plugin
 
 	fs::path        LightPlacerDir(std::string_view a_folder);
 	const Coverage& ReadCoverage();
+	// the key a config's formIDs entry is kept under beside the models (record route): "formid:" + its lower-case editor ID
+	[[nodiscard]] inline std::string FormKey(std::string_view a_lowerEditorID) { return "formid:" + std::string(a_lowerEditorID); }
 
 	// ------------------------------------------------------------------ SprayMarkers.cpp: the installer's spray markers
 	struct Rgb
@@ -219,13 +237,7 @@ namespace Plugin
 	SprayChoice ReadSprayChoice();
 
 	// ------------------------------------------------------------------ FormCopies.cpp: making copies in memory
-	template <class T>
-	T* NewForm()
-	{
-		// Create() is not const, so the factory pointer must not be either
-		auto* factory = RE::IFormFactory::GetConcreteFormFactoryByType<T>();
-		return factory ? factory->Create() : nullptr;
-	}
+	using LightKit::NewForm;  // a form made in memory by the game's own factory (LightKit.h)
 
 	RE::TESObjectLIGH*   CopyLight(const RE::TESObjectLIGH* a_src);
 	RE::TESEffectShader* CopyShader(const RE::TESEffectShader* a_src);

@@ -14,39 +14,50 @@
 namespace Plugin
 {
 	// ------------------------------------------------------------------ pass 2: projectiles, explosions, hazards
-	const std::set<std::string> kForceNullProjectiles{ "tvr_geist_projectile" };
-
-	bool IsPoisonSpray(const std::string& a_editorID, const std::string& a_model)
+	namespace
 	{
-		const auto id = Lower(a_editorID);
-		return Contains(a_model, "spray") && (Contains(id, "poison") || Contains(id, "poision"));
+		const std::set<std::string> kForceNullProjectiles{ "tvr_geist_projectile" };
+
+		bool IsPoisonSpray(const std::string& a_editorID, const std::string& a_model)
+		{
+			const auto id = Lower(a_editorID);
+			return Contains(a_model, "spray") && (Contains(id, "poison") || Contains(id, "poision"));
+		}
+
+		struct EffectTarget
+		{
+			RE::TESObjectLIGH** slot;  // the form's light
+			RE::TESObjectLIGH*  own;
+			std::string         model;
+			std::string         label;
+			bool                always;        // named or a poison spray: dark whatever the settings say
+			int                 element{ 0 };  // the element of the effects that fire it (RecordLights.cpp): its color setting
+		};
+		std::vector<EffectTarget> gEffectTargets;
+		const Coverage*           gEffectCoverage = nullptr;
 	}
-
-	struct EffectTarget
-	{
-		RE::TESObjectLIGH** slot;  // the form's light
-		RE::TESObjectLIGH*  own;
-		std::string         model;
-		std::string         label;
-		bool                always;        // named or a poison spray: dark whatever the settings say
-		int                 element{ 0 };  // the element of the effects that fire it (RecordLights.cpp): its color setting
-	};
-	std::vector<EffectTarget> gEffectTargets;
-	const Coverage*           gEffectCoverage = nullptr;
 
 	void ApplyEffectLights(bool a_log)
 	{
 		std::size_t nulled = 0, restored = 0, recorded = 0;
 		for (auto& t : gEffectTargets) {
 			if (RecordRoute()) {
-				// the record light its model's rows give it now; else its own (a named one or a poison spray: none)
+				// the record light its model's rows give it now
 				auto* const record = ElementLight(RecordLightFor(t.model), t.element);
-				auto* const want = record ? record : t.always ? nullptr :
-				                                                t.own;
+				// else its own (a named one or a poison spray: none)
+				RE::TESObjectLIGH* want = record;
+				if (!want && !t.always) {
+					want = t.own;
+				}
 				if (*t.slot != want) {
 					*t.slot = want;
-					++(record ? recorded : want ? restored :
-												  nulled);
+					if (record) {
+						++recorded;
+					} else if (want) {
+						++restored;
+					} else {
+						++nulled;
+					}
 					if (a_log && record) {
 						SKSE::log::info("[FX-RECORD] {} | {} | {}", t.label, t.model, t.own ? "its own light replaced" : "had none");
 					}
@@ -80,21 +91,25 @@ namespace Plugin
 	// A Magelight that lands on terrain places a HAZARD instead (vanilla Skyrim.esm 0x03FA51, and the copies overhauls
 	// make of it). Nothing links that hazard to the spell, so it is known by its mesh, the light-spell lamp, and keeps
 	// its light the same way (measured 2026-09-25: with its light taken off, the landed lamp was dark).
-	constexpr std::string_view kLightSpellLampMesh = "lightspellhazard.nif";
+	namespace
+	{
+		constexpr std::string_view kLightSpellLampMesh = "lightspellhazard.nif";
 
-	bool IsLightSpellLamp(const std::string& a_model)
-	{
-		return a_model == kLightSpellLampMesh || a_model.ends_with("\\" + std::string(kLightSpellLampMesh));
-	}
-	std::set<const RE::BGSProjectile*> LightSpellProjectiles()
-	{
-		std::set<const RE::BGSProjectile*> out;
-		for (const auto* effect : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::EffectSetting>()) {
-			if (effect && effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight && effect->data.projectileBase) {
-				out.insert(effect->data.projectileBase);
-			}
+		bool IsLightSpellLamp(std::string_view a_model)
+		{
+			return a_model.ends_with(kLightSpellLampMesh) &&
+			       (a_model.size() == kLightSpellLampMesh.size() || a_model[a_model.size() - kLightSpellLampMesh.size() - 1] == '\\');
 		}
-		return out;
+		std::set<const RE::BGSProjectile*> LightSpellProjectiles()
+		{
+			std::set<const RE::BGSProjectile*> out;
+			for (const auto* effect : LightKit::FormsOf<RE::EffectSetting>()) {
+				if (effect && effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight && effect->data.projectileBase) {
+					out.insert(effect->data.projectileBase);
+				}
+			}
+			return out;
+		}
 	}
 
 	template <class T>
@@ -106,11 +121,11 @@ namespace Plugin
 		if constexpr (std::is_same_v<T, RE::BGSProjectile>) {
 			lightSpells = LightSpellProjectiles();
 		}
-		for (auto* form : RE::TESDataHandler::GetSingleton()->GetFormArray<T>()) {
+		for (auto* form : LightKit::FormsOf<T>()) {
 			if (!form) {
 				continue;
 			}
-			const auto model = NormalPath(form->GetModel() ? form->GetModel() : "");
+			auto model = NormalPath(form->GetModel() ? form->GetModel() : "");
 			if (model.empty()) {
 				continue;
 			}
@@ -118,7 +133,13 @@ namespace Plugin
 			const bool force = kForceNullProjectiles.contains(Lower(id));
 			const bool poisonSpray = IsPoisonSpray(id, model);
 			if (!a_cov.models.contains(model) && !force && !poisonSpray) {
-				continue;
+				// without Light Placer a config may name the form itself (Explosions.json's formIDs entries): its rows are kept
+				// under its editor ID's key (Configs.cpp), which stands in for the model from here on
+				const auto key = id.empty() ? std::string() : FormKey(Lower(id));
+				if (!RecordRoute() || key.empty() || !a_cov.modelTests.contains(key)) {
+					continue;
+				}
+				model = key;
 			}
 			if (force) {
 				++forced;
@@ -181,10 +202,18 @@ namespace Plugin
 		const auto started = std::chrono::steady_clock::now();
 		ApplyRecordColors();
 		ApplyLightStrength(false);
-		ApplyStreamLights(false);  // switched off: the hand lights come back first, and pass 2 then has its say over them
+		// Pass 6 (stream lights) and pass 2 both write a stream projectile's own light, so their order follows the setting:
+		// off - pass 6 gives its lights back first and pass 2 has the last word over them; on - pass 2 runs first and pass 6
+		// then takes off whatever pass 2 gave back (measured 2026-10-01: with one order for both, 102 lights stayed lit)
+		const bool streams = StreamLightsOn();
+		if (!streams) {
+			ApplyStreamLights(false);
+		}
 		ApplyCastingLights(false);
 		ApplyEffectLights(false);
-		ApplyStreamLights(false);  // still on: a light pass 2 just gave back comes off again (measured 2026-10-01: 102 did not)
+		if (streams) {
+			ApplyStreamLights(false);
+		}
 		SKSE::log::info("lights refreshed for the settings in {:.1f} ms",
 			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
 	}

@@ -1,15 +1,16 @@
-// Illuminated - the fading module
+// Illuminated - the fading module's own light (this file is Illuminated's; RELight - Spell Addon's is a stub)
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
 // The fading module's own light, for an enchanted weapon no other mod lights (a fire, frost or shock enchantment with only a
 // glow shader and no art has nothing for a lighting mod to hang a light on). On by default (OwnLight in the settings
 // file); it stands down on any weapon another mod lights (Glow::WantsOwnLight). The light hangs on the weapon's model,
-// so Lights.cpp finds and dims it like any other: it follows the charge, sputters, pulses and flares.
+// so FadeLights.cpp finds and dims it like any other: it follows the charge, sputters, pulses and flares.
 //
 // How a light is made and registered follows ReLight by Truman (github.com/TrumanGIT/ReLight, GPL-3.0-or-later): one
 // master NiPointLight made once and cloned for every use (a freshly made light attached straight away crashes), the
-// create parameters a non-shadow light needs, and handing the light to the shadow scene node, which renders it.
+// create parameters a non-shadow light needs, and handing the light to the shadow scene node, which renders it
+// (LightKit.h's CloneLight and AddToScene).
 // Everything here runs on the main thread, from the player's update.
 //
 // Community Shaders, ENB and Vanilla: Illuminated's one lighting pick (Lighting.cpp - the detection and the menu's
@@ -24,12 +25,9 @@ namespace Fade
 {
 	namespace
 	{
-		// Community Shaders' inverse-square lighting: its flag, and the constant its cutoff is worked out with
-		constexpr std::uint32_t kInverseSquare = 1u << 10;
-		constexpr float         kK = 3918.88f;
-		constexpr float         kSize = 1.414f;
-		constexpr float         kFade = 1.0f;
-		constexpr float         kAmbient = 0.1f;
+		constexpr float kSize = LightKit::kLightSize;
+		constexpr float kFade = 1.0f;
+		constexpr float kAmbient = 0.1f;
 
 		struct Own
 		{
@@ -42,7 +40,6 @@ namespace Fade
 
 		std::unordered_map<std::uint64_t, Own> gOwn;         // main thread only (Lights.cpp holds its lock around every call)
 		std::atomic<std::size_t>               gCount{ 0 };  // gOwn's size, for the menu's thread
-		RE::NiPointer<RE::NiPointLight>        gMaster;
 
 		// the color our own light takes from the enchantment's costliest effect: its element, else the most colourful of its
 		// glow shader's fill and edge and its own light (Glow::OwnLightColor), else what it drains
@@ -94,12 +91,12 @@ namespace Fade
 				colors[n++] = rgb(light->data.color);
 			}
 			const auto out = Glow::OwnLightColor(kind, std::span(colors.data(), n));
-			if (Config().debugLog) {
+			if (DebugLogOn()) {
 				std::string seen;
 				for (std::size_t i = 0; i < n; ++i) {
 					seen += std::format(" [{:.0f},{:.0f},{:.0f}]", colors[i].r, colors[i].g, colors[i].b);
 				}
-				SKSE::log::info("  own light colour for {}: kind {}, candidates{} -> [{:.2f},{:.2f},{:.2f}]", Label(base),
+				SKSE::log::info("  own light color for {}: kind {}, candidates{} -> [{:.2f},{:.2f},{:.2f}]", Label(base),
 					static_cast<int>(kind), seen.empty() ? " none" : seen, out.r, out.g, out.b);
 			}
 			return out;
@@ -112,19 +109,6 @@ namespace Fade
 		RE::NiColor AmbientOf(const RE::NiColor& a_diffuse)
 		{
 			return { a_diffuse.red * kAmbient, a_diffuse.green * kAmbient, a_diffuse.blue * kAmbient };
-		}
-
-		RE::NiPointLight* CloneMaster()
-		{
-			if (!gMaster) {
-				const RE::NiPointer<RE::NiPointLight> fresh(RE::NiPointLight::Create());
-				auto*                                 clone = fresh ? netimmerse_cast<RE::NiPointLight*>(fresh->Clone()) : nullptr;
-				if (!clone) {
-					return nullptr;
-				}
-				gMaster.reset(clone);
-			}
-			return netimmerse_cast<RE::NiPointLight*>(gMaster->Clone());
 		}
 
 		void Drop(Own& a_own)
@@ -147,7 +131,7 @@ namespace Fade
 			if (!scene || !node) {
 				return false;
 			}
-			RE::NiPointer<RE::NiPointLight> light(CloneMaster());
+			RE::NiPointer<RE::NiPointLight> light(LightKit::CloneLight());
 			if (!light) {
 				return false;
 			}
@@ -164,25 +148,13 @@ namespace Fade
 				data.ambient = AmbientOf(data.diffuse);  // after SetLightAttenuation, which writes the ambient words
 			}
 			if (isl) {
-				// Inverse Square Lighting reads its flag from the ambient color's first word and its cutoff from the second
-				data.ambient.red = std::bit_cast<float>(std::bit_cast<std::uint32_t>(data.ambient.red) | kInverseSquare);
-				data.ambient.green = std::clamp(kK * kFade / (a_reach * a_reach + kSize * kSize), 0.01f, 0.99f);
+				LightKit::Isl::SetOn(light.get());  // the flag and the cutoff Community Shaders reads (LightKit.h)
+				LightKit::Isl::SetCutoff(light.get(), LightKit::CutoffFor(kFade, a_reach, kSize));
 			}
 			node->AttachChild(light.get(), true);
 			RE::NiUpdateData update{};
 			light->Update(update);
-			RE::ShadowSceneNode::LIGHT_CREATE_PARAMS params{};
-			params.dynamic = true;
-			params.shadowLight = false;
-			params.portalStrict = true;
-			params.affectLand = true;
-			params.affectWater = true;
-			params.neverFades = true;
-			params.fov = 90.0f;
-			params.falloff = 1.0f;
-			params.nearDistance = 5.0f;
-			params.depthBias = 1.0f;
-			auto* registered = scene->AddLight(light.get(), params);
+			auto* registered = LightKit::AddToScene(scene, light.get());
 			if (!registered) {
 				node->DetachChild(light.get());
 				return false;

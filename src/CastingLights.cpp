@@ -17,52 +17,60 @@
 namespace Plugin
 {
 	// ------------------------------------------------------------------ pass 1: casting lights
-	constexpr std::size_t          kMaxCounterEffects = 512;
-	const std::vector<std::string> kSkipPrefixes{ "trap", "hazard", "voice", "ench", "test" };
-
-	bool SkippedPrefix(const std::string& a_editorID)
+	namespace
 	{
-		auto low = Lower(a_editorID);
-		if (low.size() > 4 && low.starts_with("dlc")) {
-			low = low.substr(4);
+		constexpr std::size_t                     kMaxCounterEffects = 512;
+		constexpr std::array<std::string_view, 5> kSkipPrefixes{ "trap", "hazard", "voice", "ench", "test" };
+
+		bool SkippedPrefix(std::string_view a_editorID)
+		{
+			auto low = Lower(a_editorID);
+			if (low.size() > 4 && low.starts_with("dlc")) {
+				low = low.substr(4);
+			}
+			return std::ranges::any_of(kSkipPrefixes, [&](std::string_view p) { return low.starts_with(p); });
 		}
-		return std::any_of(kSkipPrefixes.begin(), kSkipPrefixes.end(), [&](const std::string& p) { return low.starts_with(p); });
-	}
 
-	std::size_t CounterEffectCount(RE::EffectSetting* a_effect)
-	{
-		std::size_t listed = 0;
-		for ([[maybe_unused]] auto* e : a_effect->counterEffects) {
-			++listed;
+		std::size_t CounterEffectCount(RE::EffectSetting* a_effect)
+		{
+			std::size_t listed = 0;
+			for ([[maybe_unused]] auto* e : a_effect->counterEffects) {
+				++listed;
+			}
+			const std::size_t declared = static_cast<std::uint16_t>(a_effect->data.numCounterEffects);
+			// (std::max) in brackets: the Windows headers define a max macro
+			return (std::max)(listed, declared);
 		}
-		const std::size_t declared = static_cast<std::uint16_t>(a_effect->data.numCounterEffects);
-		// (std::max) in brackets: the Windows headers define a max macro
-		return (std::max)(listed, declared);
-	}
 
-	struct CastingTarget
-	{
-		RE::EffectSetting* effect;
-		RE::TESObjectLIGH* own;  // the light the effect had before this plugin touched it (after pass 0)
-		std::string        model;
-		RE::TESObjectLIGH* autoLight{ nullptr };  // no config lights its art: the automatic light it gets while the setting is on
-		int                element{ 0 };          // fire, frost or shock (RecordLights.cpp): its color setting
-		bool               enbLight{ false };     // ENB Light changed the effect or its casting art: it steps aside on ENB
-	};
-	constexpr std::string_view kAutoSetting = "IlluminatedAutoLights";
-	std::vector<CastingTarget> gCastingTargets;
-	const Coverage*            gCastingCoverage = nullptr;
+		struct CastingTarget
+		{
+			RE::EffectSetting* effect;
+			RE::TESObjectLIGH* own;  // the light the effect had before this plugin touched it (after pass 0)
+			std::string        model;
+			RE::TESObjectLIGH* autoLight{ nullptr };  // no config lights its art: the automatic light it gets while the setting is on
+			int                element{ 0 };          // fire, frost or shock (RecordLights.cpp): its color setting
+			bool               enbLight{ false };     // ENB Light changed the effect or its casting art: it steps aside on ENB
+		};
+		constexpr std::string_view kAutoSetting = "IlluminatedAutoLights";
+		std::vector<CastingTarget> gCastingTargets;
+		const Coverage*            gCastingCoverage = nullptr;
+	}
 
 	void ApplyCastingLights(bool a_log)
 	{
 		std::size_t nulled = 0, restored = 0, recorded = 0;
+		// the settings every target reads, once for the pass
+		const bool autoOn = SettingValue(kAutoSetting, 1) != 0;
+		const bool yield = RecordRoute() && YieldToENBLight();
 		for (auto& t : gCastingTargets) {
 			if (RecordRoute()) {
-				// the record light its art's rows give it now, or its own when no row lights the art
-				auto* const record = t.enbLight && YieldToENBLight() ?
-				                         nullptr :
-				                         ElementLight(t.autoLight ? (SettingValue(kAutoSetting, 1) != 0 ? t.autoLight : nullptr) : RecordLightFor(t.model), t.element);
-				auto* const want = record ? record : t.own;
+				// the record light its art's rows give it now (an automatic light while that setting is on), or its own when no
+				// row lights the art; ENB Light's spells keep its light while Illuminated steps aside for it
+				RE::TESObjectLIGH* lit = t.autoLight ? (autoOn ? t.autoLight : nullptr) : RecordLightFor(t.model);
+				auto* const        record = t.enbLight && yield ?
+				                                nullptr :
+				                                ElementLight(lit, t.element);
+				auto* const        want = record ? record : t.own;
 				if (t.effect->data.light != want) {
 					t.effect->data.light = want;
 					++(record ? recorded : restored);
@@ -91,64 +99,67 @@ namespace Plugin
 			nulled, recorded, restored, gCastingTargets.size());
 	}
 
-	// the spells no config lights: an automatic light each, where a color can be read off the spell
-	void AutoCastingLights(const Coverage& a_cov)
+	namespace
 	{
-		if (!RecordRoute()) {
-			return;
+		// the spells no config lights: an automatic light each, where a color can be read off the spell
+		void AutoCastingLights(const Coverage& a_cov)
+		{
+			if (!RecordRoute()) {
+				return;
+			}
+			// what the tuned spells wear now: the hand lights in the middle of which an automatic light sits, and the color most
+			// of the tuned spells of each element wear
+			std::vector<const RE::TESObjectLIGH*>                          tuned;
+			std::map<RE::ActorValue, std::map<std::uint32_t, std::size_t>> byElement;
+			const auto                                                     pack = [](const RE::Color& c) { return (static_cast<std::uint32_t>(c.red) << 16) | (static_cast<std::uint32_t>(c.green) << 8) | c.blue; };
+			for (const auto& t : gCastingTargets) {
+				if (auto* record = RecordLightFor(t.model)) {
+					tuned.push_back(record);
+					++byElement[t.effect->data.resistVariable][pack(record->data.color)];
+				}
+			}
+			const auto elementColor = [&](RE::ActorValue a_av) -> std::optional<RE::Color> {
+				const auto it = byElement.find(a_av);
+				if (a_av == RE::ActorValue::kNone || it == byElement.end() || it->second.empty()) {
+					return std::nullopt;
+				}
+				const auto best = std::ranges::max_element(it->second, {}, [](const auto& kv) { return kv.second; })->first;
+				return RE::Color(static_cast<std::uint8_t>(best >> 16), static_cast<std::uint8_t>(best >> 8), static_cast<std::uint8_t>(best), 0);
+			};
+			std::size_t own = 0, element = 0, noColor = 0;
+			for (auto* effect : LightKit::FormsOf<RE::EffectSetting>()) {
+				if (!effect || !effect->data.castingArt) {
+					continue;
+				}
+				const auto model = NormalPath(effect->data.castingArt->GetModel() ? effect->data.castingArt->GetModel() : "");
+				if (model.empty() || a_cov.models.contains(model) || effect->data.castingType == RE::MagicSystem::CastingType::kConstantEffect ||
+					effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight || SkippedPrefix(EditorID(effect)) ||
+					CounterEffectCount(effect) > kMaxCounterEffects) {
+					continue;
+				}
+				std::optional<RE::Color> color;
+				if (const auto* l = effect->data.light) {
+					color = l->data.color;
+					++own;
+				} else if ((color = elementColor(effect->data.resistVariable))) {
+					++element;
+				} else {
+					++noColor;
+					continue;
+				}
+				auto* light = AutoLight(*color, tuned);
+				if (!light) {
+					continue;
+				}
+				gCastingTargets.push_back({ effect, effect->data.light, model, light });
+				SKSE::log::info("[CAST-AUTO] {} | {} | {},{},{} from {}", Label(effect), model, color->red, color->green, color->blue,
+					effect->data.light ? "its own light" : "its element");
+			}
+			SKSE::log::info(
+				"automatic lights: {} spell(s) no config lights - {} in their own light's color, {} in their element's, {} left as they are "
+				"(no color to read); {} light(s) made",
+				own + element + noColor, own, element, noColor, AutoLightCount());
 		}
-		// what the tuned spells wear now: the hand lights in the middle of which an automatic light sits, and the color most
-		// of the tuned spells of each element wear
-		std::vector<const RE::TESObjectLIGH*>                          tuned;
-		std::map<RE::ActorValue, std::map<std::uint32_t, std::size_t>> byElement;
-		const auto                                                     pack = [](const RE::Color& c) { return (static_cast<std::uint32_t>(c.red) << 16) | (static_cast<std::uint32_t>(c.green) << 8) | c.blue; };
-		for (const auto& t : gCastingTargets) {
-			if (auto* record = RecordLightFor(t.model)) {
-				tuned.push_back(record);
-				++byElement[t.effect->data.resistVariable][pack(record->data.color)];
-			}
-		}
-		const auto elementColor = [&](RE::ActorValue a_av) -> std::optional<RE::Color> {
-			const auto it = byElement.find(a_av);
-			if (a_av == RE::ActorValue::kNone || it == byElement.end() || it->second.empty()) {
-				return std::nullopt;
-			}
-			const auto best = std::ranges::max_element(it->second, {}, [](const auto& kv) { return kv.second; })->first;
-			return RE::Color(static_cast<std::uint8_t>(best >> 16), static_cast<std::uint8_t>(best >> 8), static_cast<std::uint8_t>(best), 0);
-		};
-		std::size_t own = 0, element = 0, noColor = 0;
-		for (auto* effect : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::EffectSetting>()) {
-			if (!effect || !effect->data.castingArt) {
-				continue;
-			}
-			const auto model = NormalPath(effect->data.castingArt->GetModel() ? effect->data.castingArt->GetModel() : "");
-			if (model.empty() || a_cov.models.contains(model) || effect->data.castingType == RE::MagicSystem::CastingType::kConstantEffect ||
-				effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight || SkippedPrefix(EditorID(effect)) ||
-				CounterEffectCount(effect) > kMaxCounterEffects) {
-				continue;
-			}
-			std::optional<RE::Color> color;
-			if (const auto* l = effect->data.light) {
-				color = l->data.color;
-				++own;
-			} else if ((color = elementColor(effect->data.resistVariable))) {
-				++element;
-			} else {
-				++noColor;
-				continue;
-			}
-			auto* light = AutoLight(*color, tuned);
-			if (!light) {
-				continue;
-			}
-			gCastingTargets.push_back({ effect, effect->data.light, model, light });
-			SKSE::log::info("[CAST-AUTO] {} | {} | {},{},{} from {}", Label(effect), model, color->red, color->green, color->blue,
-				effect->data.light ? "its own light" : "its element");
-		}
-		SKSE::log::info(
-			"automatic lights: {} spell(s) no config lights - {} in their own light's color, {} in their element's, {} left as they are "
-			"(no color to read); {} light(s) made",
-			own + element + noColor, own, element, noColor, AutoLightCount());
 	}
 
 	std::size_t AutoCastingCount()
@@ -161,7 +172,7 @@ namespace Plugin
 		gCastingCoverage = &a_cov;
 		gCastingTargets.clear();
 		std::size_t scanned = 0, constant = 0, archetype = 0, prefix = 0, clean = 0, bloated = 0;
-		for (auto* effect : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::EffectSetting>()) {
+		for (auto* effect : LightKit::FormsOf<RE::EffectSetting>()) {
 			if (!effect || !effect->data.castingArt) {
 				continue;
 			}
@@ -204,7 +215,8 @@ namespace Plugin
 		if (RecordRoute()) {
 			for (auto& t : gCastingTargets) {
 				t.enbLight = TouchedByENBLight(t.effect) || TouchedByENBLight(t.effect->data.castingArt);
-				if ((t.element = ElementOf(t.effect)) > 0) {
+				t.element = ElementOf(t.effect);
+				if (t.element > 0) {
 					if (t.autoLight) {
 						PrepareElementLights(t.autoLight, t.element);
 					} else {
