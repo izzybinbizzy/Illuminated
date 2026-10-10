@@ -50,30 +50,10 @@ namespace Plugin
 			std::uint8_t                         interpolation{ 1 };
 			float                                start{ 0.0f }, duration{ 0.0f }, mean{ 1.0f };
 
-			// the fade the keys give at a_time into the loop - Truman's KeyframeSequence::Interpolate (RE::Light,
-			// controller.h): step, linear, or cubic Hermite (the configs give no tangents, so they are 0)
+			// the fade the keys give at a_time into the loop (LightMath.h's KeyAt: Truman's KeyframeSequence maths)
 			[[nodiscard]] float At(float a_time) const
 			{
-				const float t = start + std::fmod((std::max)(a_time, 0.0f), duration);
-				const auto  next = std::ranges::upper_bound(keys, t, {}, &std::pair<float, float>::first);
-				if (next == keys.begin()) {
-					return keys.front().second;
-				}
-				if (next == keys.end()) {
-					return keys.back().second;
-				}
-				const auto& [t0, v0] = *std::prev(next);
-				const auto& [t1, v1] = *next;
-				const float dt = t1 - t0;
-				if (dt <= 0.0f || interpolation == 0) {
-					return v0;
-				}
-				const float u = (t - t0) / dt;
-				if (interpolation == 1) {
-					return (1.0f - u) * v0 + u * v1;
-				}
-				const float u2 = u * u, u3 = u2 * u;
-				return (2.0f * u3 - 3.0f * u2 + 1.0f) * v0 + (-2.0f * u3 + 3.0f * u2) * v1;
+				return LightKit::KeyAt(keys, interpolation, start + std::fmod((std::max)(a_time, 0.0f), duration));
 			}
 		};
 

@@ -56,47 +56,65 @@ namespace Plugin
 		const Coverage*            gCastingCoverage = nullptr;
 	}
 
-	void ApplyCastingLights(bool a_log)
+	namespace
 	{
-		std::size_t nulled = 0, restored = 0, recorded = 0;
-		// the settings every target reads, once for the pass
-		const bool autoOn = SettingValue(kAutoSetting, 1) != 0;
-		const bool yield = RecordRoute() && YieldToENBLight();
-		for (auto& t : gCastingTargets) {
-			if (RecordRoute()) {
-				// the record light its art's rows give it now (an automatic light while that setting is on), or its own when no
-				// row lights the art; ENB Light's spells keep its light while Illuminated steps aside for it
-				RE::TESObjectLIGH* lit = t.autoLight ? (autoOn ? t.autoLight : nullptr) : RecordLightFor(t.model);
-				auto* const        record = t.enbLight && yield ?
-				                                nullptr :
-				                                ElementLight(lit, t.element);
-				auto* const        want = record ? record : t.own;
-				if (t.effect->data.light != want) {
-					t.effect->data.light = want;
-					++(record ? recorded : restored);
-					if (a_log && record) {
-						SKSE::log::info("[CAST-RECORD] {} | {} | {}", Label(t.effect), t.model, t.own ? "its own light replaced" : "had none");
-					}
-				}
-				continue;
-			}
-			const bool lit = gCastingCoverage && gCastingCoverage->ModelLit(t.model);
-			if (lit && t.effect->data.light) {
-				t.effect->data.light = nullptr;
-				++nulled;
-				if (a_log) {
-					SKSE::log::info("[CAST-NULLED] {} | {}", Label(t.effect), t.model);
-				}
-			} else if (!lit && t.effect->data.light != t.own) {
-				t.effect->data.light = t.own;
-				++restored;
-				if (a_log) {
-					SKSE::log::info("[CAST-KEPT] {} | {} | no setting lights it now", Label(t.effect), t.model);
+		struct CastingCounts
+		{
+			std::size_t nulled{ 0 }, restored{ 0 }, recorded{ 0 };
+		};
+
+		// without Light Placer: the record light its art's rows give it now (an automatic light while that setting is on), or
+		// its own when no row lights the art; ENB Light's spells keep its light while Illuminated steps aside for it
+		void ApplyRecordRoute(CastingTarget& a_t, bool a_autoOn, bool a_yield, bool a_log, CastingCounts& a_n)
+		{
+			RE::TESObjectLIGH* lit = a_t.autoLight ? (a_autoOn ? a_t.autoLight : nullptr) : RecordLightFor(a_t.model);
+			auto* const        record = a_t.enbLight && a_yield ? nullptr : ElementLight(lit, a_t.element);
+			auto* const        want = record ? record : a_t.own;
+			if (a_t.effect->data.light != want) {
+				a_t.effect->data.light = want;
+				++(record ? a_n.recorded : a_n.restored);
+				if (a_log && record) {
+					SKSE::log::info("[CAST-RECORD] {} | {} | {}", Label(a_t.effect), a_t.model, a_t.own ? "its own light replaced" : "had none");
 				}
 			}
 		}
+
+		// with Light Placer: a lit art's casting light comes off; it is given back when no setting lights the art
+		void ApplyLightPlacerRoute(CastingTarget& a_t, bool a_log, CastingCounts& a_n)
+		{
+			const bool lit = gCastingCoverage && gCastingCoverage->ModelLit(a_t.model);
+			if (lit && a_t.effect->data.light) {
+				a_t.effect->data.light = nullptr;
+				++a_n.nulled;
+				if (a_log) {
+					SKSE::log::info("[CAST-NULLED] {} | {}", Label(a_t.effect), a_t.model);
+				}
+			} else if (!lit && a_t.effect->data.light != a_t.own) {
+				a_t.effect->data.light = a_t.own;
+				++a_n.restored;
+				if (a_log) {
+					SKSE::log::info("[CAST-KEPT] {} | {} | no setting lights it now", Label(a_t.effect), a_t.model);
+				}
+			}
+		}
+	}
+
+	void ApplyCastingLights(bool a_log)
+	{
+		CastingCounts n;
+		// the route and the settings every target reads, once for the pass
+		const bool record = RecordRoute();
+		const bool autoOn = SettingValue(kAutoSetting, 1) != 0;
+		const bool yield = record && YieldToENBLight();
+		for (auto& t : gCastingTargets) {
+			if (record) {
+				ApplyRecordRoute(t, autoOn, yield, a_log, n);
+			} else {
+				ApplyLightPlacerRoute(t, a_log, n);
+			}
+		}
 		SKSE::log::info("casting lights for the settings as they are: {} taken off, {} pointed at a record light, {} given back, {} effects followed",
-			nulled, recorded, restored, gCastingTargets.size());
+			n.nulled, n.recorded, n.restored, gCastingTargets.size());
 	}
 
 	namespace

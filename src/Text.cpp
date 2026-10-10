@@ -2,20 +2,13 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Small text helpers: lower case, paths, trimming and number parsing.
+// Small text helpers: paths, trimming and number parsing (lower case is LightMath.h's LightKit::Lower).
 
 #include "Plugin.h"
 
 namespace Plugin
 {
 	// ------------------------------------------------------------------ small text helpers
-	std::string Lower(std::string_view a_text)
-	{
-		std::string out(a_text);
-		std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-		return out;
-	}
-
 	std::string NormalPath(std::string_view a_path)
 	{
 		std::string out = Lower(a_path);

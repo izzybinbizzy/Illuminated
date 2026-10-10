@@ -135,8 +135,12 @@ namespace Plugin
 			if (!a_cov.models.contains(model) && !force && !poisonSpray) {
 				// without Light Placer a config may name the form itself (Explosions.json's formIDs entries): its rows are kept
 				// under its editor ID's key (Configs.cpp), which stands in for the model from here on
-				const auto key = id.empty() ? std::string() : FormKey(Lower(id));
-				if (!RecordRoute() || key.empty() || !a_cov.modelTests.contains(key)) {
+				// a vanilla record a mod renames is named by its id instead (Configs.cpp, gen.RENAMED_BASE_FORMS)
+				auto key = id.empty() ? std::string() : FormKey(Lower(id));
+				if (key.empty() || !a_cov.modelTests.contains(key)) {
+					key = FormIdKey(form->GetFormID());
+				}
+				if (!RecordRoute() || !a_cov.modelTests.contains(key)) {
 					continue;
 				}
 				model = key;

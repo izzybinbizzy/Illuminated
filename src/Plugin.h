@@ -25,7 +25,7 @@ namespace Plugin
 	inline std::atomic<float> gArtLightsOn{ 1.0f };     // [Vanilla and ENB] ArtLights
 
 	// ------------------------------------------------------------------ Text.cpp: small text helpers
-	std::string Lower(std::string_view a_text);
+	using LightKit::Lower;  // LightMath.h: the one lower-casing helper
 	std::string NormalPath(std::string_view a_path);
 	bool        Contains(std::string_view a_text, std::string_view a_part);
 	std::string Trim(std::string_view a_text);
@@ -214,6 +214,9 @@ namespace Plugin
 	const Coverage& ReadCoverage();
 	// the key a config's formIDs entry is kept under beside the models (record route): "formid:" + its lower-case editor ID
 	[[nodiscard]] inline std::string FormKey(std::string_view a_lowerEditorID) { return "formid:" + std::string(a_lowerEditorID); }
+	// ... and one that names the record by its id ("0x4046D~Skyrim.esm"): "formid:#" + its runtime form ID, which no editor ID
+	// can spell (2026-10-10, gen.RENAMED_BASE_FORMS)
+	[[nodiscard]] inline std::string FormIdKey(RE::FormID a_id) { return std::format("formid:#{:08x}", a_id); }
 
 	// ------------------------------------------------------------------ SprayMarkers.cpp: the installer's spray markers
 	struct Rgb
