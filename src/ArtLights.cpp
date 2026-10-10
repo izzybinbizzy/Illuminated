@@ -2,7 +2,7 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Lights on ART and WEAPON models, without Light Placer (Vanilla and ENB). HIS REPORT 2026-10-10: "bound weapons not lighting
+// Lights on ART and WEAPON models, without Light Placer (Vanilla and ENB). HIS REPORT: "bound weapons not lighting
 // up on vanilla." A config that lights a model the game shows as an ART OBJECT (a bound weapon's enchantment art, an
 // enchanted weapon's art) or as a weapon's own mesh (the bound bow) has no light record slot to point at: the game gives light
 // records to magic effects, projectiles, explosions and hazards only (RecordLights.cpp). Light Placer hangs a light on such a
@@ -176,7 +176,7 @@ namespace Plugin
 			return nullptr;
 		}
 
-		// the weapon parts an art light already hangs under (measured 2026-10-10 on Vanilla: a bound sword's configs light both its
+		// the weapon parts an art light already hangs under (measured on Vanilla: a bound sword's configs light both its
 		// own model and its enchantment art - two lights on one blade; the art's is the one kept)
 		std::unordered_set<const RE::NiAVObject*> gArtUnder;
 

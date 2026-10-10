@@ -32,229 +32,15 @@ namespace Plugin
 			return id ? std::optional<RE::FormID>(id) : std::nullopt;
 		}
 
-		// ------------------------------------------------------------------ a small JSON reader for the configs
-		// Its own reader, not nlohmann (which the DevBench glue and the fading rule files use): the configs are ~150 files and 12 MB read at every
-		// start, and this one keeps only what the passes ask for, copies strings in runs and is timed in the log (the
-		// speed pass, 2026-10-08: configs 89 -> 67 ms). It never throws: a file it cannot read is logged and skipped, and
-		// its depth is capped (64) so no file can run it out of stack.
-		struct Json
-		{
-			enum class Kind
-			{
-				kNull,
-				kBool,
-				kNumber,
-				kString,
-				kArray,
-				kObject
-			};
-			struct Field;  // a key and its value; completed below, once Json is (a std::pair of an incomplete Json is not allowed)
-
-			Kind               kind{ Kind::kNull };
-			std::string        text;
-			std::vector<Json>  items;
-			std::vector<Field> fields;
-
-			const Json* Get(std::string_view a_key) const;
-		};
-
-		struct Json::Field
-		{
-			std::string key;
-			Json        value;
-		};
-
-		const Json* Json::Get(std::string_view a_key) const
-		{
-			for (const auto& [k, v] : fields) {
-				if (k == a_key) {
-					return &v;
-				}
-			}
-			return nullptr;
-		}
-
-		struct Reader
-		{
-			const std::string& s;
-			std::size_t        i{ 0 };
-			bool               bad{ false };
-
-			void Space()
-			{
-				while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) {
-					++i;
-				}
-			}
-
-			std::string String()
-			{
-				std::string out;
-				++i;  // the opening quote
-				while (i < s.size() && s[i] != '"') {
-					// a run with no escape is copied in one piece (the speed pass, 2026-10-08: one push per character was the
-					// reader's cost)
-					if (const auto stop = s.find_first_of("\"\\", i); stop != std::string::npos && stop > i) {
-						out.append(s, i, stop - i);
-						i = stop;
-						continue;
-					}
-					if (s[i] == '\\' && i + 1 < s.size()) {
-						++i;
-						const char c = s[i];
-						if (c == 'u' && i + 4 < s.size()) {
-							i += 4;  // no config names a model or a shader with an escaped character
-							out.push_back('?');
-						} else {
-							out.push_back(c == 'n' ? '\n' : c == 't' ? '\t' :
-																	   c);
-						}
-					} else {
-						out.push_back(s[i]);
-					}
-					++i;
-				}
-				if (i >= s.size()) {
-					bad = true;
-				}
-				++i;  // the closing quote
-				return out;
-			}
-
-			Json Value(int a_depth = 0)
-			{
-				Json v;
-				Space();
-				if (i >= s.size() || a_depth > 64) {
-					bad = true;
-					return v;
-				}
-				const char c = s[i];
-				if (c == '{') {
-					v.kind = Json::Kind::kObject;
-					++i;
-					Space();
-					if (i < s.size() && s[i] == '}') {
-						++i;
-						return v;
-					}
-					while (!bad) {
-						Space();
-						if (i >= s.size() || s[i] != '"') {
-							bad = true;
-							break;
-						}
-						auto key = String();
-						Space();
-						if (i >= s.size() || s[i] != ':') {
-							bad = true;
-							break;
-						}
-						++i;
-						v.fields.emplace_back(std::move(key), Value(a_depth + 1));
-						Space();
-						if (i < s.size() && s[i] == ',') {
-							++i;
-							continue;
-						}
-						if (i < s.size() && s[i] == '}') {
-							++i;
-							break;
-						}
-						bad = true;
-					}
-				} else if (c == '[') {
-					v.kind = Json::Kind::kArray;
-					++i;
-					Space();
-					if (i < s.size() && s[i] == ']') {
-						++i;
-						return v;
-					}
-					while (!bad) {
-						v.items.push_back(Value(a_depth + 1));
-						Space();
-						if (i < s.size() && s[i] == ',') {
-							++i;
-							continue;
-						}
-						if (i < s.size() && s[i] == ']') {
-							++i;
-							break;
-						}
-						bad = true;
-					}
-				} else if (c == '"') {
-					v.kind = Json::Kind::kString;
-					v.text = String();
-				} else {
-					const auto start = i;
-					while (i < s.size() && s[i] != ',' && s[i] != ']' && s[i] != '}' && !std::isspace(static_cast<unsigned char>(s[i]))) {
-						++i;
-					}
-					v.text = s.substr(start, i - start);
-					v.kind = v.text == "true" || v.text == "false" ? Json::Kind::kBool : v.text == "null" ? Json::Kind::kNull :
-					                                                                                        Json::Kind::kNumber;
-				}
-				return v;
-			}
-		};
+		// the configs' JSON reader, numbers and fadeController keys: ConfigText.h (game-free, tested off the game)
+		using ConfigText::Json;
+		using ConfigText::Number;
+		using ConfigText::Reader;
+		using ConfigText::ReadFadeController;
 
 		Coverage       gCoverage;
 		bool           gKeepLights = false;
 		ConfigLightMap gConfigLights;
-
-		[[nodiscard]] float Number(const Json* a_value, float a_fallback)
-		{
-			float out = a_fallback;
-			if (!a_value || a_value->kind != Json::Kind::kNumber || !ParseFloat(a_value->text, out) || !std::isfinite(out)) {
-				return a_fallback;
-			}
-			return out;
-		}
-
-		// A fadeController's keys: a flicker loops over them, a flash runs once and ends at 0 (its last key, far in the
-		// future, holds 0). The steady fade a record light can carry is the mean over the time it runs, linear between keys.
-		void ReadFadeController(const Json& a_controller, ConfigLight& a_out)
-		{
-			const auto* keys = a_controller.Get("keys");
-			if (!keys || keys->kind != Json::Kind::kArray || keys->items.empty()) {
-				return;
-			}
-			std::vector<std::pair<float, float>> points;  // time, fade
-			for (const auto& k : keys->items) {
-				if (k.kind == Json::Kind::kObject) {
-					points.emplace_back(Number(k.Get("time"), -1.0f), (std::max)(Number(k.Get("value"), 0.0f), 0.0f));
-				}
-			}
-			std::erase_if(points, [](const auto& a_p) { return a_p.first < 0.0f; });
-			if (points.empty()) {
-				return;
-			}
-			std::ranges::sort(points);
-			a_out.controller = true;
-			a_out.flash = points.back().second == 0.0f;
-			if (a_out.flash) {
-				// up to the first key after which every key is 0: the far sentinel key is not part of the flash
-				while (points.size() > 1 && points[points.size() - 2].second == 0.0f) {
-					points.pop_back();
-				}
-			}
-			float area = 0.0f;
-			for (std::size_t i = 1; i < points.size(); ++i) {
-				area += (points[i].first - points[i - 1].first) * (points[i].second + points[i - 1].second) * 0.5f;
-			}
-			const float span = points.back().first - points.front().first;
-			a_out.meanFade = span > 0.0f ? area / span : points.front().second;
-			if (!a_out.flash && points.size() > 1 && span > 0.0f) {
-				a_out.keys = std::move(points);  // a flicker, played by the record light every frame (RecordLights.cpp)
-				if (const auto* i = a_controller.Get("interpolation"); i && i->kind == Json::Kind::kString) {
-					const auto how = Lower(i->text);
-					a_out.interpolation = how == "step" ? 0 : how == "cubic" ? 2 :
-					                                                           1;
-				}
-			}
-		}
 
 		[[nodiscard]] ConfigLight ReadConfigLight(const Json& a_light, std::vector<std::vector<Clause>> a_test)
 		{
@@ -367,11 +153,11 @@ namespace Plugin
 						if (low.size() > 2) {
 							a_cov.shaders.insert(low);
 							// without Light Placer an explosion, projectile or hazard a config names by editor ID gets its record
-							// light too (2026-10-10: Explosions.json's formIDs entries were dark on Vanilla) - kept under its
+							// light too (Explosions.json's formIDs entries were dark on Vanilla) - kept under its
 							// own key, which EffectLights.cpp asks by the form's editor ID
 							if (sharedRows) {
 								// a vanilla record a mod renames is claimed by its id, "0x4046D~Skyrim.esm" (gen.RENAMED_BASE_FORMS,
-								// 2026-10-10: Frenzy's explosion was dark without Mysticism): kept under the form itself
+								// Frenzy's explosion was dark without Mysticism): kept under the form itself
 								const auto id = FormOfToken(f.text);
 								const auto key = id ? FormIdKey(*id) : FormKey(low);
 								a_cov.modelTests[key].push_back(shared);
@@ -399,6 +185,11 @@ namespace Plugin
 		return std::any_of(it->second.begin(), it->second.end(), [](const auto& a_entry) {
 			return std::any_of(a_entry->begin(), a_entry->end(), [](const auto& t) { return ConditionsHold(t); });
 		});
+	}
+
+	const Coverage& LastCoverage()
+	{
+		return gCoverage;
 	}
 
 	void KeepConfigLights(bool a_keep)

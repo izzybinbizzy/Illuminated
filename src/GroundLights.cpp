@@ -3,11 +3,11 @@
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
 // The hand light that lights the GROUND, without Light Placer (Vanilla and ENB, and Community Shaders without Light Placer).
-// HIS REPORT 2026-10-09: "lighting is still not working on vanilla ... spells light the character and work with sliders but
+// HIS REPORT: "lighting is still not working on vanilla ... spells light the character and work with sliders but
 // don't work on the ground at all no sliders do. please use dynamic wards code for everything we can here." On these
 // lightings the hand light is the game's own casting light (RecordLights.cpp gives it our color and reach), and the game
-// makes that light so it lights the caster but not the land - Dynamic Wards measured the same (2026-10-05) and hangs its own
-// light, made with land and water lighting on, which lights the ground. Measured here 2026-10-09 (Illuminated - Vanilla, his
+// makes that light so it lights the caster but not the land - Dynamic Wards measured the same and hangs its own
+// light, made with land and water lighting on, which lights the ground. Measured here (Illuminated - Vanilla, his
 // save, Flames readied, the ground in front of her): his build -0.09 on the ground, the game's light with its "land" flag set
 // afterwards +0.98 - so the flag alone is not enough, the light has to be MADE that way.
 //

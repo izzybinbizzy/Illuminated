@@ -28,7 +28,7 @@ namespace Plugin
 	{
 		constexpr std::size_t    kMaxPages = 24;
 		std::vector<std::string> gPages;
-		// his word 2026-10-09: "put praedy staves last" - after the fading module's pages too (RegisterMenuTail)
+		// his word: "put praedy staves last" - after the fading module's pages too (RegisterMenuTail)
 		constexpr std::string_view kLastPage = "Praedy's Staves";
 		std::string                gCSLight;  // the CS Light plugin that is loaded, if one is
 
@@ -36,8 +36,8 @@ namespace Plugin
 		// every shown line goes through T(): Translation.json beside Settings.txt (lagen.py writes the English one)
 		using Translation::T;
 
-		// HIS MENU OF 2026-10-09 ~11:05: "Default to ENB Light Settings" sits under the Version heading and is "greyed out if enb
-		// is not selected". 🔁 HIS WORD 2026-10-10: "found by itself needs to be changed to "Automatic"" and "users to not be able
+		// HIS MENU: "Default to ENB Light Settings" sits under the Version heading and is "greyed out if enb
+		// is not selected". 🔁 HIS WORD: "found by itself needs to be changed to "Automatic"" and "users to not be able
 		// to manually switch between versions" - the heading shows what was found (Lighting.cpp), there is no pick; an old
 		// settings file's Lighting line is not drawn
 		constexpr std::string_view kOldLightingId = "IlluminatedLighting";
@@ -56,8 +56,37 @@ namespace Plugin
 											 "are kept apart for each one."));
 		}
 
+#ifdef FADE_DEBUG_PAGE
+		// THE STATUS CARD AND THE DIAGNOSTICS PAGE - only in the TESTING DLL (his word: "only in testing dll"; built with
+		// FADE_DEBUG_PAGE, shipped in the PDB and Source download): what the plugin found and made, for a bug report
+		void DrawStatusCard()
+		{
+			const auto& cov = LastCoverage();
+			MenuStyle::Status(true, std::format("{} - {} config file(s), {} lit model(s)", RecordRoute() ? T("Lights through the game's own light records") : T("Lights through Light Placer"),
+										cov.files, cov.models.size())
+										.c_str());
+		}
+
+		void __stdcall RenderDiagnostics()
+		{
+			const MenuStyle::Page style;
+			const auto&           cov = LastCoverage();
+			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Found"));
+			ImGuiMCP::Text(T("Lighting: %s (inverse square lights: %s)"), T(LightingName(LightingPick())), InverseSquare() ? T("yes") : T("no"));
+			ImGuiMCP::Text(T("Route: %s"), RecordRoute() ? T("the game's own light records (Light Placer is not loaded)") : T("Light Placer"));
+			ImGuiMCP::Text(T("CS Light: %s"), gCSLight.empty() ? T("not loaded") : gCSLight.c_str());
+			ImGuiMCP::Text(T("Configs: %zu file(s), %zu lit model(s), %zu shader name(s)"), cov.files, cov.models.size(), cov.shaders.size());
+			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Made"));
+			ImGuiMCP::Text(T("Automatic lights: %zu, for %zu spell(s) without a patch"), AutoLightCount(), AutoCastingCount());
+			ImGuiMCP::Text(T("Ground lights: %zu now, %zu made"), GroundLightCount(), GroundLightsMade());
+			ImGuiMCP::Text(T("Art lights: %zu now, %zu made"), ArtLightCount(), ArtLightsMade());
+			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Hands and the log"));
+			ImGuiMCP::TextWrapped("%s", T("Each hand's lights right now and the debug log switch are on the Fading - debug page."));
+		}
+#endif
+
 		// the hover text: the setting's own tip, and a restart-only setting says so there (no line of text under it - his
-		// word 2026-10-09: "all of the subtext in lights menu is not needed")
+		// word: "all of the subtext in lights menu is not needed")
 		void SettingTip(const Setting& a_s, std::size_t a_tip)
 		{
 			const char* tip = a_tip < a_s.tips.size() && !a_s.tips[a_tip].empty() ? T(a_s.tips[a_tip].c_str()) : "";
@@ -132,7 +161,7 @@ namespace Plugin
 		}
 
 		// ------------------------------------------------------------------ the player's own presets, one set per lighting
-		// HIS WORD 2026-10-10: "any presets users make need to be version dependant so they can have presets per version if they
+		// HIS WORD: "any presets users make need to be version dependant so they can have presets per version if they
 		// switch to say, enb to community shaders mid save." A preset is every setting's value, saved under a name in
 		// Presets.ini beside the settings file, in a section of the lighting it was made on ([Vanilla|My preset]); the menu
 		// shows only the presets of the lighting found now. The file is read and written on the menu's thread, under a lock.
@@ -244,8 +273,8 @@ namespace Plugin
 			gPresetsDirty = true;
 		}
 
-		// HIS GO-TO PICK "presets" (2026-10-07 ~20:45; "do all of them" 2026-10-08): one click sets the sliders and the switches
-		// that shape the look together. -1 leaves a setting as the player has it. 🔁 HIS WORD 2026-10-10: "remove performance
+		// HIS GO-TO PICK "presets" ("do all of them"): one click sets the sliders and the switches
+		// that shape the look together. -1 leaves a setting as the player has it. 🔁 HIS WORD: "remove performance
 		// preset, only subtle default and cinematic(change dramatic to cinematic)".
 		void DrawPresets()
 		{
@@ -322,7 +351,7 @@ namespace Plugin
 			}
 		}
 
-		// HIS MENU OF 2026-10-09: "soul gems needs to have 1 submenu with praedy's in the dropdown along with vanilla and none".
+		// HIS MENU: "soul gems needs to have 1 submenu with praedy's in the dropdown along with vanilla and none".
 		// The two settings the installers made stay (the configs' conditions read both); the menu shows them as ONE pick:
 		// None = no soul gem lights, Vanilla = the vanilla gems, Praedy's = the vanilla gems + Praedy's (offered only with
 		// Praedy's SoulGems.esp loaded, as its own switch was).
@@ -362,10 +391,10 @@ namespace Plugin
 			}
 			const MenuStyle::Page style;
 			const auto&           page = gPages[a_page];
-			// HIS MENU OF 2026-10-09 ~11:05: "start the menu with (lightbulb) Presets", and "all of the subtext in lights menu is
+			// HIS MENU: "start the menu with (lightbulb) Presets", and "all of the subtext in lights menu is
 			// not needed" - the status lines that stood here are gone (the Lighting pick shows what is in use; devbench and the
 			// log still say it); CS Light loaded stays one warning line, its how-to in the hover text
-			// 🔁 HIS WORD 2026-10-09 ~11:40: the Version heading (the Lighting pick + "Default to ENB Light Settings") "goes before
+			// 🔁 HIS WORD: the Version heading (the Lighting pick + "Default to ENB Light Settings") "goes before
 			// presets as the first thing in the menu" - Presets is drawn when the first heading after Version starts
 			bool       presetsDrawn = a_page != 0;
 			const auto presets = [&] {
@@ -405,6 +434,9 @@ namespace Plugin
 					MenuStyle::Header(MenuStyle::Icon::kBulb, T(group.c_str()));
 					if (group == kVersionGroup) {
 						DrawVersion();
+#ifdef FADE_DEBUG_PAGE
+						DrawStatusCard();
+#endif
 					}
 				}
 				if (s.id == kSoulGems) {
@@ -476,5 +508,9 @@ namespace Plugin
 				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
 			}
 		}
+#ifdef FADE_DEBUG_PAGE
+		SKSEMenuFramework::SetSection(T(kSection.c_str()));
+		SKSEMenuFramework::AddSectionItem(T("Diagnostics"), RenderDiagnostics);
+#endif
 	}
 }

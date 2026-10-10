@@ -8,7 +8,7 @@
 //     (never bigger): this download carries VAER's own 36 swirl meshes with only their emissive multiplier raised,
 //     under meshes\Illuminated\VAER\L3s\ so they replace nothing on disk. Each of VAER's art objects that names one
 //     of those meshes is pointed at our copy - a copy that is not on disk is left alone.
-//  c. VAER'S OWN EFFECTS PUT BACK (ReLight's fix of 2026-09-28 late night, ported 2026-09-30). A plugin loaded after
+// c. VAER'S OWN EFFECTS PUT BACK (ReLight's fix ported). A plugin loaded after
 //     VAEReborn.esp that edits the same vanilla effect (Thaumaturgy, Artificer, ...) carries the effect's old art, so VAER's
 //     swirl is lost - 21 of VAER's 46 in his game, measured. Each gets VAER's Enchant Art and Enchant Shader back
 //     (gen.VAER_VANILLA_FORMS, read off VAEReborn.esp). And two of VAER's shaders (Stendarr's Hammer, Dawnfang's Bloodthirst)
@@ -147,7 +147,7 @@ namespace Plugin
 		}
 
 		// The plugin that changed this effect last, when it knows VAER (VAEReborn.esp is one of its masters) - its change is
-		// deliberate and stays. Measured 2026-10-10 (his Precision magic trails report): VAER's own Vibrant Weapons patch
+		// deliberate and stays. Measured (his Precision magic trails report): VAER's own Vibrant Weapons patch
 		// (VAER_EAE.esp) takes the swirl off six fire / frost / shock effects and gives them the vanilla shader so Enchantment Art
 		// Extender dresses the weapon, and this pass was putting VAER's swirl back over it.
 		[[nodiscard]] const RE::TESFile* VaerAwareChange(const RE::EffectSetting* a_effect)

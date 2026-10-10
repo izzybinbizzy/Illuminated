@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "ConfigText.h"
 #include "LightKit.h"
 
 namespace Plugin
@@ -19,7 +20,7 @@ namespace Plugin
 
 	using LightKit::Relaxed;  // a value one thread writes and another reads (LightKit.h)
 
-	// the mod's own values in the advanced settings file (his rule 2026-10-10, Fade::Tuning; registered in main.cpp)
+	// the mod's own values in the advanced settings file (his rule, Fade::Tuning; registered in main.cpp)
 	inline std::atomic<float> gNearby{ 2800.0f };       // [Lights] NearbyDistance: Hand lights for - Everyone nearby
 	inline std::atomic<float> gGroundLightsOn{ 1.0f };  // [Vanilla and ENB] GroundLights
 	inline std::atomic<float> gArtLightsOn{ 1.0f };     // [Vanilla and ENB] ArtLights
@@ -28,9 +29,10 @@ namespace Plugin
 	using LightKit::Lower;  // LightMath.h: the one lower-casing helper
 	std::string NormalPath(std::string_view a_path);
 	bool        Contains(std::string_view a_text, std::string_view a_part);
-	std::string Trim(std::string_view a_text);
-	bool        ParseInt(std::string_view a_text, int& a_out);
-	bool        ParseFloat(std::string_view a_text, float& a_out);
+	using ConfigText::ParseFloat;  // ConfigText.h (game-free): a number only when the whole field is one
+	using ConfigText::ParseInt;
+	using ConfigText::Split;
+	using ConfigText::Trim;
 
 	// fire, frost or shock, read off an editor ID (the spray and stream passes; each reads its own words)
 	enum class Family
@@ -69,11 +71,7 @@ namespace Plugin
 	std::string Label(const RE::TESForm* a_form);
 
 	// ------------------------------------------------------------------ Settings.cpp: the menu's settings (Illuminated only)
-	struct Clause
-	{
-		std::string global;  // lower case
-		int         value{ 0 };
-	};
+	using ConfigText::Clause;  // a GetGlobalValue item of a light's conditions (ConfigText.h)
 
 	struct Setting
 	{
@@ -112,33 +110,33 @@ namespace Plugin
 		std::string                      values;  // key=value;key=value
 	};
 
-	std::vector<std::vector<Clause>> ParseConditions(const std::vector<std::string>& a_conditions);
-	bool                             ConditionsHold(const std::vector<std::vector<Clause>>& a_tests);
-	void                             LoadSettings();
-	void                             ApplyGlobals();
-	void                             SaveSettings();
-	void                             SetSetting(std::size_t a_index, int a_value);
-	std::vector<Setting>&            Settings();
-	const std::vector<MenuNote>&     Notes();
-	const std::vector<SprayMarker>&  SprayMarkers();
-	bool                             PluginLoaded(std::string_view a_plugin);
-	bool                             SettingAvailable(const Setting& a_setting);
-	int                              AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
-	int                              SettingValue(std::string_view a_id, int a_fallback);
-	bool                             RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
-	std::vector<LightCopy>&          LightCopies();
-	void                             MakeLightCopies();                                                              // LightCopies.cpp
-	void                             StreamLights();                                                                 // StreamLights.cpp: pass 6, lights that travel with a spray or bolt
-	[[nodiscard]] bool               StreamLightsOn();                                                               // StreamLights.cpp: the setting
-	void                             ApplyStreamLights(bool a_log);                                                  // StreamLights.cpp: the setting, on or off
-	void                             StreamLightsFrame();                                                            // StreamLights.cpp: once a frame, what a loader thread left to do
-	void                             ApplyLightStrength(bool a_log);                                                 // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn)
-	void                             RequestRefresh();                                                               // LightCopies.cpp: RefreshLights at the next frame, on the main thread
-	void                             NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the fading module wrote it (never scaled twice)
-	void                             RegisterMenu();                                                                 // Menu.cpp
-	void                             RegisterMenuTail();                                                             // Menu.cpp: the last page, after the fading module's pages
-	void                             OfferToDevBench();                                                              // DevBench.cpp: the settings and the light copies, for a test bench
-	void                             RefreshLights();                                                                // EffectLights.cpp: the sliders and passes 1, 2 and 6 again, for the settings as they are now
+	using ConfigText::ParseConditions;  // ConfigText.h (game-free)
+	bool                            ConditionsHold(const std::vector<std::vector<Clause>>& a_tests);
+	void                            LoadSettings();
+	void                            ApplyGlobals();
+	void                            SaveSettings();
+	void                            SetSetting(std::size_t a_index, int a_value);
+	std::vector<Setting>&           Settings();
+	const std::vector<MenuNote>&    Notes();
+	const std::vector<SprayMarker>& SprayMarkers();
+	bool                            PluginLoaded(std::string_view a_plugin);
+	bool                            SettingAvailable(const Setting& a_setting);
+	int                             AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
+	int                             SettingValue(std::string_view a_id, int a_fallback);
+	bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
+	std::vector<LightCopy>&         LightCopies();
+	void                            MakeLightCopies();                                                              // LightCopies.cpp
+	void                            StreamLights();                                                                 // StreamLights.cpp: pass 6, lights that travel with a spray or bolt
+	[[nodiscard]] bool              StreamLightsOn();                                                               // StreamLights.cpp: the setting
+	void                            ApplyStreamLights(bool a_log);                                                  // StreamLights.cpp: the setting, on or off
+	void                            StreamLightsFrame();                                                            // StreamLights.cpp: once a frame, what a loader thread left to do
+	void                            ApplyLightStrength(bool a_log);                                                 // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn)
+	void                            RequestRefresh();                                                               // LightCopies.cpp: RefreshLights at the next frame, on the main thread
+	void                            NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the fading module wrote it (never scaled twice)
+	void                            RegisterMenu();                                                                 // Menu.cpp
+	void                            RegisterMenuTail();                                                             // Menu.cpp: the last page, after the fading module's pages
+	void                            OfferToDevBench();                                                              // DevBench.cpp: the settings and the light copies, for a test bench
+	void                            RefreshLights();                                                                // EffectLights.cpp: the sliders and passes 1, 2 and 6 again, for the settings as they are now
 
 	// ------------------------------------------------------------------ Configs.cpp: each config light, for the game's own light records
 	struct ConfigLight
@@ -170,18 +168,18 @@ namespace Plugin
 	void                             AdvanceRecordFlicker(float a_delta);                                    // once a frame, on the main thread
 	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model);                             // nullptr: no row lights that model now
 	[[nodiscard]] float              RecordFadeNow(const RE::TESObjectLIGH* a_record, const void* a_light);  // its fade now, a flicker's keys played
-	// ArtLights.cpp (his report 2026-10-10: "bound weapons not lighting up on vanilla"): a light of ours on every art effect and
+	// ArtLights.cpp (his report: "bound weapons not lighting up on vanilla"): a light of ours on every art effect and
 	// drawn weapon whose model a config row lights now; once a frame on the main thread
 	void                      TickArtLights();
 	void                      DropArtLights();  // a game loads
 	[[nodiscard]] std::size_t ArtLightCount();
 	[[nodiscard]] std::size_t ArtLightsMade();
-	// GroundLights.cpp (his report 2026-10-09: no light on the ground on Vanilla): a twin of each hand's casting light, made the
+	// GroundLights.cpp (his report: no light on the ground on Vanilla): a twin of each hand's casting light, made the
 	// way Dynamic Wards makes its hand light (land lighting on); once a frame on the main thread
 	void                      TickGroundLights();
 	[[nodiscard]] std::size_t GroundLightCount();
 	[[nodiscard]] std::size_t GroundLightsMade();
-	// automatic lights (his go-to pick, 2026-10-07): a light of ours in a_color, at the middle strength and reach of the tuned
+	// automatic lights (his go-to pick): a light of ours in a_color, at the middle strength and reach of the tuned
 	// hand lights a_tuned (made once per color, at data load; follows the sliders and the Light colors setting)
 	[[nodiscard]] RE::TESObjectLIGH* AutoLight(RE::Color a_color, const std::vector<const RE::TESObjectLIGH*>& a_tuned);
 	[[nodiscard]] std::size_t        AutoLightCount();
@@ -212,10 +210,11 @@ namespace Plugin
 
 	fs::path        LightPlacerDir(std::string_view a_folder);
 	const Coverage& ReadCoverage();
+	const Coverage& LastCoverage();  // what the last ReadCoverage found (the testing DLL's Diagnostics page)
 	// the key a config's formIDs entry is kept under beside the models (record route): "formid:" + its lower-case editor ID
 	[[nodiscard]] inline std::string FormKey(std::string_view a_lowerEditorID) { return "formid:" + std::string(a_lowerEditorID); }
 	// ... and one that names the record by its id ("0x4046D~Skyrim.esm"): "formid:#" + its runtime form ID, which no editor ID
-	// can spell (2026-10-10, gen.RENAMED_BASE_FORMS)
+	// can spell (gen.RENAMED_BASE_FORMS)
 	[[nodiscard]] inline std::string FormIdKey(RE::FormID a_id) { return std::format("formid:#{:08x}", a_id); }
 
 	// ------------------------------------------------------------------ SprayMarkers.cpp: the installer's spray markers

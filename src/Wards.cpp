@@ -3,16 +3,16 @@
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
 // The wards: one dome per ward, and 360 Ward's sphere in the vanilla blue. Steps down when DynamicWards.dll is loaded,
-// which dresses every ward itself (his call, 2026-09-24: "have the whole ward system step down if dynamic wards is present").
+// which dresses every ward itself (his call: "have the whole ward system step down if dynamic wards is present").
 //
 // ONE DOME. A ward spell's rank is the effect that accumulates Ward Power; every OTHER effect on the same spell that wears
 // the vanilla ward art draws a second dome and a second hand light (vanilla's ShieldConcSelf, Odin's Ward Regeneration,
-// Mysticism's Dummy rows - measured in his game 2026-09-24). Those lose their art and their light. An effect on a mod's
+// Mysticism's Dummy rows - measured in his game). Those lose their art and their light. An effect on a mod's
 // own ward art (a vampire's blood ward) is never touched.
 //
 // THE BLUE SPHERE. 360 Ward's own sphere is orange (its mesh uses the fire gradient); with 360 Ward loaded the vanilla
 // dome art form and 360 Ward's hit flash point at our blue copies under `meshes\magic\Glow Wards\Blue\` (his report,
-// 2026-09-24: "the 360 ward is orange"). Nothing is saved; a Light Placer config on the ward hand still lights the hand.
+// "the 360 ward is orange"). Nothing is saved; a Light Placer config on the ward hand still lights the hand.
 
 #include "Plugin.h"
 
@@ -27,7 +27,7 @@ namespace Plugin
 		constexpr const char*   kEmptyModel = "Effects\\FXEmptyObject.nif";
 		constexpr const char*   kBlueSphere = "Magic\\Glow Wards\\Blue\\wardbodyfx360.nif";
 		constexpr const char*   kBlueFlash = "Magic\\Glow Wards\\Blue\\wardshieldhitfx.nif";
-		// his call 2026-09-27: without 360 Ward the dome and the hand wear OUR vanilla-blue copies (their own textures, so no
+		// his call: without 360 Ward the dome and the hand wear OUR vanilla-blue copies (their own textures, so no
 		// other mod's loose textures reach them)
 		constexpr std::uint32_t kHandArt = 0x0253F1;  // Skyrim.esm: magic\wardinhandfx.nif
 		constexpr const char*   kBlueDome = "Magic\\Glow Wards\\Blue\\wardbodyfx.nif";
@@ -35,7 +35,7 @@ namespace Plugin
 
 		bool DynamicWardsLoaded() { return REX::W32::GetModuleHandleA("DynamicWards.dll") != nullptr; }
 
-		// HIS REPORT 2026-09-27 (Spellbreaker - the old fix, lost in a handoff purge): a WORN ward - Spellbreaker, the Divine
+		// HIS REPORT (Spellbreaker - the old fix, lost in a handoff purge): a WORN ward - Spellbreaker, the Divine
 		// Crusader shield, the Shield of Reman - never drives a cast ward's transitions, so the vanilla meshes sit idle: only
 		// the swirl, and the dome flashes as the ward ends. They wear copies of our dome and hand on Magic\\BeginLoopEnd.hkx
 		// (`wardgen.py warddomes`), in art forms of their own, so the cast wards keep theirs.

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// The game's own light records, lit by Illuminated: the route when Light Placer is not loaded. HIS CALL 2026-10-07:
+// The game's own light records, lit by Illuminated: the route when Light Placer is not loaded. HIS CALL:
 // "this is a vanilla lighting mod that will add never before seen vanilla light to spells and then optionally have
 // enb/lightplacer versions. vanilla is the main focus though."
 //
@@ -14,18 +14,18 @@
 //   the light copy the row names (LightCopies.cpp: drawn plain off Community Shaders, the sliders on it),
 //   in the row's color,
 //   at the steady share of the row's fade controller, if it has one: a flicker's mean, a flash's mean over the time it
-//   runs (the game fades an explosion's light out by itself: ~1.0 -> 0 over ~3 s, measured 2026-10-08).
-//   A flicker is played by us: the game does not move a casting light by its record's flicker flags (measured 2026-10-08
+// runs (the game fades an explosion's light out by itself: ~1.0 -> 0 over ~3 s, measured).
+// A flicker is played by us: the game does not move a casting light by its record's flicker flags (measured
 //   - Pulse / Flicker + amplitude set on the record: the hands read one fade in 380 samples, while every placed lamp round
 //   her moved). So a flicker row's keys stay with its record light, and right after each caster's update (LightCopies.cpp's
 //   one wrapper) the caster's own hand light takes the fade those keys give now, x the record's fade (the sliders) / the
-//   mean - HIS ORDER 2026-10-08: "build flicker in our dll you can use relight code if you want". The keyframe maths is
+// mean - HIS ORDER: "build flicker in our dll you can use relight code if you want". The keyframe maths is
 //   Truman's (RE::Light's controller.h, GPL-3.0; his permission for RELight's code, credited), each light starting at its
 //   own place in the loop as RE::Light's random start does. Nothing walks the scene: each caster writes the one light it
 //   holds, on the thread the game updates it on. Not in VR (the caster's layout there is not proven).
 // The color: the row's, as the game draws it - deeper than Community Shaders shows the same row, whose colors are
 // linear light. The paler look draws each one as Community Shaders shows it (the row's color turned from linear light to
-// the screen's, Dynamic Wards' wardgen.srgb). The setting "Light colors": Automatic (his call 2026-10-08) = paler on the
+// the screen's, Dynamic Wards' wardgen.srgb). The setting "Light colors": Automatic (his call) = paler on the
 // Community Shaders pick, deeper on Vanilla / ENB; Paler / Deeper force one. It reaches the next light the game makes.
 // A model with several rows takes the strongest one whose settings hold now: a record has ONE light. Passes 1 and 2
 // (CastingLights.cpp, EffectLights.cpp) point the records at these lights instead of taking the game's light off, and
@@ -105,7 +105,7 @@ namespace Plugin
 		};
 
 		// the light record a caster's hand light was made from: one of the hand's spell's effects' lights, matched by color.
-		// 🔁 HIS REPORT 2026-10-10 on Vanilla: "configs for spell art don't change until unequip/re equip" and "brightness and
+		// 🔁 HIS REPORT on Vanilla: "configs for spell art don't change until unequip/re equip" and "brightness and
 		// reach still don't track live" - a setting that points the effect at ANOTHER record leaves the lit hand in the old
 		// color, so nothing matched and the hand kept its old light until the spell was readied again; and a pass-0 copy was
 		// never ours to follow. Now: a match by color among every record of ours; else the record the spell's costliest effect
@@ -315,11 +315,11 @@ namespace Plugin
 	}
 
 	// ------------------------------------------------------------------ stepping aside for other light mods
-	// HIS GO-TO PICK (2026-10-07 ~20:48, "4 make it optional"): where another light mod lights the same spell, a switch says
+	// HIS GO-TO PICK ("4 make it optional"): where another light mod lights the same spell, a switch says
 	// whether Illuminated steps aside, so nothing is lit twice. Without Light Placer:
 	//   ENB Light (ENB Light.esp, ENB only): a spell whose effect or casting art ENB Light changed keeps the light ENB Light
 	//   gave it (its mesh's ENB light).
-	// (RELight is never used with Illuminated - his word 2026-10-08: "two separate mods and will never be used together" - so
+	// (RELight is never used with Illuminated - his word: "two separate mods and will never be used together" - so
 	// nothing here looks for it.)
 	bool YieldToENBLight()
 	{
@@ -337,8 +337,8 @@ namespace Plugin
 	}
 
 	// ------------------------------------------------------------------ per-element colors
-	// HIS GO-TO PICK (2026-10-07 ~20:45, "a per-element colour row with Auto - match the spell art"; "do all of them"
-	// 2026-10-08), without Light Placer: Fire, Frost and Shock each have a color setting - Auto (the spell's own, as tuned)
+	// HIS GO-TO PICK ("a per-element colour row with Auto - match the spell art"; "do all of them"
+	// ), without Light Placer: Fire, Frost and Shock each have a color setting - Auto (the spell's own, as tuned)
 	// or one named color. A spell's element is read off its effect (what it is resisted by); its bolt and explosion take
 	// the element of the effect that fires them. Each record light such a spell can wear gets one copy per element at data
 	// load, so a change of color in the menu only recolors those copies and points the records at them - no light is made
@@ -504,11 +504,11 @@ namespace Plugin
 		auto& data = light->GetLightRuntimeData();
 		if (!hand.matched) {
 			// a setting pointed the effect at another light since this one was lit: the hand takes its look now (his report
-			// 2026-10-10, "configs for spell art don't change until unequip/re equip, needs to be live")
+			// "configs for spell art don't change until unequip/re equip, needs to be live")
 			const auto& c = record->data.color;
 			data.diffuse = { c.red / 255.0f, c.green / 255.0f, c.blue / 255.0f };
 		}
-		// HIS REPORT 2026-10-09 ~11:05 on Vanilla, "reach still doesn't work": the game set the radius once, when the spell
+		// HIS REPORT on Vanilla, "reach still doesn't work": the game set the radius once, when the spell
 		// was readied, and Reach only changed the record - so a lit hand takes its record's radius too (GroundLights.cpp's
 		// twin copies it and re-attenuates when it moves)
 		const float radius = static_cast<float>(record->data.radius);
@@ -516,13 +516,13 @@ namespace Plugin
 			data.radius = RE::NiPoint3{ radius, radius, radius };
 		}
 		// a steady one takes its record's fade too, so Brightness and Dim in daylight reach a hand already lit (run 9,
-		// 2026-10-08: the game set it once, when the spell was readied, and it never moved after); a flicker plays its keys
+		// the game set it once, when the spell was readied, and it never moved after); a flicker plays its keys
 		data.fade = RecordFadeNow(record, light);
 	}
 
 	void ApplyRecordColors()
 	{
-		// HIS CALL 2026-10-08: "use pale colors for cs and default for vanilla/enb" - Automatic (0) follows the lighting;
+		// HIS CALL: "use pale colors for cs and default for vanilla/enb" - Automatic (0) follows the lighting;
 		// Paler (1) and Deeper (2) keep one look on every lighting (he kept the switch)
 		const int  pick = SettingValue(kPaleColors, 0);
 		const bool pale = pick == 1 || (pick == 0 && LightingPick() == Lighting::kShaders);

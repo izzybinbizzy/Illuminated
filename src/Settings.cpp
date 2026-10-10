@@ -49,24 +49,6 @@ namespace Plugin
 			return out;
 		}
 
-		std::vector<std::string> Split(std::string_view a_text, char a_sep)
-		{
-			std::vector<std::string> out;
-			std::size_t              start = 0;
-			while (start <= a_text.size()) {
-				const auto end = a_text.find(a_sep, start);
-				const auto piece = Trim(a_text.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start));
-				if (!piece.empty()) {
-					out.push_back(piece);
-				}
-				if (end == std::string_view::npos) {
-					break;
-				}
-				start = end + 1;
-			}
-			return out;
-		}
-
 		void ReadSettingsFile(const fs::path& a_file)
 		{
 			std::ifstream in(a_file, std::ios::binary);
@@ -241,44 +223,6 @@ namespace Plugin
 	}
 
 	// ------------------------------------------------------------------ conditions
-	std::vector<std::vector<Clause>> ParseConditions(const std::vector<std::string>& a_conditions)
-	{
-		// Only GetGlobalValue items are kept. A run of OR items is one test, as the game reads it; a test that holds
-		// anything else (IsSneaking OR a setting) cannot be decided from the settings, so it is left out: it may be true.
-		std::vector<std::vector<Clause>> out;
-		std::vector<Clause>              run;
-		bool                             runHasOther = false;
-		for (const auto& raw : a_conditions) {
-			const auto words = Split(raw, ' ');
-			if (words.empty()) {
-				continue;
-			}
-			const bool isOr = Lower(words.back()) == "or";
-			const auto fn = std::find_if(words.begin(), words.end(), [](const std::string& w) { return Lower(w) == "getglobalvalue"; });
-			if (fn != words.end() && std::distance(fn, words.end()) >= 5 && *(fn + 2) == "NONE" && *(fn + 3) == "==") {
-				int v = 0;
-				if (ParseInt(*(fn + 4), v)) {
-					run.push_back({ Lower(*(fn + 1)), v });
-				} else {
-					runHasOther = true;
-				}
-			} else {
-				runHasOther = true;
-			}
-			if (!isOr) {
-				if (!runHasOther && !run.empty()) {
-					out.push_back(run);
-				}
-				run.clear();
-				runHasOther = false;
-			}
-		}
-		if (!runHasOther && !run.empty()) {
-			out.push_back(run);
-		}
-		return out;
-	}
-
 	bool ConditionsHold(const std::vector<std::vector<Clause>>& a_tests)
 	{
 		for (const auto& test : a_tests) {
