@@ -210,6 +210,7 @@ namespace Plugin
 
 	fs::path        LightPlacerDir(std::string_view a_folder);
 	const Coverage& ReadCoverage();
+	const Coverage& LastCoverage();  // what the last ReadCoverage found (the testing DLL's Diagnostics page)
 	// the key a config's formIDs entry is kept under beside the models (record route): "formid:" + its lower-case editor ID
 	[[nodiscard]] inline std::string FormKey(std::string_view a_lowerEditorID) { return "formid:" + std::string(a_lowerEditorID); }
 	// ... and one that names the record by its id ("0x4046D~Skyrim.esm"): "formid:#" + its runtime form ID, which no editor ID

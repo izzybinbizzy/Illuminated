@@ -187,6 +187,11 @@ namespace Plugin
 		});
 	}
 
+	const Coverage& LastCoverage()
+	{
+		return gCoverage;
+	}
+
 	void KeepConfigLights(bool a_keep)
 	{
 		gKeepLights = a_keep;

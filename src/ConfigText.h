@@ -20,7 +20,9 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <limits>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -48,6 +50,11 @@ namespace ConfigText
 		const auto r = std::from_chars(t.data(), t.data() + t.size(), v);
 		if (t.empty() || r.ec != std::errc() || r.ptr != t.data() + t.size()) {
 			return false;
+		}
+		if constexpr (std::is_floating_point_v<T>) {
+			if (!std::isfinite(v)) {
+				return false;  // "nan" / "inf" read as whole fields: never a value
+			}
 		}
 		a_out = v;
 		return true;
@@ -323,21 +330,29 @@ namespace ConfigText
 			return;
 		}
 		std::ranges::sort(points);
-		a_out.controller = true;
-		a_out.flash = points.back().second == 0.0f;
-		if (a_out.flash) {
+		const bool flash = points.back().second == 0.0f;
+		if (flash) {
 			// up to the first key after which every key is 0: the far sentinel key is not part of the flash
 			while (points.size() > 1 && points[points.size() - 2].second == 0.0f) {
 				points.pop_back();
 			}
 		}
-		float area = 0.0f;
+		// summed in double: keys far apart in time with large values can pass a float's range
+		double area = 0.0;
 		for (std::size_t i = 1; i < points.size(); ++i) {
-			area += (points[i].first - points[i - 1].first) * (points[i].second + points[i - 1].second) * 0.5f;
+			const double dt = static_cast<double>(points[i].first) - static_cast<double>(points[i - 1].first);
+			const double sum = static_cast<double>(points[i].second) + static_cast<double>(points[i - 1].second);
+			area += dt * sum * 0.5;
 		}
-		const float span = points.back().first - points.front().first;
-		a_out.meanFade = span > 0.0f ? area / span : points.front().second;
-		if (!a_out.flash && points.size() > 1 && span > 0.0f) {
+		const double span = static_cast<double>(points.back().first) - static_cast<double>(points.front().first);
+		const double mean = span > 0.0 ? area / span : static_cast<double>(points.front().second);
+		if (!std::isfinite(mean) || mean < 0.0 || mean > static_cast<double>((std::numeric_limits<float>::max)())) {
+			return;  // not a fade a light can carry: the controller is left out
+		}
+		a_out.controller = true;
+		a_out.flash = flash;
+		a_out.meanFade = static_cast<float>(mean);
+		if (!flash && points.size() > 1 && span > 0.0) {
 			a_out.keys = std::move(points);  // a flicker, played by the record light every frame (RecordLights.cpp)
 			if (const auto* how = a_controller.Get("interpolation"); how && how->kind == Json::Kind::kString) {
 				const auto low = Lower(how->text);

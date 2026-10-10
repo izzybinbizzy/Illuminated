@@ -56,6 +56,35 @@ namespace Plugin
 											 "are kept apart for each one."));
 		}
 
+#ifdef FADE_DEBUG_PAGE
+		// THE STATUS CARD AND THE DIAGNOSTICS PAGE - only in the TESTING DLL (his word: "only in testing dll"; built with
+		// FADE_DEBUG_PAGE, shipped in the PDB and Source download): what the plugin found and made, for a bug report
+		void DrawStatusCard()
+		{
+			const auto& cov = LastCoverage();
+			MenuStyle::Status(true, std::format("{} - {} config file(s), {} lit model(s)", RecordRoute() ? T("Lights through the game's own light records") : T("Lights through Light Placer"),
+										cov.files, cov.models.size())
+										.c_str());
+		}
+
+		void __stdcall RenderDiagnostics()
+		{
+			const MenuStyle::Page style;
+			const auto&           cov = LastCoverage();
+			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Found"));
+			ImGuiMCP::Text(T("Lighting: %s (inverse square lights: %s)"), T(LightingName(LightingPick())), InverseSquare() ? T("yes") : T("no"));
+			ImGuiMCP::Text(T("Route: %s"), RecordRoute() ? T("the game's own light records (Light Placer is not loaded)") : T("Light Placer"));
+			ImGuiMCP::Text(T("CS Light: %s"), gCSLight.empty() ? T("not loaded") : gCSLight.c_str());
+			ImGuiMCP::Text(T("Configs: %zu file(s), %zu lit model(s), %zu shader name(s)"), cov.files, cov.models.size(), cov.shaders.size());
+			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Made"));
+			ImGuiMCP::Text(T("Automatic lights: %zu, for %zu spell(s) without a patch"), AutoLightCount(), AutoCastingCount());
+			ImGuiMCP::Text(T("Ground lights: %zu now, %zu made"), GroundLightCount(), GroundLightsMade());
+			ImGuiMCP::Text(T("Art lights: %zu now, %zu made"), ArtLightCount(), ArtLightsMade());
+			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Hands and the log"));
+			ImGuiMCP::TextWrapped("%s", T("Each hand's lights right now and the debug log switch are on the Fading - debug page."));
+		}
+#endif
+
 		// the hover text: the setting's own tip, and a restart-only setting says so there (no line of text under it - his
 		// word: "all of the subtext in lights menu is not needed")
 		void SettingTip(const Setting& a_s, std::size_t a_tip)
@@ -405,6 +434,9 @@ namespace Plugin
 					MenuStyle::Header(MenuStyle::Icon::kBulb, T(group.c_str()));
 					if (group == kVersionGroup) {
 						DrawVersion();
+#ifdef FADE_DEBUG_PAGE
+						DrawStatusCard();
+#endif
 					}
 				}
 				if (s.id == kSoulGems) {
@@ -476,5 +508,9 @@ namespace Plugin
 				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
 			}
 		}
+#ifdef FADE_DEBUG_PAGE
+		SKSEMenuFramework::SetSection(T(kSection.c_str()));
+		SKSEMenuFramework::AddSectionItem(T("Diagnostics"), RenderDiagnostics);
+#endif
 	}
 }
