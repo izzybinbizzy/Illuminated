@@ -12,6 +12,7 @@
 #ifndef NOMINMAX
 #	define NOMINMAX  // the build defines it too (lagen.XMAKE_EDITS)
 #endif
+#include "Fade.h"
 #include "Plugin.h"
 
 // SKSE Menu Framework's own header (theirs, MIT): its warnings are not ours, and ours are errors (xmake.lua)
@@ -35,17 +36,24 @@ namespace Plugin
 		// every shown line goes through T(): Translation.json beside Settings.txt (lagen.py writes the English one)
 		using Translation::T;
 
-		// HIS MENU OF 2026-10-09 ~11:05: "Default to ENB Light Settings" sits under the Lighting pick and is "greyed out if enb
-		// is not selected" - on while the pick is ENB, or Found by itself and the game was found to be ENB
-		constexpr std::string_view kLightingId = "IlluminatedLighting";
+		// HIS MENU OF 2026-10-09 ~11:05: "Default to ENB Light Settings" sits under the Version heading and is "greyed out if enb
+		// is not selected". 🔁 HIS WORD 2026-10-10: "found by itself needs to be changed to "Automatic"" and "users to not be able
+		// to manually switch between versions" - the heading shows what was found (Lighting.cpp), there is no pick; an old
+		// settings file's Lighting line is not drawn
+		constexpr std::string_view kOldLightingId = "IlluminatedLighting";
 		constexpr std::string_view kYieldENBId = "IlluminatedYieldENBLight";
-		constexpr int              kLightingChoiceENB = 2;     // lagen.py EXTRA_SETTINGS: Found by itself, Community Shaders, ENB, Vanilla
-		constexpr std::string_view kVersionGroup = "Version";  // lagen.py: the Lighting pick's heading, first on Lights
+		constexpr std::string_view kVersionGroup = "Version";  // lagen.py: the first heading on Lights
 
-		bool EnbPicked()
+		bool EnbFound() { return LightingPick() == Lighting::kEnb; }
+
+		void DrawVersion()
 		{
-			const int pick = SettingValue(kLightingId, 0);
-			return pick == kLightingChoiceENB || (pick == 0 && LightingPick() == Lighting::kEnb);
+			ImGuiMCP::Text("%s", T("Lighting"));
+			ImGuiMCP::SameLine();
+			ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.86f, 0.55f, 1.0f }, T("Automatic - %s"), T(LightingName(LightingPick())));
+			ImGuiMCP::SetItemTooltip("%s", T("Illuminated finds your lighting by itself when the game starts: Community Shaders when its inverse "
+											 "square lighting is installed, else ENB when an ENB is in the game folder, else Vanilla. Your presets "
+											 "are kept apart for each one."));
 		}
 
 		// the hover text: the setting's own tip, and a restart-only setting says so there (no line of text under it - his
@@ -68,7 +76,7 @@ namespace Plugin
 				ImGuiMCP::PopID();
 				return;
 			}
-			const bool greyed = a_s.id == kYieldENBId && !EnbPicked();
+			const bool greyed = a_s.id == kYieldENBId && !EnbFound();
 			ImGuiMCP::BeginDisabled(greyed);
 			if (a_s.isSlider) {
 				// the slider moves freely while it is held; the value is saved, on its step, when it is let go
@@ -123,8 +131,121 @@ namespace Plugin
 			}
 		}
 
+		// ------------------------------------------------------------------ the player's own presets, one set per lighting
+		// HIS WORD 2026-10-10: "any presets users make need to be version dependant so they can have presets per version if they
+		// switch to say, enb to community shaders mid save." A preset is every setting's value, saved under a name in
+		// Presets.ini beside the settings file, in a section of the lighting it was made on ([Vanilla|My preset]); the menu
+		// shows only the presets of the lighting found now. The file is read and written on the menu's thread, under a lock.
+		struct UserPreset
+		{
+			std::string                        name;
+			std::map<std::string, std::string> values;  // a setting's ini key (lower case) -> its value
+		};
+		std::mutex        gPresetLock;
+		std::atomic<bool> gPresetsDirty{ true };  // the file changed (or was never read): read it at the next draw
+
+		fs::path PresetsPath() { return fs::current_path() / "Data" / "SKSE" / "Plugins" / std::string(kOurFolder) / "Presets.ini"; }
+
+		// every preset in the file, by section "<lighting>|<name>", in file order
+		std::vector<std::pair<std::string, UserPreset>> ReadPresets()
+		{
+			std::vector<std::pair<std::string, UserPreset>> out;
+			std::ifstream                                   in(PresetsPath());
+			std::string                                     line;
+			while (std::getline(in, line)) {
+				const auto t = Trim(line);
+				if (t.empty() || t[0] == ';' || t[0] == '#') {
+					continue;
+				}
+				if (t.front() == '[' && t.back() == ']') {
+					const auto section = t.substr(1, t.size() - 2);
+					const auto bar = section.find('|');
+					if (bar != std::string::npos && bar + 1 < section.size()) {
+						out.push_back({ section.substr(0, bar), UserPreset{ section.substr(bar + 1), {} } });
+					}
+					continue;
+				}
+				const auto eq = t.find('=');
+				if (eq != std::string::npos && !out.empty()) {
+					out.back().second.values[Lower(Trim(t.substr(0, eq)))] = Trim(t.substr(eq + 1));
+				}
+			}
+			return out;
+		}
+
+		void WritePresets(const std::vector<std::pair<std::string, UserPreset>>& a_all)
+		{
+			std::ostringstream text;
+			text << "; " << kOurFolder << " - the presets you saved in the menu, one set per lighting. Written by the menu.\n";
+			for (const auto& [lighting, p] : a_all) {
+				text << "\n[" << lighting << "|" << p.name << "]\n";
+				for (const auto& [k, v] : p.values) {
+					text << k << "=" << v << "\n";
+				}
+			}
+			std::error_code ec;
+			fs::create_directories(PresetsPath().parent_path(), ec);
+			const auto tmp = fs::path(PresetsPath()).concat(".tmp");
+			{
+				std::ofstream out(tmp, std::ios::trunc);
+				out << text.str();
+				if (!out.flush()) {
+					SKSE::log::warn("presets: {} could not be written", Fade::PathText(PresetsPath()));
+					fs::remove(tmp, ec);
+					return;
+				}
+			}
+			fs::rename(tmp, PresetsPath(), ec);
+			if (ec) {
+				SKSE::log::warn("presets: {} could not be replaced ({})", Fade::PathText(PresetsPath()), ec.message());
+				fs::remove(tmp, ec);
+			}
+		}
+
+		void SavePreset(const std::string& a_name)
+		{
+			std::lock_guard   lock(gPresetLock);
+			const std::string lighting = LightingName(LightingPick());
+			UserPreset        p{ a_name, {} };
+			for (const auto& s : Settings()) {
+				p.values[Lower(s.ini)] = std::to_string(s.value.load());
+			}
+			auto all = ReadPresets();
+			std::erase_if(all, [&](const auto& e) { return e.first == lighting && Lower(e.second.name) == Lower(a_name); });
+			all.push_back({ lighting, std::move(p) });
+			WritePresets(all);
+			gPresetsDirty = true;
+			SKSE::log::info("presets: '{}' saved for {}", a_name, lighting);
+		}
+
+		void LoadPreset(const UserPreset& a_preset)
+		{
+			auto& settings = Settings();
+			for (std::size_t i = 0; i < settings.size(); ++i) {
+				const auto it = a_preset.values.find(Lower(settings[i].ini));
+				int        v = 0;
+				if (it != a_preset.values.end() && ParseInt(it->second, v) && SettingAvailable(settings[i])) {
+					if (const int allowed = AllowedValue(settings[i], v); allowed != settings[i].value) {
+						SetSetting(i, allowed);
+					}
+				}
+			}
+			SKSE::log::info("presets: '{}' loaded", a_preset.name);
+		}
+
+		void DeletePreset(const std::string& a_name)
+		{
+			std::lock_guard   lock(gPresetLock);
+			const std::string lighting = LightingName(LightingPick());
+			auto              all = ReadPresets();
+			std::erase_if(all, [&](const auto& e) { return e.first == lighting && e.second.name == a_name; });
+			WritePresets(all);
+			gPresetsDirty = true;
+		}
+
 		// HIS GO-TO PICK "presets" (2026-10-07 ~20:45; "do all of them" 2026-10-08): one click sets the sliders and the switches
-		// that shape the look and the cost together. -1 leaves a setting as the player has it.
+		// that shape the look together. -1 leaves a setting as the player has it. 🔁 HIS WORD 2026-10-10: "remove performance
+		// preset, only subtle default and cinematic(change dramatic to cinematic)".
 		void DrawPresets()
 		{
 			struct Preset
@@ -136,8 +257,7 @@ namespace Plugin
 			const Preset presets[] = {
 				{ T("Subtle"), T("Softer lights that stay close to the spell."), 75, 80, 1, -1, -1 },
 				{ T("Default"), T("The lights as the mod was made."), 100, 100, 1, 0, 1 },
-				{ T("Dramatic"), T("Brighter lights that reach further."), 150, 120, 1, -1, -1 },
-				{ T("Performance"), T("For big fights: hand lights for you and your followers only, steady lights, no stream lights."), 100, 80, 0, 2, 0 },
+				{ T("Cinematic"), T("Brighter lights that reach further."), 150, 120, 1, -1, -1 },
 			};
 			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Presets"));
 			for (std::size_t i = 0; i < std::size(presets); ++i) {
@@ -157,6 +277,47 @@ namespace Plugin
 					}
 				}
 				ImGuiMCP::SetItemTooltip("%s", p.tip);
+			}
+			// the player's own presets, for the lighting found now
+			static char name[48]{};
+			ImGuiMCP::SetNextItemWidth(220.0f);
+			ImGuiMCP::InputTextWithHint("##presetName", T("Name a preset"), name, sizeof(name));
+			ImGuiMCP::SameLine();
+			const std::string typed = Trim(name);
+			ImGuiMCP::BeginDisabled(typed.empty() || typed.find_first_of("[]|=") != std::string::npos);
+			if (ImGuiMCP::Button(T("Save as preset"))) {
+				SavePreset(typed);
+				name[0] = '\0';
+			}
+			ImGuiMCP::EndDisabled();
+			ImGuiMCP::SetItemTooltip(T("Saves every setting as it is now under this name, for %s. Each lighting keeps its own presets."),
+				T(LightingName(LightingPick())));
+			std::vector<UserPreset> mine;
+			{
+				// the file is read again only after a save or a delete (not every frame the page is drawn)
+				std::lock_guard                                        lock(gPresetLock);
+				static std::vector<std::pair<std::string, UserPreset>> cache;
+				if (gPresetsDirty.exchange(false)) {
+					cache = ReadPresets();
+				}
+				const std::string lighting = LightingName(LightingPick());
+				for (const auto& [l, p] : cache) {
+					if (l == lighting) {
+						mine.push_back(p);
+					}
+				}
+			}
+			for (std::size_t i = 0; i < mine.size(); ++i) {
+				ImGuiMCP::PushID(static_cast<int>(1000 + i));
+				if (ImGuiMCP::Button(mine[i].name.c_str())) {
+					LoadPreset(mine[i]);
+				}
+				ImGuiMCP::SetItemTooltip("%s", T("Load this preset."));
+				ImGuiMCP::SameLine();
+				if (ImGuiMCP::SmallButton(T("Delete"))) {
+					DeletePreset(mine[i].name);
+				}
+				ImGuiMCP::PopID();
 			}
 		}
 
@@ -232,8 +393,8 @@ namespace Plugin
 				if (s.page != page) {
 					continue;
 				}
-				if (s.id == kPraedysGems) {
-					continue;  // drawn inside the one soul gem pick
+				if (s.id == kPraedysGems || s.id == kOldLightingId) {
+					continue;  // drawn inside the one soul gem pick; the old Lighting pick is gone (Automatic)
 				}
 				if (s.group != group) {
 					if (s.group != kVersionGroup) {
@@ -241,6 +402,9 @@ namespace Plugin
 					}
 					group = s.group;
 					MenuStyle::Header(MenuStyle::Icon::kBulb, T(group.c_str()));
+					if (group == kVersionGroup) {
+						DrawVersion();
+					}
 				}
 				if (s.id == kSoulGems) {
 					DrawSoulGems(i, s);

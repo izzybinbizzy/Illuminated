@@ -16,7 +16,10 @@ namespace Fade::Mod
 	inline constexpr const char* kRulesDir = "Data/SKSE/Plugins/Illuminated/Fading";          // the rule files (*.json)
 	inline constexpr const char* kRulesDirText = "Data\\SKSE\\Plugins\\Illuminated\\Fading";  // the same, as a player reads it
 	inline constexpr const char* kLogName = "Illuminated.log";
-	// Illuminated hangs a simple light of its own on an enchanted weapon no other mod lights (FadeOwnLight.cpp)
-	inline constexpr bool        kOwnLight = true;
+	inline constexpr const char* kItemsPath = "Data/SKSE/Plugins/Illuminated/Lights by Item.ini";                      // FadeItems.cpp (his order 2026-10-10)
+	inline constexpr const char* kAdvancedPath = "Data/SKSE/Plugins/Illuminated/Illuminated - Advanced Settings.ini";  // FadeTuning.cpp (his rule 2026-10-10)
+	// no light of our own on an enchanted weapon no other mod lights (FadeOwnLight.cpp makes none) - HIS ORDER 2026-10-10:
+	// "completely remove own light for unlit weapons option"
+	inline constexpr bool        kOwnLight = false;
 	inline constexpr const char* kOwnLightName = "IlluminatedFadeLight";
 }

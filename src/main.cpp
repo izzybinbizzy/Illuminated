@@ -38,6 +38,7 @@
 //   StreamLights.cpp   pass 6      VaerSwirls.cpp     pass 7      Wards.cpp         one dome per ward
 //   SprayMarkers.cpp   the spray settings                         LightCopies.cpp   the sliders, and every hook
 //   RecordLights.cpp   the game's own light records, lit without Light Placer
+//   ArtLights.cpp      without Light Placer: lights of ours on lit art and weapon models (bound weapons)
 //   Fade*.cpp, Fade*.h the fading module (identical in RELight - Spell Addon but for FadeConfig.h, FadeOwnLight.cpp
 //                      and FadeDevBench.cpp - PC Runner\fade copies check.py)
 //   SKSEMenuFramework.h, DevBenchAPI.*  those mods' own files; DevBenchGlue.h, MenuStyle.h, Translation.h are
@@ -69,6 +70,10 @@ namespace
 				kOtherPluginDll);
 			return;
 		}
+		// the advanced settings file's own values (his rule 2026-10-10) - read with the fading module's, in Fade::OnDataLoaded
+		Fade::Tuning::Register("Lights", "NearbyDistance", 2800.0f, 300.0f, 30000.0f, "Hand lights for - Everyone nearby: how far from you, in game units", gNearby);
+		Fade::Tuning::Register("Vanilla and ENB", "GroundLights", 1.0f, 0.0f, 1.0f, "1: a hand light lights the ground too (its twin, made with land lighting on); 0: off", gGroundLightsOn);
+		Fade::Tuning::Register("Vanilla and ENB", "ArtLights", 1.0f, 0.0f, 1.0f, "1: bound weapons and lit art and weapons get their light without Light Placer; 0: off", gArtLightsOn);
 		LoadSettings();  // first: Light Placer reads the settings' globals in its conditions
 		ReadLighting();  // before pass 0: on ENB and Vanilla its lights are made plain
 		RegisterMenu();
@@ -88,6 +93,7 @@ namespace
 			SKSE::log::warn("no Illuminated configs were found under Data\\LightPlacer; nothing was changed");
 			StreamLights();  // pass 6: the lights that travel with a spray or a bolt, and its two hooks
 			RecordTablesReady();
+			Fade::ForgetPassEditorIDs();  // only what a fading rule file can name stays, as on the full path
 			return;
 		}
 		CastingLights(cov);
@@ -156,6 +162,7 @@ namespace
 			}
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
+			DropArtLights();  // the art and weapons they hang on are the old game's
 			Fade::OnGameLoading();
 			// the enchantments made during play are about to be replaced by the save's; never touch them again
 			ForgetCreatedEnchantments();

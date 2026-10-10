@@ -19,6 +19,11 @@ namespace Plugin
 
 	using LightKit::Relaxed;  // a value one thread writes and another reads (LightKit.h)
 
+	// the mod's own values in the advanced settings file (his rule 2026-10-10, Fade::Tuning; registered in main.cpp)
+	inline std::atomic<float> gNearby{ 2800.0f };       // [Lights] NearbyDistance: Hand lights for - Everyone nearby
+	inline std::atomic<float> gGroundLightsOn{ 1.0f };  // [Vanilla and ENB] GroundLights
+	inline std::atomic<float> gArtLightsOn{ 1.0f };     // [Vanilla and ENB] ArtLights
+
 	// ------------------------------------------------------------------ Text.cpp: small text helpers
 	std::string Lower(std::string_view a_text);
 	std::string NormalPath(std::string_view a_path);
@@ -158,12 +163,19 @@ namespace Plugin
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
 	void                             DecideRecordRoute();  // before ReadCoverage
 	[[nodiscard]] bool               RecordRoute();
-	void                             MakeRecordLights();                             // after MakeLightCopies and ReadCoverage, before pass 1
-	void                             ApplyRecordColors();                            // the Light colors setting onto every record light
-	void                             RecordFlicker(RE::ActorMagicCaster* a_caster);  // after a caster's update: its hand light's flicker
-	void                             RecordTablesReady();                            // the data load is done: RecordFlicker may read the tables
-	void                             AdvanceRecordFlicker(float a_delta);            // once a frame, on the main thread
-	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model);     // nullptr: no row lights that model now
+	void                             MakeRecordLights();                                                     // after MakeLightCopies and ReadCoverage, before pass 1
+	void                             ApplyRecordColors();                                                    // the Light colors setting onto every record light
+	void                             RecordFlicker(RE::ActorMagicCaster* a_caster);                          // after a caster's update: its hand light's flicker
+	void                             RecordTablesReady();                                                    // the data load is done: RecordFlicker may read the tables
+	void                             AdvanceRecordFlicker(float a_delta);                                    // once a frame, on the main thread
+	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model);                             // nullptr: no row lights that model now
+	[[nodiscard]] float              RecordFadeNow(const RE::TESObjectLIGH* a_record, const void* a_light);  // its fade now, a flicker's keys played
+	// ArtLights.cpp (his report 2026-10-10: "bound weapons not lighting up on vanilla"): a light of ours on every art effect and
+	// drawn weapon whose model a config row lights now; once a frame on the main thread
+	void                      TickArtLights();
+	void                      DropArtLights();  // a game loads
+	[[nodiscard]] std::size_t ArtLightCount();
+	[[nodiscard]] std::size_t ArtLightsMade();
 	// GroundLights.cpp (his report 2026-10-09: no light on the ground on Vanilla): a twin of each hand's casting light, made the
 	// way Dynamic Wards makes its hand light (land lighting on); once a frame on the main thread
 	void                      TickGroundLights();
@@ -200,6 +212,8 @@ namespace Plugin
 
 	fs::path        LightPlacerDir(std::string_view a_folder);
 	const Coverage& ReadCoverage();
+	// the key a config's formIDs entry is kept under beside the models (record route): "formid:" + its lower-case editor ID
+	[[nodiscard]] inline std::string FormKey(std::string_view a_lowerEditorID) { return "formid:" + std::string(a_lowerEditorID); }
 
 	// ------------------------------------------------------------------ SprayMarkers.cpp: the installer's spray markers
 	struct Rgb

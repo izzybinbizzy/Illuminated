@@ -125,7 +125,7 @@ namespace Plugin
 			if (!form) {
 				continue;
 			}
-			const auto model = NormalPath(form->GetModel() ? form->GetModel() : "");
+			auto model = NormalPath(form->GetModel() ? form->GetModel() : "");
 			if (model.empty()) {
 				continue;
 			}
@@ -133,7 +133,13 @@ namespace Plugin
 			const bool force = kForceNullProjectiles.contains(Lower(id));
 			const bool poisonSpray = IsPoisonSpray(id, model);
 			if (!a_cov.models.contains(model) && !force && !poisonSpray) {
-				continue;
+				// without Light Placer a config may name the form itself (Explosions.json's formIDs entries): its rows are kept
+				// under its editor ID's key (Configs.cpp), which stands in for the model from here on
+				const auto key = id.empty() ? std::string() : FormKey(Lower(id));
+				if (!RecordRoute() || key.empty() || !a_cov.modelTests.contains(key)) {
+					continue;
+				}
+				model = key;
 			}
 			if (force) {
 				++forced;

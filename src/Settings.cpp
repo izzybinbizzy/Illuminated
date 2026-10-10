@@ -21,7 +21,8 @@ namespace Plugin
 		std::vector<MenuNote>           gNotes;
 		std::vector<SprayMarker>        gMarkers;
 		std::vector<LightCopy>          gLights;
-		std::unordered_set<std::string> gLightIds;  // lower-case ids of gLights, for the duplicate check
+		std::unordered_set<std::string> gLightIds;   // lower-case ids of gLights, for the duplicate check
+		std::vector<char>               gAvailable;  // per setting: are the mods it needs loaded (worked out once, main thread)
 		// THREADS: the lists above are filled once, by LoadSettings at data load on the main thread, before the menu is
 		// registered or DevBench is answered; after that only each setting's value changes (a relaxed atomic), so readers
 		// take no lock. The lock keeps two writers (the menu, DevBench on the main thread) from writing the file at once.
@@ -336,6 +337,12 @@ namespace Plugin
 				SKSE::log::warn("[SETTING-FAILED] {} | could not make its global; lights that read it stay at 0", s.id);
 			}
 		}
+		// the load order is fixed after data load: the menu (render thread) reads this instead of the data handler
+		gAvailable.assign(gSettings.size(), 1);
+		for (std::size_t i = 0; i < gSettings.size(); ++i) {
+			const auto& needs = gSettings[i].needs;
+			gAvailable[i] = needs.empty() || std::ranges::any_of(needs, [](const std::string& p) { return Loaded(p); });
+		}
 		ApplyIni();
 		ApplyGlobals();
 		SaveSettings();  // so the file shows what the detected mods turned on
@@ -448,7 +455,10 @@ namespace Plugin
 		if (auto* tasks = SKSE::GetTaskInterface()) {
 			tasks->AddTask(apply);
 		} else {
-			apply();
+			// no way to reach the main thread: the globals are never written from the menu's thread; the new value
+			// applies with the next refresh
+			queued = false;
+			SKSE::log::warn("[SETTING-CHANGED] no SKSE task interface - setting {} applies with the next refresh", a_index);
 		}
 	}
 
@@ -502,6 +512,12 @@ namespace Plugin
 	{
 		if (a_setting.needs.empty()) {
 			return true;
+		}
+		if (!gSettings.empty() && &a_setting >= gSettings.data() && &a_setting < gSettings.data() + gSettings.size()) {
+			const auto i = static_cast<std::size_t>(&a_setting - gSettings.data());
+			if (i < gAvailable.size()) {
+				return gAvailable[i] != 0;
+			}
 		}
 		return std::any_of(a_setting.needs.begin(), a_setting.needs.end(), [](const std::string& p) { return Loaded(p); });
 	}

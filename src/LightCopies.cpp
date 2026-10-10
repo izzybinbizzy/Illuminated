@@ -60,10 +60,10 @@ namespace Plugin
 		// HIS GO-TO PICKS (2026-10-07 ~20:45, "do all of them" 2026-10-08): smarter brightness and a light budget
 		constexpr std::string_view kSmartBrightness = "IlluminatedSmartBrightness";  // 0 off, 1 a little, 2 more
 		constexpr std::string_view kHandLights = "IlluminatedHandLights";            // 0 everyone, 1 nearby, 2 + followers, 3 player only
-		constexpr float            kNearby = 2800.0f;                                // "about forty paces" in game units
-		std::atomic<float>         gDaylight{ 1.0f };                                // what Brightness is multiplied by now: 1 at night and in the dark
-		std::atomic<int>           gHandBudget{ 0 };                                 // the Hand lights for choice, read by every caster's update
-		float                      gDaylightClock{ 0.0f };
+		// "about forty paces" in game units: the advanced settings file's [Lights] NearbyDistance (gNearby, Plugin.h)
+		std::atomic<float> gDaylight{ 1.0f };  // what Brightness is multiplied by now: 1 at night and in the dark
+		std::atomic<int>   gHandBudget{ 0 };   // the Hand lights for choice, read by every caster's update
+		float              gDaylightClock{ 0.0f };
 
 		// how much dimmer the lights are now (LightKit.h: by the hour outdoors, by the room's own light indoors)
 		float DaylightFactor() { return LightKit::Daylight(SettingValue(kSmartBrightness, 0)); }
@@ -97,7 +97,8 @@ namespace Plugin
 			bool keep = false;
 			if (budget == 1) {
 				const auto* player = RE::PlayerCharacter::GetSingleton();
-				keep = player && actor->GetPosition().GetSquaredDistance(player->GetPosition()) <= kNearby * kNearby;
+				const float nearby = gNearby.load(std::memory_order_relaxed);
+				keep = player && actor->GetPosition().GetDistance(player->GetPosition()) <= nearby;
 			} else if (budget == 2) {
 				keep = actor->IsPlayerTeammate();
 			}
@@ -332,6 +333,7 @@ namespace Plugin
 				AdvanceRecordFlicker(a_delta);
 				WatchDaylight(a_delta);
 				Frame();
+				TickArtLights();  // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
 				Fade::UpdateHands(a_delta);
 				TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
 			}

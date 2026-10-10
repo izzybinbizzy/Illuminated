@@ -114,14 +114,28 @@ namespace Plugin
 			return static_cast<float>(bits % 10007u) / 10007.0f * a_duration;
 		}
 
-		// the record light of ours a caster's hand light was made from: one of the hand's spell's effects' lights, matched by
-		// color (a spell whose light comes from another effect is left alone)
-		[[nodiscard]] const RE::TESObjectLIGH* RecordOf(RE::ActorMagicCaster& a_caster, const RE::NiLight& a_light)
+		// every light record of ours a hand can wear: the record lights, the automatic and element ones, and every light copy
+		// (pass 0's copies of the game's magic lights among them) - filled when the data load is done (RecordTablesReady)
+		std::unordered_set<const RE::TESObjectLIGH*> gAllOurs;
+
+		struct HandRecord
+		{
+			const RE::TESObjectLIGH* record{ nullptr };
+			bool                     matched{ false };  // the live light still wears its color
+		};
+
+		// the light record a caster's hand light was made from: one of the hand's spell's effects' lights, matched by color.
+		// 🔁 HIS REPORT 2026-10-10 on Vanilla: "configs for spell art don't change until unequip/re equip" and "brightness and
+		// reach still don't track live" - a setting that points the effect at ANOTHER record leaves the lit hand in the old
+		// color, so nothing matched and the hand kept its old light until the spell was readied again; and a pass-0 copy was
+		// never ours to follow. Now: a match by color among every record of ours; else the record the spell's costliest effect
+		// wears NOW (unmatched - the hand takes that record's look).
+		[[nodiscard]] HandRecord RecordOf(RE::ActorMagicCaster& a_caster, const RE::NiLight& a_light)
 		{
 			const auto source = a_caster.GetCastingSource();
 			auto*      actor = a_caster.GetCasterAsActor();
 			if (!actor || (source != RE::MagicSystem::CastingSource::kLeftHand && source != RE::MagicSystem::CastingSource::kRightHand)) {
-				return nullptr;
+				return {};
 			}
 			auto* spell = a_caster.currentSpell;
 			if (!spell) {
@@ -129,22 +143,22 @@ namespace Plugin
 				spell = equipped ? equipped->As<RE::MagicItem>() : nullptr;
 			}
 			if (!spell) {
-				return nullptr;
+				return {};
 			}
 			const auto& diffuse = a_light.GetLightRuntimeData().diffuse;
 			const auto  same = [](float a_have, std::uint8_t a_want) { return std::abs(a_have * 255.0f - a_want) < 1.5f; };
 			for (const auto* effect : spell->effects) {
 				const auto* base = effect ? effect->baseEffect : nullptr;
 				const auto* record = base ? base->data.light : nullptr;
-				if (!record) {
-					continue;
-				}
-				if (gOurRecords.contains(record) && same(diffuse.red, record->data.color.red) && same(diffuse.green, record->data.color.green) &&
-					same(diffuse.blue, record->data.color.blue)) {
-					return record;
+				if (record && gAllOurs.contains(record) && same(diffuse.red, record->data.color.red) &&
+					same(diffuse.green, record->data.color.green) && same(diffuse.blue, record->data.color.blue)) {
+					return { record, true };
 				}
 			}
-			return nullptr;
+			const auto* top = spell->GetCostliestEffectItem();
+			const auto* topBase = top ? top->baseEffect : nullptr;
+			const auto* now = topBase ? topBase->data.light : nullptr;
+			return { now && gAllOurs.contains(now) ? now : nullptr, false };
 		}
 
 		using LightKit::ScreenChannel;  // a linear-light channel as the screen color that shows the same
@@ -468,39 +482,62 @@ namespace Plugin
 		std::atomic<bool> gTablesReady{ false };
 	}
 
-	void RecordTablesReady() { gTablesReady.store(true, std::memory_order_release); }
+	void RecordTablesReady()
+	{
+		gAllOurs.clear();
+		gAllOurs.insert(gOurRecords.begin(), gOurRecords.end());
+		for (const auto& c : LightCopies()) {
+			if (c.form) {
+				gAllOurs.insert(c.form);
+			}
+		}
+		gTablesReady.store(true, std::memory_order_release);
+	}
+
+	float RecordFadeNow(const RE::TESObjectLIGH* a_record, const void* a_light)
+	{
+		if (!a_record) {
+			return 0.0f;
+		}
+		if (const auto it = gFlickerOf.find(a_record); it != gFlickerOf.end()) {
+			const auto& flicker = it->second;
+			const float now = gClock.load(std::memory_order_relaxed) + PhaseOf(a_light, flicker.duration);
+			return a_record->fade * flicker.At(now) / flicker.mean;
+		}
+		return a_record->fade;
+	}
 
 	void RecordFlicker(RE::ActorMagicCaster* a_caster)
 	{
-		if (!gTablesReady.load(std::memory_order_acquire) || !gOn || gOurRecords.empty() || !a_caster || REL::Module::IsVR()) {
+		if (!gTablesReady.load(std::memory_order_acquire) || !gOn || gAllOurs.empty() || !a_caster || REL::Module::IsVR()) {
 			return;
 		}
 		RE::NiLight* light = a_caster->light ? a_caster->light->light.get() : nullptr;
 		if (!light) {
 			return;
 		}
-		const auto* record = RecordOf(*a_caster, *light);
+		const auto  hand = RecordOf(*a_caster, *light);
+		const auto* record = hand.record;
 		if (!record) {
 			return;
+		}
+		auto& data = light->GetLightRuntimeData();
+		if (!hand.matched) {
+			// a setting pointed the effect at another light since this one was lit: the hand takes its look now (his report
+			// 2026-10-10, "configs for spell art don't change until unequip/re equip, needs to be live")
+			const auto& c = record->data.color;
+			data.diffuse = { c.red / 255.0f, c.green / 255.0f, c.blue / 255.0f };
 		}
 		// HIS REPORT 2026-10-09 ~11:05 on Vanilla, "reach still doesn't work": the game set the radius once, when the spell
 		// was readied, and Reach only changed the record - so a lit hand takes its record's radius too (GroundLights.cpp's
 		// twin copies it and re-attenuates when it moves)
-		auto&       data = light->GetLightRuntimeData();
 		const float radius = static_cast<float>(record->data.radius);
 		if (radius > 0.0f && data.radius.x != radius) {
 			data.radius = RE::NiPoint3{ radius, radius, radius };
 		}
-		auto& fade = data.fade;
-		if (const auto it = gFlickerOf.find(record); it != gFlickerOf.end()) {
-			const auto& flicker = it->second;
-			const float now = gClock.load(std::memory_order_relaxed) + PhaseOf(light, flicker.duration);
-			fade = record->fade * flicker.At(now) / flicker.mean;
-		} else {
-			// a steady one takes its record's fade too, so Brightness and Dim in daylight reach a hand already lit (run 9,
-			// 2026-10-08: the game set it once, when the spell was readied, and it never moved after)
-			fade = record->fade;
-		}
+		// a steady one takes its record's fade too, so Brightness and Dim in daylight reach a hand already lit (run 9,
+		// 2026-10-08: the game set it once, when the spell was readied, and it never moved after); a flicker plays its keys
+		data.fade = RecordFadeNow(record, light);
 	}
 
 	void ApplyRecordColors()

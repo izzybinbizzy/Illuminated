@@ -327,10 +327,10 @@ namespace Plugin
 				if (tests.empty()) {
 					tests.emplace_back();
 				}
+				// one copy of the entry's tests (and rows), shared by every model and form it names
+				const auto shared = std::make_shared<const Coverage::Tests>(std::move(tests));
+				const auto sharedRows = rows.empty() ? nullptr : std::make_shared<const ConfigEntry>(std::move(rows));
 				if (const auto* models = entry.Get("models"); models && models->kind == Json::Kind::kArray) {
-					// one copy of the entry's tests (and rows), shared by every model it names
-					const auto shared = std::make_shared<const Coverage::Tests>(std::move(tests));
-					const auto sharedRows = rows.empty() ? nullptr : std::make_shared<const ConfigEntry>(std::move(rows));
 					for (const auto& m : models->items) {
 						const auto low = NormalPath(m.text);
 						if (low.size() > 4 && low.ends_with(".nif")) {
@@ -347,6 +347,14 @@ namespace Plugin
 						const auto low = NormalPath(f.text);
 						if (low.size() > 2) {
 							a_cov.shaders.insert(low);
+							// without Light Placer an explosion, projectile or hazard a config names by editor ID gets its record
+							// light too (2026-10-10: Explosions.json's formIDs entries were dark on Vanilla) - kept under its
+							// own key, which EffectLights.cpp asks by the form's editor ID
+							if (sharedRows) {
+								const auto key = FormKey(low);
+								a_cov.modelTests[key].push_back(shared);
+								gConfigLights[key].push_back(sharedRows);
+							}
 						}
 					}
 				}

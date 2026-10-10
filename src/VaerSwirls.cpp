@@ -146,10 +146,28 @@ namespace Plugin
 			return pointed;
 		}
 
+		// The plugin that changed this effect last, when it knows VAER (VAEReborn.esp is one of its masters) - its change is
+		// deliberate and stays. Measured 2026-10-10 (his Precision magic trails report): VAER's own Vibrant Weapons patch
+		// (VAER_EAE.esp) takes the swirl off six fire / frost / shock effects and gives them the vanilla shader so Enchantment Art
+		// Extender dresses the weapon, and this pass was putting VAER's swirl back over it.
+		[[nodiscard]] const RE::TESFile* VaerAwareChange(const RE::EffectSetting* a_effect)
+		{
+			const auto* last = a_effect ? a_effect->GetFile(-1) : nullptr;
+			if (!last || _stricmp(last->fileName, kVaerPlugin.data()) == 0) {
+				return nullptr;
+			}
+			for (std::uint32_t i = 0; last->masterPtrs && i < last->masterCount; ++i) {
+				if (const auto* master = last->masterPtrs[i]; master && _stricmp(master->fileName, kVaerPlugin.data()) == 0) {
+					return last;
+				}
+			}
+			return nullptr;
+		}
+
 		std::size_t VaerOwnBack()
 		{
 			// a plugin that is not loaded (a Creation Club file the player does not have) is simply skipped
-			std::size_t back = 0, already = 0, absent = 0;
+			std::size_t back = 0, already = 0, absent = 0, patched = 0;
 			auto*       dh = RE::TESDataHandler::GetSingleton();
 			if (!dh) {
 				return 0;
@@ -166,6 +184,11 @@ namespace Plugin
 					++already;
 					continue;
 				}
+				if (const auto* patch = VaerAwareChange(effect)) {
+					++patched;
+					SKSE::log::info("[VAER] {} was changed by {}, a patch made for VAER: left as it set it", c.name, patch->fileName);
+					continue;
+				}
 				if (!c.artPlugin.empty()) {
 					effect->data.enchantEffectArt = art;
 				}
@@ -173,8 +196,10 @@ namespace Plugin
 				++back;
 				SKSE::log::info("[VAER] {} had lost VAER's swirl; given back", c.name);
 			}
-			SKSE::log::info("VAER: {} of VAER's effect(s) given their swirl back, {} still had it, {} not in this load order", back,
-				already, absent);
+			SKSE::log::info(
+				"VAER: {} of VAER's effect(s) given their swirl back, {} still had it, {} left to a VAER patch, {} not in this "
+				"load order",
+				back, already, patched, absent);
 			std::size_t typos = 0;
 			for (const auto& c : kVaerOwn) {
 				auto*             shader = dh->LookupForm<RE::TESEffectShader>(c.shader, c.shaderPlugin);
