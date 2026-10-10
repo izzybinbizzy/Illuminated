@@ -212,7 +212,7 @@ namespace Plugin
 		auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
 		if (!scene || gArtLightsOn.load(std::memory_order_relaxed) < 0.5f) {  // switched off in the advanced settings file
 			for (auto& [key, kept] : gKept) {
-				Drop(kept, nullptr);
+				Drop(kept, scene);  // with a scene, each light leaves its lists too (CodeRabbit, Illuminated #6)
 			}
 			gKept.clear();
 			return;

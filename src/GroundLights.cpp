@@ -158,9 +158,10 @@ namespace Plugin
 		}
 		auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
 		if (!scene || gGroundLightsOn.load(std::memory_order_relaxed) < 0.5f) {  // switched off in the advanced settings file
-			// no scene to light: let every twin go and give each source light back
+			// no scene to light, or switched off: let every twin go and give each source light back (with a scene, each twin
+			// leaves its lists too - CodeRabbit, RELight #8)
 			for (auto& entry : gTwins) {
-				Drop(entry.second, nullptr);
+				Drop(entry.second, scene);
 			}
 			gTwins.clear();
 			return;

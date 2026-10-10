@@ -7,11 +7,13 @@
 //                                values it was made with; the lighting pick; the record lights (made without Light Placer).
 //   illuminated.control          action = setting (key = a setting id or INI key, value = a whole number: changed exactly
 //                                as the menu does - saved, applied at the next frame; the reply is the value it holds) |
-//                                settings (every setting with its value, range and page).
+//                                settings (every setting with its value, range and page) | item (form = a spell or weapon's
+//                                form id, choice = auto, off or r,g,b: its Lights by Item choice, as the page sets it).
 //   menu invoke name=illuminated set=setting key=... value=... - the same, kept for scripts that already use it.
 //   event illuminated.settingChanged {id, ini, value} for each change made through DevBench.
 
 #include "Plugin.h"
+#include "Fade.h"
 
 #include "DevBenchGlue.h"
 
@@ -27,7 +29,7 @@ namespace Plugin
 			R"json({"description":"Illuminated - every setting's value, and every light copy (id, base light, flicker, the fade, radius and cutoff it holds now and the ones it was made with). Read only.","inputSchema":{"type":"object","properties":{}},"readOnly":true})json";
 
 		constexpr const char* kTool =
-			R"json({"description":"Illuminated (spell, weapon and effect lights on Vanilla, ENB or Community Shaders, with an SKSE menu): change its settings. action=setting sets one setting by its id or INI key to a whole number exactly as the menu does (saved, applied at the next frame) and replies with the value it now holds; action=settings lists every setting with its id, INI key, value, range and menu page. Read the lights with inspect kind=illuminated.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["setting","settings"]},"key":{"type":"string","description":"setting: a setting id or INI key (action=settings lists them)"},"value":{"type":"number","description":"setting: a whole number (a switch 0/1, a choice's index, a slider's percent)"}},"required":["action"]}})json";
+			R"json({"description":"Illuminated (spell, weapon and effect lights on Vanilla, ENB or Community Shaders, with an SKSE menu): change its settings. action=setting sets one setting by its id or INI key to a whole number exactly as the menu does (saved, applied at the next frame) and replies with the value it now holds; action=settings lists every setting with its id, INI key, value, range and menu page; action=item sets one spell's or weapon's Lights by Item choice (form, choice = auto, off or r,g,b) as the page does. Read the lights with inspect kind=illuminated.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["setting","settings","item"]},"key":{"type":"string","description":"setting: a setting id or INI key (action=settings lists them)"},"value":{"type":"number","description":"setting: a whole number (a switch 0/1, a choice's index, a slider's percent)"},"form":{"type":"string","description":"item: the spell's or weapon's form id, e.g. 0x0002B96B"},"choice":{"type":"string","description":"item: auto, off, or a color r,g,b (0-255 each)"}},"required":["action"]}})json";
 
 		constexpr const char* kMenu =
 			R"json({"description":"Illuminated - set=setting key=<setting id or INI key> value=<whole number> changes a setting exactly as the menu does: saved, and applied at the next frame. The same as the illuminated.control tool.","inputSchema":{"type":"object","properties":{"set":{"type":"string"},"key":{"type":"string"},"value":{"type":"number"}}}})json";
@@ -73,8 +75,20 @@ namespace Plugin
 				}
 				return json{ { "ok", true }, { "settings", all } };
 			}
+			if (action == "item") {
+				const auto    form = DevBenchGlue::Text(a_args, "form");
+				std::uint32_t id = 0;
+				const auto    digits = form.starts_with("0x") || form.starts_with("0X") ? std::string_view(form).substr(2) : std::string_view(form);
+				if (std::from_chars(digits.data(), digits.data() + digits.size(), id, 16).ec != std::errc{} || !RE::TESForm::LookupByID(id)) {
+					return DevBenchGlue::Refusal("item needs form: a loaded spell's or weapon's form id");
+				}
+				if (!Fade::Items::SetFromText(id, DevBenchGlue::Text(a_args, "choice"))) {
+					return DevBenchGlue::Refusal("item needs choice: auto, off or r,g,b");
+				}
+				return json{ { "ok", true }, { "form", form }, { "choice", DevBenchGlue::Text(a_args, "choice") }, { "note", "applied to the lights at the next frame" } };
+			}
 			if (action != "setting") {
-				return DevBenchGlue::Refusal("unknown action '" + action + "'", json::array({ "setting", "settings" }));
+				return DevBenchGlue::Refusal("unknown action '" + action + "'", json::array({ "setting", "settings", "item" }));
 			}
 			const auto key = Lower(DevBenchGlue::Text(a_args, "key"));
 			const auto v = DevBenchGlue::Number(a_args, "value");

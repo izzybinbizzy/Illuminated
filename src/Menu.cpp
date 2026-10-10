@@ -238,7 +238,8 @@ namespace Plugin
 			std::lock_guard   lock(gPresetLock);
 			const std::string lighting = LightingName(LightingPick());
 			auto              all = ReadPresets();
-			std::erase_if(all, [&](const auto& e) { return e.first == lighting && e.second.name == a_name; });
+			// the same comparison as SavePreset (case left out), so a hand-edited name is found by both
+			std::erase_if(all, [&](const auto& e) { return e.first == lighting && Lower(e.second.name) == Lower(a_name); });
 			WritePresets(all);
 			gPresetsDirty = true;
 		}
