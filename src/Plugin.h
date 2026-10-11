@@ -256,6 +256,7 @@ namespace Plugin
 	void ApplyEffectLights(bool a_log);                                 // EffectLights.cpp: pass 2 again
 	void VaerSwirls();                                                  // VaerSwirls.cpp: pass 7, VAER Reborn's brighter strands and Thaumaturgy's copies
 	void Wards();                                                       // Wards.cpp: one dome per ward, 360 Ward's sphere in the vanilla blue
+	void ApplyWardLook();                                               // Wards.cpp: the Ward look pick onto the dome art (main thread)
 
 	// ------------------------------------------------------------------ Enchantments.cpp
 	void DoubledEnchantments(const Coverage& a_cov);

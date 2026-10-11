@@ -13,6 +13,13 @@
 // THE BLUE SPHERE. 360 Ward's own sphere is orange (its mesh uses the fire gradient); with 360 Ward loaded the vanilla
 // dome art form and 360 Ward's hit flash point at our blue copies under `meshes\magic\Glow Wards\Blue\` (his report,
 // "the 360 ward is orange"). Nothing is saved; a Light Placer config on the ward hand still lights the hand.
+//
+// THE WARD LOOK (his words 2026-10-09: "change the blue ward to vanilla blue. add transparent ward with vanilla outline as a
+// preset for wards, no slider just pure transparent with outline."): the setting IlluminatedWardLook - 0 the vanilla ward's own
+// blue (`Glow Wards\Vanilla\`: the sphere and flash retinted to gradwardcolor's hue; the old `Blue\` sphere was Dynamic Wards'
+// deeper Adept Blue), 1 Transparent (`Glow Wards\Transparent\`: no fill, the rim glow as the outline; without 360 Ward our
+// vanilla-blue dome with its bright layer turned into a rim). Applied at data load and on every settings refresh
+// (ApplyWardLook): an art form's model is read when a ward is raised, so it shows on the next ward.
 
 #include "Plugin.h"
 
@@ -20,13 +27,17 @@ namespace Plugin
 {
 	namespace
 	{
-		constexpr std::uint32_t kShieldConcSelf = 0x0FCC62;  // Skyrim.esm
-		constexpr std::uint32_t kDomeArt = 0x018124;         // Skyrim.esm WardHitEffect: magic\wardbodyfx.nif
-		constexpr std::uint32_t kFlashArt = 0x000802;        // 360 Ward.esp: magic\wardShieldHitFX.nif
-		constexpr const char*   k360Plugin = "360 Ward.esp";
-		constexpr const char*   kEmptyModel = "Effects\\FXEmptyObject.nif";
-		constexpr const char*   kBlueSphere = "Magic\\Glow Wards\\Blue\\wardbodyfx360.nif";
-		constexpr const char*   kBlueFlash = "Magic\\Glow Wards\\Blue\\wardshieldhitfx.nif";
+		constexpr std::uint32_t    kShieldConcSelf = 0x0FCC62;  // Skyrim.esm
+		constexpr std::uint32_t    kDomeArt = 0x018124;         // Skyrim.esm WardHitEffect: magic\wardbodyfx.nif
+		constexpr std::uint32_t    kFlashArt = 0x000802;        // 360 Ward.esp: magic\wardShieldHitFX.nif
+		constexpr const char*      k360Plugin = "360 Ward.esp";
+		constexpr const char*      kEmptyModel = "Effects\\FXEmptyObject.nif";
+		constexpr const char*      kBlueSphere = "Magic\\Glow Wards\\Vanilla\\wardbodyfx360.nif";
+		constexpr const char*      kBlueFlash = "Magic\\Glow Wards\\Vanilla\\wardshieldhitfx.nif";
+		constexpr const char*      kClearSphere = "Magic\\Glow Wards\\Transparent\\wardbodyfx360.nif";
+		constexpr const char*      kClearDome = "Magic\\Glow Wards\\Transparent\\wardbodyfx.nif";
+		constexpr std::string_view kWardLook = "IlluminatedWardLook";  // 0 vanilla blue, 1 transparent
+		int                        gLookApplied = -1;                  // the look last put on the forms (-1 none yet)
 		// his call: without 360 Ward the dome and the hand wear OUR vanilla-blue copies (their own textures, so no
 		// other mod's loose textures reach them)
 		constexpr std::uint32_t kHandArt = 0x0253F1;  // Skyrim.esm: magic\wardinhandfx.nif
@@ -86,6 +97,35 @@ namespace Plugin
 		}
 	}
 
+	void ApplyWardLook()
+	{
+		if (DynamicWardsLoaded()) {
+			return;
+		}
+		auto* dh = RE::TESDataHandler::GetSingleton();
+		auto* dome = dh ? dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm") : nullptr;
+		if (!dome) {
+			return;
+		}
+		const int look = std::clamp(SettingValue(kWardLook, 0), 0, 1);
+		if (look == gLookApplied) {
+			return;
+		}
+		gLookApplied = look;
+		// loaded, not merely present: LookupModByName also finds a plugin that is installed but not enabled
+		if (PluginLoaded(k360Plugin)) {
+			dome->SetModel(look == 1 ? kClearSphere : kBlueSphere);
+			if (auto* flash = dh->LookupForm<RE::BGSArtObject>(kFlashArt, k360Plugin)) {
+				flash->SetModel(kBlueFlash);
+			}
+			SKSE::log::info("wards: 360 Ward is loaded - its sphere {} ({}), its flash in the vanilla blue",
+				look == 1 ? "transparent" : "in the vanilla blue", look == 1 ? kClearSphere : kBlueSphere);
+		} else {
+			dome->SetModel(look == 1 ? kClearDome : kBlueDome);
+			SKSE::log::info("wards: the dome {} ({})", look == 1 ? "transparent" : "in our vanilla blue", look == 1 ? kClearDome : kBlueDome);
+		}
+	}
+
 	void Wards()
 	{
 		if (DynamicWardsLoaded()) {
@@ -136,20 +176,9 @@ namespace Plugin
 		}
 		SKSE::log::info("wards: {} effect(s) wear the ward art beside a ward's rank and show no second dome", extras.size());
 
-		// the blue sphere
-		// loaded, not merely present: LookupModByName also finds a plugin that is installed but not enabled
-		if (PluginLoaded(k360Plugin)) {
-			if (auto* dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm")) {
-				dome->SetModel(kBlueSphere);
-			}
-			if (auto* flash = dh->LookupForm<RE::BGSArtObject>(kFlashArt, k360Plugin)) {
-				flash->SetModel(kBlueFlash);
-			}
-			SKSE::log::info("wards: 360 Ward is loaded - its sphere and flash wear the vanilla blue ({})", kBlueSphere);
-		} else if (auto* dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm")) {
-			dome->SetModel(kBlueDome);
-			SKSE::log::info("wards: the dome wears our vanilla blue ({})", kBlueDome);
-		}
+		// the sphere / dome: the ward look
+		gLookApplied = -1;
+		ApplyWardLook();
 		if (auto* hand = dh->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm")) {
 			hand->SetModel(kBlueHand);
 			SKSE::log::info("wards: the hand wears our vanilla blue ({})", kBlueHand);
