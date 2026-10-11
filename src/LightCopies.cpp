@@ -296,6 +296,7 @@ namespace Plugin
 			const float before = gBrightness;
 			if (changed) {
 				RefreshLights();
+				ApplyWardLook();  // the Ward look pick: the next ward raised wears it
 			}
 			StreamLightsFrame();
 			auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];

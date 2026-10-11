@@ -17,8 +17,11 @@
 //
 // Four rules, each one invisible in the code that follows it:
 //  1. `RE::FlameProjectile` is hooked here because nothing else hooks it (not Light Placer, not RE::Light).
-//  2. A flame spray's object sits at the caster's hand and its art streams out of it, so it gets ONE light, a little way
-//     out along the spray, that reaches from there to the spray's end (the numbers RE::Light's sprays were tuned to).
+//  2. A flame spray's object sits at the caster's hand and its art streams out of it. 🔁 HIS REPORT 2026-10-11 ("the
+//     sprays and streams still aren't reaching their full length"), MEASURED: its ONE light 128 out (radius 1766 on paper)
+//     left the far half dark - inverse square light is spent long before its stated reach. So a flame spray now gets a
+//     LADDER: 2 or 3 lights, each in the middle of its own share of the range, each reaching a little past its share
+//     (RELight's own ladder of 2026-09-23, "together they light the whole length").
 //  3. A beam's light is parented to its `BeamEnd` node, so it rides the tip (the root when the mesh has none).
 //  4. Community Shaders' inverse square flag and cutoff are written after `SetLightAttenuation`, with
 //     cutoff = K * fade / (radius² + size²), so the reach comes out at the radius asked for.
@@ -60,9 +63,9 @@ namespace Plugin
 		constexpr float       kLightSize = LightKit::kLightSize;  // the light's size, which lives in the radius' z (from ReLight)
 		// rule 2: a flame spray's one light sits this far out (half the range for a short spray) and reaches from there
 		// to the end of the spray and a little past, never less than the shortest reach
-		constexpr float kFlameForward = 128.0f;
-		constexpr float kFlameEndReach = 1.15f;
-		constexpr float kFlameShortestReach = 133.0f;
+		constexpr float       kFlameStep = 260.0f;  // one ladder light per this much spray (2 at least, 3 at most)
+		constexpr std::size_t kFlameMinLights = 2, kFlameMaxLights = 3;
+		constexpr float       kFlameShortestReach = 133.0f;
 		// rule 3: a beam's light rides the tip, on this node when the mesh has it
 		constexpr float       kBeamRadius = 420.0f;
 		constexpr const char* kBeamNode = "BeamEnd";
@@ -78,7 +81,8 @@ namespace Plugin
 			bool        flame{ false };  // a flamethrower-type spray: one light at the root (rule 2)
 			bool        beam{ false };   // a beam: one light on its BeamEnd node (rule 3)
 			std::size_t lights{ 1 };
-			float       gap{ 0.0f };  // units between lights along the stream
+			float       gap{ 0.0f };    // units between lights along the stream
+			float       start{ 0.0f };  // where the first light sits (the others follow every gap)
 			float       radius{ 300.0f };
 			float       fade{ 1.0f };
 			float       falloff{ 2.0f };
@@ -303,7 +307,7 @@ namespace Plugin
 					LightKit::Isl::SetOn(light);
 					LightKit::Isl::SetCutoff(light, LightKit::CutoffFor(fade, radius, kLightSize));
 				}
-				light->local.translate = { 0.0f, r.gap * static_cast<float>(i + 1), 0.0f };
+				light->local.translate = { 0.0f, r.start + r.gap * static_cast<float>(i), 0.0f };
 				light->local.scale = 1.0f;
 				parent->AttachChild(light, true);
 				// give it a world position now, rather than waiting for whatever updates the projectile next
@@ -468,17 +472,21 @@ namespace Plugin
 			r.flame = flame;
 			r.beam = beam;
 			if (flame) {
-				// rule 2; its reach is set below, once its fade is known
-				r.lights = 1;
-				r.gap = (std::min)(kFlameForward, range / 2.0f);
+				// rule 2: the ladder - each light in the middle of its share; its reach is set below, once its fade is known
+				r.lights = static_cast<std::size_t>(std::clamp<int>(static_cast<int>(std::lround(range / kFlameStep)), static_cast<int>(kFlameMinLights),
+					static_cast<int>(kFlameMaxLights)));
+				r.gap = range / static_cast<float>(r.lights);
+				r.start = r.gap / 2.0f;
 			} else if (beam) {
 				// rule 3: one light, on BeamEnd, so it rides the tip
 				r.lights = 1;
 				r.gap = 0.0f;
+				r.start = 0.0f;
 				r.radius = kBeamRadius;
 			} else {
 				r.lights = static_cast<std::size_t>(std::clamp<int>(static_cast<int>(range / kStepUnits), 1, static_cast<int>(kMaxLightsPerStream)));
 				r.gap = range / static_cast<float>(r.lights + 1);
+				r.start = r.gap;
 				r.radius = r.gap * kRadiusOfStep;
 			}
 			r.falloff = sc.falloff > 0.0f ? sc.falloff : 2.0f;
@@ -488,8 +496,9 @@ namespace Plugin
 				r.fade = 1.0f;
 			}
 			if (flame) {
-				// no further than one light of this fade carries (rule 4 at the lowest cutoff): a dragon's breath ranges 3000
-				r.radius = std::clamp((range - r.gap) * kFlameEndReach, kFlameShortestReach, std::sqrt(kK * r.fade / kLowestCutoff));
+				// each reaches a little past its share, no further than one light of this fade carries (rule 4 at the lowest
+				// cutoff): a dragon's breath ranges 3000
+				r.radius = std::clamp(r.gap * kRadiusOfStep, kFlameShortestReach, std::sqrt(kK * r.fade / kLowestCutoff));
 			}
 			if (family == Family::kFrost && sc.frostSet) {
 				r.color = { sc.frost.r / 255.0f, sc.frost.g / 255.0f, sc.frost.b / 255.0f };

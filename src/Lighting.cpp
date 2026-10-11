@@ -24,6 +24,9 @@ namespace Plugin
 	namespace
 	{
 		constexpr const char* kIslShader = "Data/Shaders/InverseSquareLighting/InverseSquareLighting.hlsli";
+		// a Community Shaders that builds inverse square lights into Light Limit Fix (Bottled Shaders 1.0.10 dropped the
+		// separate shader above): its attenuation reads each light's InverseSquare flag
+		constexpr const char* kLlfAttenuation = "Data/Shaders/LightLimitFix/Attenuation.hlsli";
 		constexpr const char* kEnbFiles[] = { "enbseries.ini", "enblocal.ini" };
 		constexpr float       kK = LightKit::kK;              // the house K, 0.8 * 69.99² (LightKit.h, gen.py)
 		constexpr float       kPlainReach = 178.0f / 133.0f;  // Dynamic Wards' house light: reach 133 drawn at radius 178
@@ -38,12 +41,22 @@ namespace Plugin
 			std::error_code ec;
 			return std::ranges::any_of(kEnbFiles, [&](const char* a_file) { return fs::exists(fs::current_path() / a_file, ec); });
 		}
+
+		bool IslBuiltIntoLightLimitFix()
+		{
+			std::ifstream in(fs::current_path() / kLlfAttenuation, std::ios::binary);
+			if (!in) {
+				return false;
+			}
+			const std::string text{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+			return text.find("InverseSquare") != std::string::npos;
+		}
 	}
 
 	void ReadLighting()
 	{
 		std::error_code ec;
-		gIslShader = fs::exists(fs::current_path() / kIslShader, ec);
+		gIslShader = fs::exists(fs::current_path() / kIslShader, ec) || IslBuiltIntoLightLimitFix();
 		gEnbFiles = EnbInstalled();
 		gPick = gIslShader ? Lighting::kShaders : gEnbFiles ? Lighting::kEnb :
 		                                                      Lighting::kVanilla;
