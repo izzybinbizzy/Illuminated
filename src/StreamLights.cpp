@@ -498,7 +498,8 @@ namespace Plugin
 			if (flame) {
 				// each reaches a little past its share, no further than one light of this fade carries (rule 4 at the lowest
 				// cutoff): a dragon's breath ranges 3000
-				r.radius = std::clamp(r.gap * kRadiusOfStep, kFlameShortestReach, std::sqrt(kK * r.fade / kLowestCutoff));
+				// the upper bound never below the lower: a faint marker fade would reverse them (CodeRabbit, Illuminated #9)
+				r.radius = std::clamp(r.gap * kRadiusOfStep, kFlameShortestReach, (std::max)(kFlameShortestReach, std::sqrt(kK * r.fade / kLowestCutoff)));
 			}
 			if (family == Family::kFrost && sc.frostSet) {
 				r.color = { sc.frost.r / 255.0f, sc.frost.g / 255.0f, sc.frost.b / 255.0f };

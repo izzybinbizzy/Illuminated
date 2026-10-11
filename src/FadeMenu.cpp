@@ -709,6 +709,7 @@ namespace Fade
 			const double        clock = GetTime();
 			std::array<bool, 2> here{ false, false };
 			const bool          on = hud.reticle && hud.drawn;
+			const bool          hidden = HideHud();  // once per pass: both hands see the same menu state (CodeRabbit, Illuminated #9)
 			for (std::size_t i = 0; i < 2; ++i) {
 				const auto& h = hud.hands[i];
 				if (!on || !h.shown || !h.spell) {
@@ -717,7 +718,7 @@ namespace Fade
 				}
 				// tracked even while a menu hides it, so a menu never looks like a spend
 				const bool spent = spend[i].Shown(std::clamp(h.fraction, 0.0f, 1.0f), clock, hud.regenWait);
-				if (!HideHud() && spent) {
+				if (!hidden && spent) {
 					here[i] = true;
 					fill[i] = std::clamp(h.fraction, 0.0f, 1.0f);
 					tint[i] = ImVec4{ h.color.r, h.color.g, h.color.b, 1.0f };
