@@ -150,9 +150,11 @@ namespace Plugin
 					continue;
 				}
 				const auto model = NormalPath(effect->data.castingArt->GetModel() ? effect->data.castingArt->GetModel() : "");
-				// a Light-archetype spell is no exception here (its light slot is its hand light - CastingLights below)
+				// an unpatched Light-archetype spell gets no automatic light: a mod may keep its orb's light in that slot, and a hand
+				// light in the orb's color would be new (Candlelight / Magelight are covered - CastingLights below follows them)
 				if (model.empty() || a_cov.models.contains(model) || effect->data.castingType == RE::MagicSystem::CastingType::kConstantEffect ||
-					SkippedPrefix(EditorID(effect)) || CounterEffectCount(effect) > kMaxCounterEffects) {
+					effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight || SkippedPrefix(EditorID(effect)) ||
+					CounterEffectCount(effect) > kMaxCounterEffects) {
 					continue;
 				}
 				std::optional<RE::Color> color;
@@ -232,9 +234,11 @@ namespace Plugin
 			gCastingTargets.push_back({ effect, effect->data.light, model });
 		}
 		SKSE::log::info(
-			"casting lights: {} lit effects seen; {} followed, {} had none of their own, skipped: {} constant effect, "
-			"{} light archetype, {} editor ID prefix, {} oversized",
-			scanned, gCastingTargets.size(), clean, constant, archetype, prefix, bloated);
+			"casting lights: {} lit effects seen; {} followed ({} of them Light spells), {} had none of their own, skipped: {} "
+			"constant effect, {} light archetype, {} editor ID prefix, {} oversized",
+			scanned, gCastingTargets.size(),
+			std::ranges::count_if(gCastingTargets, [](const CastingTarget& t) { return t.effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight; }),
+			clean, constant, archetype, prefix, bloated);
 		AutoCastingLights(a_cov);
 		if (RecordRoute()) {
 			for (auto& t : gCastingTargets) {
