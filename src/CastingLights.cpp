@@ -150,9 +150,9 @@ namespace Plugin
 					continue;
 				}
 				const auto model = NormalPath(effect->data.castingArt->GetModel() ? effect->data.castingArt->GetModel() : "");
+				// a Light-archetype spell is no exception here (its light slot is its hand light - CastingLights below)
 				if (model.empty() || a_cov.models.contains(model) || effect->data.castingType == RE::MagicSystem::CastingType::kConstantEffect ||
-					effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight || SkippedPrefix(EditorID(effect)) ||
-					CounterEffectCount(effect) > kMaxCounterEffects) {
+					SkippedPrefix(EditorID(effect)) || CounterEffectCount(effect) > kMaxCounterEffects) {
 					continue;
 				}
 				std::optional<RE::Color> color;
@@ -203,7 +203,13 @@ namespace Plugin
 				++constant;
 				continue;
 			}
-			if (effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight) {
+			// A Light-archetype spell (Candlelight, Magelight) summons its orb through the archetype's association; its own light
+			// slot is the HAND's casting light like any spell's (read 2026-10-12: Candlelight's casting light is
+			// MAG_LightSpellHand01, reach 32, its orb ODN_Alt_Light_Light_MagicalLight). Skipped, it kept that 32-unit light on
+			// Vanilla / ENB and its ground light lit nothing (his "i think candlelight hand light isn't working", measured: ground
+			// +0 where every other spell lifted +125 .. +700). So on the record route it is followed like any spell; with Light
+			// Placer it stays skipped as before.
+			if (effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight && !RecordRoute()) {
 				++archetype;
 				continue;
 			}
