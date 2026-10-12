@@ -150,6 +150,8 @@ namespace Plugin
 					continue;
 				}
 				const auto model = NormalPath(effect->data.castingArt->GetModel() ? effect->data.castingArt->GetModel() : "");
+				// an unpatched Light-archetype spell gets no automatic light: a mod may keep its orb's light in that slot, and a hand
+				// light in the orb's color would be new (Candlelight / Magelight are covered - CastingLights below follows them)
 				if (model.empty() || a_cov.models.contains(model) || effect->data.castingType == RE::MagicSystem::CastingType::kConstantEffect ||
 					effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight || SkippedPrefix(EditorID(effect)) ||
 					CounterEffectCount(effect) > kMaxCounterEffects) {
@@ -203,7 +205,13 @@ namespace Plugin
 				++constant;
 				continue;
 			}
-			if (effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight) {
+			// A Light-archetype spell (Candlelight, Magelight) summons its orb through the archetype's association; its own light
+			// slot is the HAND's casting light like any spell's (read 2026-10-12: Candlelight's casting light is
+			// MAG_LightSpellHand01, reach 32, its orb ODN_Alt_Light_Light_MagicalLight). Skipped, it kept that 32-unit light on
+			// Vanilla / ENB and its ground light lit nothing (his "i think candlelight hand light isn't working", measured: ground
+			// +0 where every other spell lifted +125 .. +700). So on the record route it is followed like any spell; with Light
+			// Placer it stays skipped as before.
+			if (effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight && !RecordRoute()) {
 				++archetype;
 				continue;
 			}
@@ -226,9 +234,11 @@ namespace Plugin
 			gCastingTargets.push_back({ effect, effect->data.light, model });
 		}
 		SKSE::log::info(
-			"casting lights: {} lit effects seen; {} followed, {} had none of their own, skipped: {} constant effect, "
-			"{} light archetype, {} editor ID prefix, {} oversized",
-			scanned, gCastingTargets.size(), clean, constant, archetype, prefix, bloated);
+			"casting lights: {} lit effects seen; {} followed ({} of them Light spells), {} had none of their own, skipped: {} "
+			"constant effect, {} light archetype, {} editor ID prefix, {} oversized",
+			scanned, gCastingTargets.size(),
+			std::ranges::count_if(gCastingTargets, [](const CastingTarget& t) { return t.effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight; }),
+			clean, constant, archetype, prefix, bloated);
 		AutoCastingLights(a_cov);
 		if (RecordRoute()) {
 			for (auto& t : gCastingTargets) {
