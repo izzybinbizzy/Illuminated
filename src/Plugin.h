@@ -174,6 +174,12 @@ namespace Plugin
 	void                      DropArtLights();  // a game loads
 	[[nodiscard]] std::size_t ArtLightCount();
 	[[nodiscard]] std::size_t ArtLightsMade();
+	// FleshLights.cpp (his call on FleshFX: "the dim light in its own color"): with Light Placer, a flesh spell's light takes
+	// FleshFX's hue right after Light Placer wrote it (the effect's update, any thread); without it ArtLights.cpp does
+	void FleshLightPlacer(RE::ShaderReferenceEffect* a_effect);
+	void NoteFleshRoots();  // main thread, once a frame: where each flesh effect's lights hang (FleshLightPlacer only reads it)
+	// the third-person node of the same name as a_root, where Light Placer and ArtLights.cpp hang a body light (main thread)
+	[[nodiscard]] RE::NiAVObject* FleshBodyNode(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_root);
 	// GroundLights.cpp (his report: no light on the ground on Vanilla): a twin of each hand's casting light, made the
 	// way Dynamic Wards makes its hand light (land lighting on); once a frame on the main thread
 	void                      TickGroundLights();

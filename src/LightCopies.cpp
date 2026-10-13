@@ -27,7 +27,7 @@
 // straight after Light Placer wrote it - Light Placer does that in five places, most of them on the game's worker
 // threads (traced), and each is wrapped here, after Light Placer's own hook:
 //   a caster's update        the hands of every actor (the player's among them)
-//   an effect's update       enchantment and hit effects
+//   an effect's update       enchantment and hit effects (and, on a flesh spell under FleshFX, its hue: FleshLights.cpp)
 //   an explosion's update    } SE/AE only: these three are calls inside game functions, at the places Light Placer
 //   a hazard's update        } (powerof3/LightPlacer, Hooks/Update.cpp) hooks them. In VR these lights keep
 //   a cell's animations      } their made-with strength.
@@ -335,6 +335,9 @@ namespace Plugin
 				WatchDaylight(a_delta);
 				Frame();
 				TickArtLights();  // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
+				if (!RecordRoute()) {
+					NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
+				}
 				Fade::UpdateHands(a_delta);
 				TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
 			}
@@ -374,6 +377,11 @@ namespace Plugin
 					// the owner by the effect's own 3D, not its target handle: this hook runs off the main thread, where making or
 					// reading a handle is not ours to do (the fading module's rule; the re-score's Illuminated issue 2)
 					ScaleOwned(OwnerOf(a_this->Get3D()));
+				}
+				if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
+					if (!RecordRoute()) {
+						FleshLightPlacer(a_this);  // a flesh spell under FleshFX: Light Placer's light just written takes its hue
+					}
 				}
 				Fade::AfterReferenceEffect(a_this, std::is_same_v<T, RE::ModelReferenceEffect>);  // an art model, not a shader's actor
 			}

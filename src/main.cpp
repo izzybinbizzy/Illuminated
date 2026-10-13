@@ -38,7 +38,8 @@
 //   StreamLights.cpp   pass 6      VaerSwirls.cpp     pass 7      Wards.cpp         one dome per ward
 //   SprayMarkers.cpp   the spray settings                         LightCopies.cpp   the sliders, and every hook
 //   RecordLights.cpp   the game's own light records, lit without Light Placer
-//   ArtLights.cpp      without Light Placer: lights of ours on lit art and weapon models (bound weapons)
+//   ArtLights.cpp      without Light Placer: lights of ours on lit art and weapon models (bound weapons) and flesh spells
+//   FleshLights.cpp    the flesh spells' lights in FleshFX's hue, where FleshFX's look wins (LightKit.h FleshFx)
 //   Fade*.cpp, Fade*.h the fading module (identical in RELight - Spell Addon but for FadeConfig.h, FadeOwnLight.cpp
 //                      and FadeDevBench.cpp - PC Runner\fade copies check.py)
 //   SKSEMenuFramework.h, DevBenchAPI.*  those mods' own files; DevBenchGlue.h, MenuStyle.h, Translation.h are
@@ -87,6 +88,7 @@ namespace
 		const bool  record = RecordRoute();  // the route, decided once for the whole load
 		const auto& cov = ReadCoverage();
 		SKSE::log::info("configs: {} file(s), {} lit model(s), {} shader name(s)", cov.files, cov.models.size(), cov.shaders.size());
+		LightKit::FleshFx::Find();  // which flesh spells wear FleshFX's look: their lights take its hue (FleshLights.cpp)
 		if (record) {
 			MakeRecordLights();  // before passes 1 and 2, which point the records at them
 		}
