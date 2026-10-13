@@ -149,7 +149,6 @@ namespace Plugin
 				}
 			}
 			kept.record = a_record;
-			kept.hue = a_hue;
 			kept.seen = true;
 			Follow(kept);
 		}
@@ -186,17 +185,14 @@ namespace Plugin
 			return nullptr;
 		}
 
-		// the five flesh shaders in this load order and the key their config rows are kept under (Configs.cpp: "formid:" + the
-		// editor ID the configs claim) - worked out once, on the first frame after the data load
+		// the five flesh shaders in this load order (LightKit::FleshFx::Resolved, found at data load) and the key their config
+		// rows are kept under (Configs.cpp: "formid:" + the editor ID the configs claim) - built on the first frame
 		const std::unordered_map<const RE::TESEffectShader*, std::string>& FleshShaders()
 		{
 			static const auto shaders = [] {
 				std::unordered_map<const RE::TESEffectShader*, std::string> out;
-				auto*                                                       dh = RE::TESDataHandler::GetSingleton();
-				for (const auto& look : LightKit::kFleshLooks) {
-					if (const auto* shader = dh ? dh->LookupForm<RE::TESEffectShader>(look.skyrimFormID, "Skyrim.esm") : nullptr) {
-						out.emplace(shader, FormKey(Lower(look.editorID)));
-					}
+				for (const auto& [shader, look] : LightKit::FleshFx::Resolved()) {
+					out.emplace(shader, FormKey(Lower(look->editorID)));
 				}
 				return out;
 			}();
@@ -211,14 +207,9 @@ namespace Plugin
 			const auto  it = a_effect->effectData ? shaders.find(a_effect->effectData) : shaders.end();
 			const auto* record = it != shaders.end() ? RecordLightFor(it->second) : nullptr;
 			const auto  ref = record ? a_effect->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
-			auto*       root = ref ? a_effect->GetAttachRoot() : nullptr;
+			auto*       root = ref ? FleshBodyNode(ref.get(), a_effect->GetAttachRoot()) : nullptr;
 			if (!root) {
 				return;
-			}
-			if (auto* third = ref->Get3D(false)) {
-				if (auto* same = third->GetObjectByName(root->name)) {
-					root = same;
-				}
 			}
 			if (const auto* actor = ref->As<RE::Actor>(); actor && actor->IsSneaking() && SettingValue("IlluminatedSneaking", 0) == 0) {
 				return;

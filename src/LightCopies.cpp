@@ -335,6 +335,9 @@ namespace Plugin
 				WatchDaylight(a_delta);
 				Frame();
 				TickArtLights();  // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
+				if (!RecordRoute()) {
+					NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
+				}
 				Fade::UpdateHands(a_delta);
 				TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
 			}
