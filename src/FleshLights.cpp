@@ -21,21 +21,29 @@ namespace Plugin
 {
 	namespace
 	{
-		std::mutex                                                                       gRootLock;
-		std::unordered_map<const RE::ShaderReferenceEffect*, RE::NiPointer<RE::NiAVObject>> gRoots;  // main thread writes, guarded
+		// where a noted flesh effect's lights hang; the effect's own ID rides along, so an effect freed and another made at the
+		// same address before the next note is never read as the old one
+		struct NotedRoot
+		{
+			std::uint32_t                 effectID{ 0 };
+			RE::NiPointer<RE::NiAVObject> root;
+		};
+		std::mutex                                                      gRootLock;
+		std::unordered_map<const RE::ShaderReferenceEffect*, NotedRoot> gRoots;  // main thread writes, guarded
 
-		// a flesh shader the hue applies to that matched no Light Placer light for a while: logged once each (a silent miss
-		// would leave the old color with nothing to say why)
-		std::mutex                                                gMissLock;
-		std::unordered_map<const RE::TESEffectShader*, std::uint32_t> gMisses;
-		std::unordered_set<const RE::TESEffectShader*>                gMissLogged;
+		// a flesh effect whose lights matched no Light Placer light for a while: logged once per shader (a silent miss would
+		// leave the old color with nothing to say why). Counted per EFFECT - one caster found and another not never reset each
+		// other - and an effect the main thread no longer notes is forgotten
+		std::mutex                                                          gMissLock;
+		std::unordered_map<const RE::ShaderReferenceEffect*, std::uint32_t> gMisses;
+		std::unordered_set<const RE::TESEffectShader*>                      gMissLogged;
 	}
 
 	RE::NiAVObject* FleshBodyNode(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_root)
 	{
 		// Light Placer (and ArtLights.cpp) hang a first-person player's effect light on the third-person node of the same name;
 		// an unnamed root is used as it is - a search for "" would answer with any unnamed node
-		auto* third = a_ref && a_root ? a_ref->Get3D(false) : nullptr;
+		auto*       third = a_ref && a_root ? a_ref->Get3D(false) : nullptr;
 		const char* name = a_root ? a_root->name.c_str() : nullptr;
 		if (!third || third == a_root || !name || !*name) {
 			return a_root;
@@ -46,21 +54,31 @@ namespace Plugin
 
 	void NoteFleshRoots()
 	{
-		std::unordered_map<const RE::ShaderReferenceEffect*, RE::NiPointer<RE::NiAVObject>> roots;
-		if (auto* lists = RE::ProcessLists::GetSingleton(); lists && !LightKit::FleshFx::Hues().empty()) {
+		if (LightKit::FleshFx::Hues().empty()) {
+			return;  // no flesh spell wears FleshFX's look in this load order: nothing to note, ever
+		}
+		std::unordered_map<const RE::ShaderReferenceEffect*, NotedRoot> roots;
+		if (auto* lists = RE::ProcessLists::GetSingleton()) {
 			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
 				auto* shader = a_effect ? netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect) : nullptr;
 				if (shader && !shader->finished && LightKit::FleshFx::HueOf(shader->effectData)) {
 					const auto ref = shader->target.get();
 					if (auto* node = FleshBodyNode(ref.get(), shader->GetAttachRoot())) {
-						roots.emplace(shader, RE::NiPointer<RE::NiAVObject>(node));
+						roots.emplace(shader, NotedRoot{ shader->effectID, RE::NiPointer<RE::NiAVObject>(node) });
 					}
 				}
 				return RE::BSContainer::ForEachResult::kContinue;
 			});
 		}
-		std::scoped_lock lock{ gRootLock };
-		gRoots.swap(roots);
+		{
+			std::scoped_lock lock{ gRootLock };
+			if (roots.empty() && gRoots.empty()) {
+				return;  // no flesh spell up, before or now
+			}
+			gRoots.swap(roots);
+		}
+		std::scoped_lock lock{ gRootLock, gMissLock };
+		std::erase_if(gMisses, [](const auto& a_miss) { return !gRoots.contains(a_miss.first); });
 	}
 
 	void FleshLightPlacer(RE::ShaderReferenceEffect* a_effect)
@@ -72,15 +90,12 @@ namespace Plugin
 		RE::NiPointer<RE::NiAVObject> root;
 		{
 			std::scoped_lock lock{ gRootLock };
-			if (const auto it = gRoots.find(a_effect); it != gRoots.end()) {
-				root = it->second;
+			if (const auto it = gRoots.find(a_effect); it != gRoots.end() && it->second.effectID == a_effect->effectID) {
+				root = it->second.root;
 			}
 		}
 		if (!root) {
-			root.reset(a_effect->GetAttachRoot());  // not seen by the main thread yet: the effect's own root this once
-		}
-		if (!root) {
-			return;
+			return;  // not noted by the main thread yet (a cast this frame): its lights take the hue from the next frame on
 		}
 		std::array<char, 24>   text{};
 		const auto             end = std::format_to_n(text.data(), text.size() - 1, "]({})#", a_effect->effectID).out;
@@ -97,11 +112,13 @@ namespace Plugin
 			return RE::BSVisit::BSVisitControl::kContinue;
 		});
 		std::scoped_lock lock{ gMissLock };
-		auto& misses = gMisses[a_effect->effectData];
+		auto&            misses = gMisses[a_effect];
 		misses = matched ? 0 : misses + 1;
 		if (misses == 300 && gMissLogged.insert(a_effect->effectData).second) {
-			SKSE::log::warn("FleshFX: no Light Placer light named for effect {} found under its body for 300 updates - that flesh "
-							"spell keeps its old light color", a_effect->effectID);
+			SKSE::log::warn(
+				"FleshFX: no Light Placer light named for effect {} found under its body for 300 updates - that flesh "
+				"spell keeps its old light color",
+				a_effect->effectID);
 		}
 	}
 }
