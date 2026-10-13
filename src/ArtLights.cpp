@@ -12,6 +12,11 @@
 // flicker reach it), made the way Dynamic Wards and GroundLights.cpp make theirs (land lighting on). The light hangs under the
 // art's or the weapon's 3D, so the fading module finds and fades it like any other weapon light (a bound weapon over the last
 // seconds of its spell). It goes when the art or the weapon goes, or a setting stops lighting its model.
+// The flesh spells the same way: their configs light an effect SHADER on the caster's body (Oakflesh ... Dragonhide, LightMath.h
+// kFleshLooks), which has no light record slot either, and without Light Placer nothing lit them. Each flesh shader effect
+// gets its row's light on the body (the effect's own attach root, the third-person one - a light under the first-person
+// skeleton lights nothing on ENB), switched off while its caster sneaks as the row's sneak test says, and drawn in FleshFX's
+// hue where FleshFX's look wins (FleshLights.cpp has why). Only the flesh shaders: no other effect shader is followed here.
 //
 // CREDIT: a light is made and registered the way ReLight by Truman does it (github.com/TrumanGIT/ReLight, GPL-3.0-or-later,
 // used with his permission): a master NiPointLight cloned for every use and handed to the shadow scene node.
@@ -32,6 +37,7 @@ namespace Plugin
 			RE::NiPointer<RE::NiPointLight> light;
 			RE::NiPointer<RE::BSLight>      bs;
 			const RE::TESObjectLIGH*        record{ nullptr };
+			const RE::NiColor*              hue{ nullptr };  // FleshFX's hue for a flesh spell's light (LightKit.h), or none
 			bool                            seen{ false };
 		};
 
@@ -67,9 +73,10 @@ namespace Plugin
 		// this frame's numbers of the record onto our light
 		void Follow(Kept& a_kept)
 		{
-			auto&       data = a_kept.light->GetLightRuntimeData();
-			const auto& c = a_kept.record->data.color;
-			data.diffuse = { c.red / 255.0f, c.green / 255.0f, c.blue / 255.0f };
+			auto&             data = a_kept.light->GetLightRuntimeData();
+			const auto&       c = a_kept.record->data.color;
+			const RE::NiColor own{ c.red / 255.0f, c.green / 255.0f, c.blue / 255.0f };
+			data.diffuse = a_kept.hue ? LightKit::FleshFx::Shown(*a_kept.hue, own) : own;
 			data.fade = RecordFadeNow(a_kept.record, a_kept.light.get());
 			const float radius = (std::max)(static_cast<float>(a_kept.record->data.radius), 1.0f);
 			if (data.radius.x != radius) {
@@ -123,7 +130,8 @@ namespace Plugin
 		}
 
 		// the light this owner wants on this model now (a_record nullptr: none)
-		void Keep(RE::NiRefObject* a_owner, RE::NiAVObject* a_model, const RE::TESObjectLIGH* a_record, RE::ShadowSceneNode* a_scene)
+		void Keep(RE::NiRefObject* a_owner, RE::NiAVObject* a_model, const RE::TESObjectLIGH* a_record, RE::ShadowSceneNode* a_scene,
+			const RE::NiColor* a_hue = nullptr)
 		{
 			auto* root = a_model ? a_model->AsNode() : nullptr;
 			if (!a_owner || !root || !a_record) {
@@ -133,6 +141,7 @@ namespace Plugin
 			if (kept.light && (kept.root.get() != root || kept.light->parent != root)) {
 				Drop(kept, a_scene);  // the model was rebuilt (a draw, a view change): a new one
 			}
+			kept.hue = a_hue;  // before Make, which draws the light's first color
 			if (!kept.light) {
 				kept.owner.reset(a_owner);
 				if (!Make(kept, root, a_record, a_scene)) {
@@ -140,6 +149,7 @@ namespace Plugin
 				}
 			}
 			kept.record = a_record;
+			kept.hue = a_hue;
 			kept.seen = true;
 			Follow(kept);
 		}
@@ -174,6 +184,46 @@ namespace Plugin
 				}
 			}
 			return nullptr;
+		}
+
+		// the five flesh shaders in this load order and the key their config rows are kept under (Configs.cpp: "formid:" + the
+		// editor ID the configs claim) - worked out once, on the first frame after the data load
+		const std::unordered_map<const RE::TESEffectShader*, std::string>& FleshShaders()
+		{
+			static const auto shaders = [] {
+				std::unordered_map<const RE::TESEffectShader*, std::string> out;
+				auto*                                                       dh = RE::TESDataHandler::GetSingleton();
+				for (const auto& look : LightKit::kFleshLooks) {
+					if (const auto* shader = dh ? dh->LookupForm<RE::TESEffectShader>(look.skyrimFormID, "Skyrim.esm") : nullptr) {
+						out.emplace(shader, FormKey(Lower(look.editorID)));
+					}
+				}
+				return out;
+			}();
+			return shaders;
+		}
+
+		// a flesh spell's light on its caster's body, while a setting lights its row (RecordLightFor - the Flesh Spells switch,
+		// full strength, Dynamic Lighting) and the caster is not sneaking with the Sneaking setting off (the row's own test)
+		void KeepFlesh(RE::ShaderReferenceEffect* a_effect, RE::ShadowSceneNode* a_scene)
+		{
+			const auto& shaders = FleshShaders();
+			const auto  it = a_effect->effectData ? shaders.find(a_effect->effectData) : shaders.end();
+			const auto* record = it != shaders.end() ? RecordLightFor(it->second) : nullptr;
+			const auto  ref = record ? a_effect->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
+			auto*       root = ref ? a_effect->GetAttachRoot() : nullptr;
+			if (!root) {
+				return;
+			}
+			if (auto* third = ref->Get3D(false)) {
+				if (auto* same = third->GetObjectByName(root->name)) {
+					root = same;
+				}
+			}
+			if (const auto* actor = ref->As<RE::Actor>(); actor && actor->IsSneaking() && SettingValue("IlluminatedSneaking", 0) == 0) {
+				return;
+			}
+			Keep(a_effect, root, record, a_scene, LightKit::FleshFx::HueOf(a_effect->effectData));
 		}
 
 		// the weapon parts an art light already hangs under (measured on Vanilla: a bound sword's configs light both its
@@ -228,6 +278,8 @@ namespace Plugin
 					if (const auto* record = model.empty() ? nullptr : RecordLightFor(model)) {
 						Keep(art, art->artObject3D.get(), record, scene);
 					}
+				} else if (auto* shader = art ? nullptr : netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect); shader && !shader->finished) {
+					KeepFlesh(shader, scene);
 				}
 				return RE::BSContainer::ForEachResult::kContinue;
 			});
