@@ -36,10 +36,19 @@ namespace Plugin
 		std::atomic<bool>     gIslShader{ false };
 		std::atomic<bool>     gEnbFiles{ false };
 
+		// ENB is RUNNING, not merely left behind: ENB's own d3d11.dll exports ENBGetSDKVersion, which the system's does not
+		// (RELight's audit, 2026-10-14: an enbseries.ini left in the game folder after ENB was removed read as ENB). The game
+		// has loaded d3d11.dll long before data load. Its files without its DLL loaded are logged, so a report shows which
 		bool EnbInstalled()
 		{
+			const auto d3d11 = REX::W32::GetModuleHandleW(L"d3d11.dll");
+			const bool running = d3d11 && REX::W32::GetProcAddress(d3d11, "ENBGetSDKVersion") != nullptr;
 			std::error_code ec;
-			return std::ranges::any_of(kEnbFiles, [&](const char* a_file) { return fs::exists(fs::current_path() / a_file, ec); });
+			const bool      files = std::ranges::any_of(kEnbFiles, [&](const char* a_file) { return fs::exists(fs::current_path() / a_file, ec); });
+			if (files && !running) {
+				SKSE::log::info("lighting: ENB's settings files are in the game folder, but ENB itself is not running - not ENB");
+			}
+			return running;
 		}
 
 		bool IslBuiltIntoLightLimitFix()

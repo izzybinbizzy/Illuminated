@@ -133,6 +133,7 @@ namespace Plugin
 	void                            ApplyLightStrength(bool a_log);                                                 // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn)
 	void                            RequestRefresh();                                                               // LightCopies.cpp: RefreshLights at the next frame, on the main thread
 	void                            NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the fading module wrote it (never scaled twice)
+	void                            NoteReachWrite(const RE::NiPointLight* a_light, float a_before, float a_after); // LightCopies.cpp: the same for the reach (nothing to do here)
 	void                            RegisterMenu();                                                                 // Menu.cpp
 	void                            RegisterMenuTail();                                                             // Menu.cpp: the last page, after the fading module's pages
 	void                            OfferToDevBench();                                                              // DevBench.cpp: the settings and the light copies, for a test bench

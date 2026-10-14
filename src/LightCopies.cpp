@@ -516,6 +516,12 @@ namespace Plugin
 		}
 	}
 
+	// The fading module reports each reach it writes, as it reports each fade (the shared FadeLights.cpp, from RELight - Spell
+	// Addon's 2026-10-14 audit - here once the shared Fade* files are synced from RELight). RELight - Spell
+	// Addon's Reach slider rescales a light's reach every frame and needs the report so the two never compound; here Reach
+	// moves the light records' radius once (ApplyLightStrength), never a light in the scene, so there is nothing to note
+	void NoteReachWrite(const RE::NiPointLight*, float, float) {}
+
 	void ApplyLightStrength(bool a_log)
 	{
 		const int brightness = SettingValue(kBrightness, 100);
