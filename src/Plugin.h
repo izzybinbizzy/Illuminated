@@ -136,6 +136,7 @@ namespace Plugin
 	void               ApplyLightStrength(bool a_log, bool a_quiet = false);                           // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn); a_quiet: a daylight step, no log line
 	void               RequestRefresh();                                                               // LightCopies.cpp: RefreshLights at the next frame, on the main thread
 	void               NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the fading module wrote it (never scaled twice)
+	void               NoteReachWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the same for the reach (nothing to do here)
 	void               RegisterMenu();                                                                 // Menu.cpp
 	void               RegisterMenuTail();                                                             // Menu.cpp: the last page, after the fading module's pages
 	void               OfferToDevBench();                                                              // DevBench.cpp: the settings and the light copies, for a test bench
@@ -250,6 +251,7 @@ namespace Plugin
 	using LightKit::NewForm;  // a form made in memory by the game's own factory (LightKit.h)
 
 	[[nodiscard]] RE::TESObjectLIGH*   CopyLight(const RE::TESObjectLIGH* a_src);
+	void                               CopyLightInto(RE::TESObjectLIGH* a_out, const RE::TESObjectLIGH* a_src);  // the whole light: look, sound, flare, model
 	[[nodiscard]] RE::TESEffectShader* CopyShader(const RE::TESEffectShader* a_src);
 	[[nodiscard]] RE::EffectSetting*   CopyEffect(RE::EffectSetting* a_src);
 

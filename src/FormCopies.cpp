@@ -9,18 +9,23 @@
 namespace Plugin
 {
 	// ------------------------------------------------------------------ making copies in memory
+	void CopyLightInto(RE::TESObjectLIGH* a_out, const RE::TESObjectLIGH* a_src)
+	{
+		a_out->data = a_src->data;
+		a_out->fade = a_src->fade;
+		a_out->emittanceColor = a_src->emittanceColor;
+		a_out->lensFlare = a_src->lensFlare;
+		a_out->sound = a_src->sound;
+		a_out->SetModel(a_src->GetModel());
+	}
+
 	RE::TESObjectLIGH* CopyLight(const RE::TESObjectLIGH* a_src)
 	{
 		auto* out = a_src ? NewForm<RE::TESObjectLIGH>() : nullptr;
 		if (!out) {
 			return nullptr;
 		}
-		out->data = a_src->data;
-		out->fade = a_src->fade;
-		out->emittanceColor = a_src->emittanceColor;
-		out->lensFlare = a_src->lensFlare;
-		out->sound = a_src->sound;
-		out->SetModel(a_src->GetModel());
+		CopyLightInto(out, a_src);
 		return out;
 	}
 

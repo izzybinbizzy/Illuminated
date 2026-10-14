@@ -90,8 +90,8 @@ namespace Plugin
 				a_kept.light->SetLightAttenuation(radius);
 			}
 			if (InverseSquare()) {
-				// after SetLightAttenuation, which writes the same two words (LightKit.h)
-				LightKit::Isl::SetOn(a_kept.light.get());
+				// after SetLightAttenuation, which writes the same two words: a light of our own, its words written whole (LightKit.h)
+				LightKit::Isl::SetOwn(a_kept.light.get());
 				LightKit::Isl::SetCutoff(a_kept.light.get(), a_kept.record->data.fallofExponent, 0.01f, 1.0f);
 			} else {
 				data.ambient = { data.diffuse.red * kAmbient, data.diffuse.green * kAmbient, data.diffuse.blue * kAmbient };

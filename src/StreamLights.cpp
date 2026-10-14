@@ -320,7 +320,7 @@ namespace Plugin
 				}
 				// inverse square flag and cutoff, after SetLightAttenuation - Community Shaders only
 				if (isl) {
-					LightKit::Isl::SetOn(light);
+					LightKit::Isl::SetOwn(light);  // a light of our own: Community Shaders' words written whole (LightKit.h)
 					LightKit::Isl::SetCutoff(light, LightKit::CutoffFor(fade, radius, kLightSize));
 				}
 				light->local.translate = {};
@@ -599,8 +599,7 @@ namespace Plugin
 			// it wears; it was never left dark by a setting before either.)
 			if (const auto* now = c.borrowed ? RowLight(StreamRowFor(c.model)) : nullptr; now && now != c.borrowed) {
 				auto* lit = copy->second;
-				lit->data = now->data;
-				lit->fade = now->fade;
+				CopyLightInto(lit, now);  // the whole new light - its sound, lens flare and model too, not only its look
 				const Raised r = Raise(lit, now, c.range);
 				if (const auto lc = std::ranges::find_if(LightCopies(), [&](const LightCopy& a_c) { return a_c.form == lit; });
 					lc != LightCopies().end()) {
