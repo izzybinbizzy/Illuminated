@@ -222,15 +222,19 @@ namespace Plugin
 		// own model and its enchantment art - two lights on one blade; the art's is the one kept)
 		std::unordered_set<const RE::NiAVObject*> gArtUnder;
 
-		// the enchantment on the weapon in this hand: the one made at the table (ExtraEnchantment on the held instance), else
-		// the weapon record's own
-		const RE::EnchantmentItem* HeldEnchantment(RE::Actor* a_actor, const RE::TESObjectWEAP* a_weapon, bool a_left)
+		// the enchantment on the weapon in this hand: the one made at the table (ExtraEnchantment on the WORN copy - the entry can
+		// hold other copies of the same weapon, CodeRabbit's point on #13), else the weapon record's own
+		RE::EnchantmentItem* HeldEnchantment(RE::Actor* a_actor, const RE::TESObjectWEAP* a_weapon, bool a_left)
 		{
 			if (auto* entry = a_actor->GetEquippedEntryData(a_left); entry && entry->extraLists) {
 				for (auto* list : *entry->extraLists) {
-					if (const auto* xEnch = list ? list->GetByType<RE::ExtraEnchantment>() : nullptr; xEnch && xEnch->enchantment) {
+					if (!list || !(a_left ? list->HasType<RE::ExtraWornLeft>() : list->HasType<RE::ExtraWorn>())) {
+						continue;
+					}
+					if (const auto* xEnch = list->GetByType<RE::ExtraEnchantment>(); xEnch && xEnch->enchantment) {
 						return xEnch->enchantment;
 					}
+					break;  // the worn copy carries no enchantment of its own
 				}
 			}
 			return a_weapon->formEnchanting;
@@ -245,20 +249,30 @@ namespace Plugin
 		// the light row of a weapon enchantment's SHADER (the blade's glow - Shock / Fire / Frost Damage and every other
 		// enchantment without art of its own). His word 2026-10-13: "yes make the weapon light fix for vanilla and enb" - with
 		// Light Placer these rows hang on the blade by the shader's form; without it nothing lit them (only art and a weapon's
-		// own model were followed here), so an ordinary enchanted weapon stayed dark on Vanilla and ENB. The first effect whose
+		// own model were followed here), so an ordinary enchanted weapon stayed dark on Vanilla and ENB. The effect the game SHOWS
+		// first (the costliest - its shader is the one on the blade, as Enchantments.cpp keeps it), then the first effect whose
 		// shader has a row that holds now
-		RE::TESObjectLIGH* EnchantShaderLight(const RE::EnchantmentItem* a_ench)
+		RE::TESObjectLIGH* ShaderRowLight(const RE::Effect* a_effect)
+		{
+			const auto* shader = a_effect && a_effect->baseEffect ? a_effect->baseEffect->data.enchantShader : nullptr;
+			if (!shader) {
+				return nullptr;
+			}
+			const auto it = gEnchShaderKey.find(shader);
+			return it == gEnchShaderKey.end() ? nullptr : RecordLightFor(it->second);
+		}
+
+		RE::TESObjectLIGH* EnchantShaderLight(RE::EnchantmentItem* a_ench)
 		{
 			if (!a_ench) {
 				return nullptr;
 			}
+			if (auto* record = ShaderRowLight(a_ench->GetCostliestEffectItem())) {
+				return record;
+			}
 			for (const auto* effect : a_ench->effects) {
-				const auto* shader = effect && effect->baseEffect ? effect->baseEffect->data.enchantShader : nullptr;
-				const auto  it = shader ? gEnchShaderKey.find(shader) : gEnchShaderKey.end();
-				if (it != gEnchShaderKey.end()) {
-					if (auto* record = RecordLightFor(it->second)) {
-						return record;
-					}
+				if (auto* record = ShaderRowLight(effect)) {
+					return record;
 				}
 			}
 			return nullptr;
