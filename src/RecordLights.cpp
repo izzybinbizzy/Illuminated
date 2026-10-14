@@ -332,7 +332,7 @@ namespace Plugin
 			auto* dh = RE::TESDataHandler::GetSingleton();
 			return dh && (dh->LookupLoadedModByName("ENB Light.esp") || dh->LookupLoadedLightModByName("ENB Light.esp"));
 		}();
-		return loaded && LightingPick() == Lighting::kEnb && SettingValue("IlluminatedYieldENBLight", 0) != 0;
+		return loaded && LightingFound() == Lighting::kEnb && SettingValue("IlluminatedYieldENBLight", 0) != 0;
 	}
 
 	bool TouchedByENBLight(const RE::TESForm* a_form)
@@ -423,7 +423,7 @@ namespace Plugin
 	{
 		// HIS CALL: "use pale colors for cs and default for vanilla/enb" - the lighting is found once, at data load, so this
 		// runs once, as the record lights are made (the automatic ones copy a drawn color after it)
-		const bool pale = LightingPick() == Lighting::kShaders;
+		const bool pale = LightingFound() == Lighting::kShaders;
 		if (!gOn || pale == gPale) {
 			return;
 		}

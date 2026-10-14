@@ -58,9 +58,9 @@ namespace Plugin
 		kVanilla = 2,  // the game's own lighting, every light drawn plain
 	};
 
-	void                      ReadLighting();  // data load, before pass 0
-	[[nodiscard]] Lighting    LightingPick();  // what was found (never picked by the player - his word)
-	[[nodiscard]] const char* LightingName(Lighting a_pick);
+	void                      ReadLighting();   // data load, before pass 0
+	[[nodiscard]] Lighting    LightingFound();  // never picked by the player - his word
+	[[nodiscard]] const char* LightingName(Lighting a_lighting);
 	[[nodiscard]] bool        InverseSquare();  // lights are drawn inverse square (Community Shaders); off it, LightKit::PlainOf
 	[[nodiscard]] std::string LightingReport();
 
@@ -133,7 +133,7 @@ namespace Plugin
 	[[nodiscard]] bool StreamLightsOn();                                                               // StreamLights.cpp: the setting
 	void               ApplyStreamLights(bool a_log);                                                  // StreamLights.cpp: the setting, on or off
 	void               StreamLightsFrame();                                                            // StreamLights.cpp: once a frame, what a loader thread left to do
-	void               ApplyLightStrength(bool a_log);                                                 // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn)
+	void               ApplyLightStrength(bool a_log, bool a_quiet = false);                           // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn); a_quiet: a daylight step, no log line
 	void               RequestRefresh();                                                               // LightCopies.cpp: RefreshLights at the next frame, on the main thread
 	void               NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the fading module wrote it (never scaled twice)
 	void               RegisterMenu();                                                                 // Menu.cpp
@@ -212,7 +212,7 @@ namespace Plugin
 		// tests are kept once and shared by all of its models (never copied per model)
 		using Tests = std::vector<std::vector<std::vector<Clause>>>;  // one entry: each light's settings test
 		std::unordered_map<std::string, std::vector<std::shared_ptr<const Tests>>> modelTests;
-		bool                                                                       ModelLit(const std::string& a_model) const;
+		[[nodiscard]] bool                                                         ModelLit(const std::string& a_model) const;
 	};
 
 	[[nodiscard]] const Coverage& ReadCoverage();

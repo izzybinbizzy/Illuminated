@@ -305,7 +305,7 @@ namespace Plugin
 				RefreshLights();
 				ApplyWardLook();  // the Ward look pick: the next ward raised wears it
 			} else if (changed) {
-				ApplyLightStrength(false);  // the daylight moved: the copies at the new Brightness x daylight
+				ApplyLightStrength(false, true);  // the daylight moved: the copies at the new Brightness x daylight, no log line
 			}
 			StreamLightsFrame();
 			auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
@@ -449,7 +449,7 @@ namespace Plugin
 				func(a_cell);
 				LightKit::Guarded("cell animations", [a_cell]() {
 					ScaleCell(a_cell);
-					Fade::ReapplyAll(a_cell);  // this frame's fading numbers again for this cell's lights, without advancing any timer
+					Fade::ReapplyAll();  // this frame's fading numbers again for every hand's lights, without advancing any timer
 				});
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
@@ -511,7 +511,7 @@ namespace Plugin
 			++made;
 		}
 		SKSE::log::info("light copies: {} made ({} flicker, {} drawn plain for {}), {} whose light is not in this load order, {} failed", made,
-			flickers, plained, LightingName(LightingPick()), missing, failed);
+			flickers, plained, LightingName(LightingFound()), missing, failed);
 		InstallHooks();
 		ApplyLightStrength(true);
 	}
@@ -538,7 +538,7 @@ namespace Plugin
 		}
 	}
 
-	void ApplyLightStrength(bool a_log)
+	void ApplyLightStrength(bool a_log, bool a_quiet)
 	{
 		const int brightness = SettingValue(kBrightness, 100);
 		const int reach = SettingValue(kReach, 100);
@@ -565,8 +565,10 @@ namespace Plugin
 			}
 			++set;
 		}
-		SKSE::log::info("light strength: brightness {}% x daylight {:.2f}, reach {}%, hand lights for {}, on {} light copies", brightness, daylight, reach,
-			gHandBudget.load(), set);
+		if (!a_quiet) {
+			SKSE::log::info("light strength: brightness {}% x daylight {:.2f}, reach {}%, hand lights for {}, on {} light copies", brightness, daylight,
+				reach, gHandBudget.load(), set);
+		}
 		if (a_log) {
 			for (const auto& c : LightCopies()) {
 				if (c.form) {

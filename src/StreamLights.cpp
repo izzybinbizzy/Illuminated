@@ -68,10 +68,12 @@ namespace Plugin
 		// what a raised copy's color is picked from, again on every settings refresh (the rows' and markers' settings change live)
 		struct StreamColor
 		{
-			std::string model;  // a beam's model: its Streams row
-			Family      family{ Family::kNone };
-			bool        beam{ false };
-			RE::Color   own{};  // the color of the light it was raised from
+			std::string              model;  // a beam's model: its Streams row
+			Family                   family{ Family::kNone };
+			bool                     beam{ false };
+			RE::Color                own{};                // the color of the light it was raised from
+			const RE::TESObjectLIGH* borrowed{ nullptr };  // a beam with no light of its own: the row's light it was raised from
+			float                    range{ 0.0f };        // the projectile's range (the raised reach follows it)
 		};
 		std::unordered_map<RE::FormID, StreamColor> gStreamColor;  // only copies this pass made (pass 4's keep their own)
 
@@ -95,6 +97,57 @@ namespace Plugin
 			a_copy->data.color.red = color.red;
 			a_copy->data.color.green = color.green;
 			a_copy->data.color.blue = color.blue;
+		}
+
+		// the light a beam with none of its own borrows: its Streams row's light - one of our copies (pass 0's look), else the record
+		const RE::TESObjectLIGH* RowLight(const ConfigLight* a_row)
+		{
+			if (!a_row || a_row->light.empty()) {
+				return nullptr;
+			}
+			const auto c = std::ranges::find_if(LightCopies(), [&](const LightCopy& a_c) { return a_c.id == a_row->light; });
+			return c != LightCopies().end() ? c->form : RE::TESForm::LookupByEditorID<RE::TESObjectLIGH>(a_row->light);
+		}
+
+		struct Raised
+		{
+			float reach{ 0.0f };
+			float fade{ 0.0f };
+			float cutoff{ 0.0f };  // 0 off Community Shaders (drawn plain)
+		};
+
+		// a_copy (a copy of a_base) raised the RELight way - the numbers at the top; its color is PickColor's
+		Raised Raise(RE::TESObjectLIGH* a_copy, const RE::TESObjectLIGH* a_base, float a_range)
+		{
+			// never dimmer than the light it was raised from (his answer 2026-10-13): the numbers it was made with, before the
+			// sliders (a copy's start fade; a record of the game's own is never scaled), its size where it is drawn inverse square
+			const auto  made = std::ranges::find_if(LightCopies(), [&](const LightCopy& a_c) { return a_c.form == a_base; });
+			const float ownFade = made != LightCopies().end() ? made->startFade : a_base->fade;
+			const bool  ownIsl = (a_base->data.flags.underlying() & LightKit::kRecordInverseSquare) != 0;
+			Raised      r;
+			r.fade = LightKit::NeverDimmer(kOwnFade, kOwnSize, ownFade, ownIsl ? LightKit::LightPlacerSize(a_base->data.fov) : 0.0f);
+			const float limit = std::sqrt((std::max)(kK * r.fade / kOwnLowestCutoff - kOwnSize * kOwnSize, 1.0f));
+			r.reach = std::clamp(a_range * kOwnEndReach, kOwnShortestReach, limit);
+			float radius = r.reach;
+			if (InverseSquare()) {
+				// Community Shaders draws a record carrying the inverse-square flag by its fade and cutoff - the record's falloff
+				// field IS the cutoff then (LightCopies.cpp, pass 0), and its size is the field of view
+				r.cutoff = kK * r.fade / (r.reach * r.reach + kOwnSize * kOwnSize);
+				a_copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(a_copy->data.flags.underlying() | LightKit::kRecordInverseSquare);
+				a_copy->data.fallofExponent = r.cutoff;
+				a_copy->data.fov = kOwnSize;
+			} else {
+				// ENB and Vanilla (Lighting.cpp): the same reach drawn plain by the game's own lighting, its falloff left as the record
+				// has it. (Until 2026-10-13 the cutoff went into the falloff field here too, where the game reads it as the falloff
+				// exponent - a ~0.01 exponent is a flat disc of light that ends hard at the radius.)
+				const auto plain = LightKit::PlainAt(r.fade, 0.0f, r.reach);
+				r.fade = plain.fade;
+				radius = plain.radius;
+				a_copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(a_copy->data.flags.underlying() & ~LightKit::kRecordInverseSquare);
+			}
+			a_copy->data.radius = static_cast<std::uint32_t>(std::lround(radius));
+			a_copy->fade = r.fade;
+			return r;
 		}
 
 		// One lit projectile, keyed by its 3D ROOT, not its reference ID: a projectile's reference is temporary and the game
@@ -438,14 +491,10 @@ namespace Plugin
 			// copy, brightness 1.72 at size 2.5, reach from the hand to the end plus 15%, bounded by one light's reach). No light
 			// of ours is hung on it. A projectile with no light of its own is left as it is.
 			// a beam whose rows the build moved out of Light Placer (lagen move_beams): the data's color for it, and its light when
-			// the projectile has none of its own
+			// the projectile has none of its own (taken again on every settings refresh - ApplyStreamLights)
 			const auto* row = beam ? StreamRowFor(model) : nullptr;
 			auto*       own = proj->data.light;
-			const auto* base = own;
-			if (!base && row && !row->light.empty()) {
-				const auto c = std::ranges::find_if(LightCopies(), [&](const LightCopy& a_c) { return a_c.id == row->light; });
-				base = c != LightCopies().end() ? c->form : RE::TESForm::LookupByEditorID<RE::TESObjectLIGH>(row->light);
-			}
+			const auto* base = own ? own : RowLight(row);
 			if (!base) {
 				++skipped;
 				continue;
@@ -463,35 +512,10 @@ namespace Plugin
 				++skipped;
 				continue;
 			}
-			const auto family = FamilyOf(id, true);
-			// never dimmer than the light it was raised from (his answer 2026-10-13): the numbers it was made with, before the
-			// sliders (a copy's start fade; a record of the game's own is never scaled), its size where it is drawn inverse square
-			const auto  made = std::ranges::find_if(LightCopies(), [&](const LightCopy& a_c) { return a_c.form == base; });
-			const float ownFade = made != LightCopies().end() ? made->startFade : base->fade;
-			const bool  ownIsl = (base->data.flags.underlying() & LightKit::kRecordInverseSquare) != 0;
-			float       fade = LightKit::NeverDimmer(kOwnFade, kOwnSize, ownFade, ownIsl ? LightKit::LightPlacerSize(base->data.fov) : 0.0f);
-			const float limit = std::sqrt((std::max)(kK * fade / kOwnLowestCutoff - kOwnSize * kOwnSize, 1.0f));
-			const float reach = std::clamp(range * kOwnEndReach, kOwnShortestReach, limit);
-			float       radius = reach, cutoff = 0.0f;
-			if (InverseSquare()) {
-				// Community Shaders draws a record carrying the inverse-square flag by its fade and cutoff - the record's falloff
-				// field IS the cutoff then (LightCopies.cpp, pass 0), and its size is the field of view
-				cutoff = kK * fade / (reach * reach + kOwnSize * kOwnSize);
-				copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(copy->data.flags.underlying() | LightKit::kRecordInverseSquare);
-				copy->data.fallofExponent = cutoff;
-				copy->data.fov = kOwnSize;
-			} else {
-				// ENB and Vanilla (Lighting.cpp): the same reach drawn plain by the game's own lighting, its falloff left as the record
-				// has it. (Until 2026-10-13 the cutoff went into the falloff field here too, where the game reads it as the falloff
-				// exponent - a ~0.01 exponent is a flat disc of light that ends hard at the radius.)
-				const auto plain = LightKit::PlainAt(fade, 0.0f, reach);
-				fade = plain.fade;
-				radius = plain.radius;
-				copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(copy->data.flags.underlying() & ~LightKit::kRecordInverseSquare);
-			}
-			copy->data.radius = static_cast<std::uint32_t>(std::lround(radius));
-			copy->fade = fade;
-			const auto& color = gStreamColor[proj->GetFormID()] = { model, family, beam, base->data.color };
+			const auto   family = FamilyOf(id, true);
+			const Raised raised = Raise(copy, base, range);
+			const float  reach = raised.reach, fade = raised.fade, cutoff = raised.cutoff;
+			const auto&  color = gStreamColor[proj->GetFormID()] = { model, family, beam, base->data.color, own ? nullptr : base, range };
 			PickColor(color, copy, sc);  // and again on every refresh (ApplyStreamLights)
 			// the sliders reach it like every copy (LightCopies.cpp ApplyLightStrength): the cutoff too, so Reach moves an inverse-square
 			// stream's reach (it is Community Shaders' only lever)
@@ -564,11 +588,36 @@ namespace Plugin
 	{
 		const bool  want = StreamLightsOn();
 		const auto  sc = ReadSprayChoice();
-		std::size_t changed = 0;
-		for (const auto& [formID, c] : gStreamColor) {
-			if (const auto copy = gStreamCopy.find(formID); copy != gStreamCopy.end() && copy->second) {
-				PickColor(c, copy->second, sc);
+		std::size_t changed = 0, reborrowed = 0;
+		for (auto& [formID, c] : gStreamColor) {
+			const auto copy = gStreamCopy.find(formID);
+			if (copy == gStreamCopy.end() || !copy->second) {
+				continue;
 			}
+			// HIS ANSWER 2026-10-14 ("bolt should switch at once"): a beam with no light of its own takes the light its row's
+			// settings choose NOW, at once, as its color does - raised again from that light. (No row holding = it keeps the one
+			// it wears; it was never left dark by a setting before either.)
+			if (const auto* now = c.borrowed ? RowLight(StreamRowFor(c.model)) : nullptr; now && now != c.borrowed) {
+				auto* lit = copy->second;
+				lit->data = now->data;
+				lit->fade = now->fade;
+				const Raised r = Raise(lit, now, c.range);
+				if (const auto lc = std::ranges::find_if(LightCopies(), [&](const LightCopy& a_c) { return a_c.form == lit; });
+					lc != LightCopies().end()) {
+					lc->base = EditorID(now);
+					lc->startFade = lit->fade;
+					lc->startRadius = lit->data.radius;
+					lc->startCutoff = r.cutoff;
+				}
+				c.borrowed = now;
+				c.own = now->data.color;
+				++reborrowed;
+			}
+			PickColor(c, copy->second, sc);
+		}
+		if (reborrowed) {
+			ApplyLightStrength(false, true);  // the sliders onto the new numbers (RefreshLights ran it before this pass)
+			SKSE::log::info("stream lights: {} bolt(s) with no light of their own took the light their row's settings choose now", reborrowed);
 		}
 		for (const auto& [formID, own] : gHandLight) {
 			auto*      proj = RE::TESForm::LookupByID<RE::BGSProjectile>(formID);

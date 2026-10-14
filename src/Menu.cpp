@@ -50,13 +50,13 @@ namespace Plugin
 		constexpr std::string_view kYieldENBId = "IlluminatedYieldENBLight";
 		constexpr std::string_view kVersionGroup = "Version";  // lagen.py: the first heading on Lights
 
-		bool EnbFound() { return LightingPick() == Lighting::kEnb; }
+		bool EnbFound() { return LightingFound() == Lighting::kEnb; }
 
 		void DrawVersion()
 		{
 			ImGuiMCP::Text("%s", T("Lighting"));
 			ImGuiMCP::SameLine();
-			ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.86f, 0.55f, 1.0f }, T("Automatic - %s"), T(LightingName(LightingPick())));
+			ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.86f, 0.55f, 1.0f }, T("Automatic - %s"), T(LightingName(LightingFound())));
 			ImGuiMCP::SetItemTooltip("%s", T("Illuminated finds your lighting by itself when the game starts: Community Shaders when its inverse "
 											 "square lighting is installed, else ENB when an ENB is in the game folder, else Vanilla. Your presets "
 											 "are kept apart for each one."));
@@ -78,7 +78,7 @@ namespace Plugin
 			const MenuStyle::Page style;
 			const auto&           cov = LastCoverage();
 			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Found"));
-			ImGuiMCP::Text(T("Lighting: %s (inverse square lights: %s)"), T(LightingName(LightingPick())), InverseSquare() ? T("yes") : T("no"));
+			ImGuiMCP::Text(T("Lighting: %s (inverse square lights: %s)"), T(LightingName(LightingFound())), InverseSquare() ? T("yes") : T("no"));
 			ImGuiMCP::Text(T("Route: %s"), RecordRoute() ? T("the game's own light records (Light Placer is not loaded)") : T("Light Placer"));
 			ImGuiMCP::Text(T("CS Light: %s"), gCSLight.empty() ? T("not loaded") : gCSLight.c_str());
 			ImGuiMCP::Text(T("Configs: %zu file(s), %zu lit model(s), %zu shader name(s)"), cov.files, cov.models.size(), cov.shaders.size());
@@ -253,7 +253,7 @@ namespace Plugin
 		void SavePreset(const std::string& a_name)
 		{
 			std::lock_guard   lock(gPresetLock);
-			const std::string lighting = LightingName(LightingPick());
+			const std::string lighting = LightingName(LightingFound());
 			UserPreset        p{ a_name, {} };
 			for (const auto& s : Settings()) {
 				p.values[Lower(s.ini)] = std::to_string(s.value.load());
@@ -282,7 +282,7 @@ namespace Plugin
 		void DeletePreset(const std::string& a_name)
 		{
 			std::lock_guard   lock(gPresetLock);
-			const std::string lighting = LightingName(LightingPick());
+			const std::string lighting = LightingName(LightingFound());
 			// the same comparison as SavePreset (case left out), so a hand-edited name is found by both
 			std::erase_if(gPresets, [&](const auto& e) { return e.first == lighting && Lower(e.second.name) == Lower(a_name); });
 			WritePresetsSoon();
@@ -336,11 +336,11 @@ namespace Plugin
 			}
 			ImGuiMCP::EndDisabled();
 			ImGuiMCP::SetItemTooltip(T("Saves every setting as it is now under this name, for %s. Each lighting keeps its own presets."),
-				T(LightingName(LightingPick())));
+				T(LightingName(LightingFound())));
 			std::vector<UserPreset> mine;
 			{
 				std::lock_guard   lock(gPresetLock);
-				const std::string lighting = LightingName(LightingPick());
+				const std::string lighting = LightingName(LightingFound());
 				for (const auto& [l, p] : gPresets) {
 					if (l == lighting) {
 						mine.push_back(p);

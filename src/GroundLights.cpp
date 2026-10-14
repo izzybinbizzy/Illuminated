@@ -44,6 +44,11 @@ namespace Plugin
 		std::unordered_map<std::uint64_t, Twin> gTwins;  // main thread only; key = actor form id << 1 | hand
 		// the counts the testing DLL's page and DevBench read, from the render thread too: gTwins itself is the main thread's
 		std::atomic<std::size_t> gLive{ 0 }, gMade{ 0 };
+		// a twin the scene refused: not made again until this tick (about a second later), so a full light list is not met
+		// with a light made, hung and dropped every frame (RELight 2.2's code review); main thread only
+		std::unordered_map<std::uint64_t, std::uint32_t> gRefused;
+		std::uint32_t                                    gTick{ 0 };  // TickGroundLights calls
+		constexpr std::uint32_t                          kRetryTicks = 60;
 
 		void Drop(Twin& a_twin, RE::ShadowSceneNode* a_scene)
 		{
@@ -66,6 +71,7 @@ namespace Plugin
 				Drop(entry.second, a_scene);
 			}
 			gTwins.clear();
+			gRefused.clear();
 			gLive.store(0, std::memory_order_relaxed);
 		}
 
@@ -209,6 +215,14 @@ namespace Plugin
 				if (!parent) {
 					continue;
 				}
+				if (it == gTwins.end()) {
+					if (const auto r = gRefused.find(key); r != gRefused.end()) {
+						if (gTick < r->second) {
+							continue;  // refused a moment ago: the game's casting light stays as it is until the retry
+						}
+						gRefused.erase(r);
+					}
+				}
 				auto& twin = it != gTwins.end() ? it->second : gTwins[key];
 				if (twin.light && (twin.source.get() != source || twin.parent.get() != parent)) {
 					Drop(twin, a_scene);
@@ -224,7 +238,13 @@ namespace Plugin
 				}
 				Follow(twin);
 				if (!twin.bs && !Register(twin, a_scene)) {
-					Drop(twin, a_scene);  // not seen: let go below, tried again next frame
+					Drop(twin, a_scene);  // not seen: let go below, tried again after kRetryTicks
+					gRefused[key] = gTick + kRetryTicks;
+					static bool told = false;
+					if (!told) {
+						told = true;
+						SKSE::log::warn("ground lights: the scene refused a hand's ground light; tried again about a second later");
+					}
 					continue;
 				}
 				twin.seen = true;
@@ -244,6 +264,7 @@ namespace Plugin
 			DropAll(scene);
 			return;
 		}
+		++gTick;
 		for (auto& entry : gTwins) {
 			entry.second.seen = false;
 		}

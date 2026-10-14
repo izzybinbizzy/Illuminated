@@ -30,7 +30,7 @@ namespace Plugin
 		constexpr const char* kLlfAttenuation = "Data/Shaders/LightLimitFix/Attenuation.hlsli";
 		constexpr const char* kEnbFiles[] = { "enbseries.ini", "enblocal.ini" };
 
-		std::atomic<Lighting> gPick{ Lighting::kShaders };
+		std::atomic<Lighting> gFound{ Lighting::kShaders };
 		std::atomic<bool>     gIslShader{ false };
 		std::atomic<bool>     gEnbFiles{ false };
 
@@ -56,20 +56,20 @@ namespace Plugin
 		std::error_code ec;
 		gIslShader = fs::exists(fs::current_path() / kIslShader, ec) || IslBuiltIntoLightLimitFix();
 		gEnbFiles = EnbInstalled();
-		gPick = gIslShader ? Lighting::kShaders : gEnbFiles ? Lighting::kEnb :
-		                                                      Lighting::kVanilla;
+		gFound = gIslShader ? Lighting::kShaders : gEnbFiles ? Lighting::kEnb :
+		                                                       Lighting::kVanilla;
 		SKSE::log::info("lighting: {} (detected - inverse square shader {}, ENB settings in the game folder {}); lights drawn {}",
-			LightingName(gPick), gIslShader ? "installed" : "not installed", gEnbFiles ? "yes" : "no", InverseSquare() ? "inverse square" : "plain");
+			LightingName(gFound), gIslShader ? "installed" : "not installed", gEnbFiles ? "yes" : "no", InverseSquare() ? "inverse square" : "plain");
 	}
 
-	Lighting LightingPick()
+	Lighting LightingFound()
 	{
-		return gPick.load();
+		return gFound.load();
 	}
 
-	const char* LightingName(Lighting a_pick)
+	const char* LightingName(Lighting a_lighting)
 	{
-		switch (a_pick) {
+		switch (a_lighting) {
 		case Lighting::kEnb:
 			return "ENB";
 		case Lighting::kVanilla:
@@ -81,12 +81,12 @@ namespace Plugin
 
 	bool InverseSquare()
 	{
-		return gPick.load() == Lighting::kShaders && gIslShader.load();
+		return gFound.load() == Lighting::kShaders && gIslShader.load();
 	}
 
 	std::string LightingReport()
 	{
-		return std::format(R"({{"pick":"{}","detected":true,"inverseSquareShader":{},"enbFiles":{},"inverseSquare":{}}})", LightingName(gPick),
+		return std::format(R"({{"pick":"{}","detected":true,"inverseSquareShader":{},"enbFiles":{},"inverseSquare":{}}})", LightingName(gFound),
 			gIslShader.load(), gEnbFiles.load(), InverseSquare());
 	}
 }

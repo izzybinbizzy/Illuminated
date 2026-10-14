@@ -10,8 +10,9 @@
 //   0. its own copies of the game's magic lights, carrying the look its lights were made with (see pass 0);
 //   1. a magic effect whose casting art Illuminated or CS Light lights loses the game's own
 //      casting light, so the hand does not carry two lights;
-//   2. the same for projectiles, explosions and hazards whose model is lit - except cone and flame
-//      projectiles, which keep their light, and poison sprays, which lose it whether lit or not;
+//   2. the same for projectiles, explosions and hazards whose model is lit - except flame, cone and beam
+//      projectiles (sprays, streams and bolts), which keep their light for pass 6, and poison sprays, which lose it
+//      whether lit or not;
 //   3. the Dragonborn poison rune gets the casting art its lit hand needs (before pass 1, which then follows it);
 //   4. with the Spray Lights setting on, each spray projectile gets a private copy of its own
 //      light, stretched to cover the spray and colored from the settings' markers;
