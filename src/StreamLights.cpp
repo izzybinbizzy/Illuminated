@@ -2,46 +2,26 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Pass 6: lights that travel with a spray or a bolt.
+// Pass 6: the light of a spray, a stream or a bolt - and a ward dome's light.
 //
-// A spray or a shock stream is one projectile whose light record sits at the caster's hand, so the game lights the
-// hand and not the stream. Light Placer does not light these at all (it attaches to a model, and these have none it
-// can hold). ReLight lights them by giving the projectile's own 3D a light of its own.
+// HIS RULE (Illuminated's CLAUDE.md, "RELIGHT'S METHOD"): a spray, stream or bolt is lit by the PROJECTILE'S OWN LIGHT RECORD,
+// made bigger and brighter - one light per projectile, the way RE::Light lights them in RELight - Spell Addon (its spray
+// configs: the record's own light, brightness 1.72 at size 2.5, reach the whole length plus 15%, bounded by one light's
+// reach). So this pass gives each cone, beam and flamethrower projectile an in-memory copy of its own light raised that way
+// (a spray model pass 4 already raised keeps pass 4's copy), worn while the "Stream Lights" setting is on, its own light when
+// it is off. The Brightness and Reach sliders reach the copies (LightCopies). Colors: a BEAM's row in the Streams folder (the
+// data's color - the build moves every beam row out of Light Placer, lagen move_beams, because on Community Shaders the data's
+// six points stopped half way along Sparks, measured 2026-10-13), else the spray markers (frost, shock), else the record's own;
+// a beam with no light of its own wears a raised copy of its row's light. ⛔ No light of ours is hung on a spray, stream or
+// bolt; `PC Runner\stream rule check.py` fails a build that does (it took several rounds of ladders before his word was read
+// right).
 //
-// CREDIT: how a light is made and registered here follows ReLight by Truman (github.com/TrumanGIT/ReLight),
-// GPL-3.0-or-later, with his permission and kept under the same license. From it: one master NiPointLight made
-// once and cloned for every use (a freshly made light attached straight away crashes), the light's size carried
-// in the radius' z, the create parameters a non-shadow light needs (field of view 90, portal-strict, never
-// fades), and handing the light to the shadow scene node, which is what renders it. Which projectiles get lights,
-// where they sit along the stream, and how the settings drive them is ours.
-//
-// Four rules, each one invisible in the code that follows it:
-//  1. `RE::FlameProjectile` is hooked here because nothing else hooks it (not Light Placer, not RE::Light).
-//  2. A flame spray's object sits at the caster's hand and its art streams out of it. 🔁 HIS REPORT 2026-10-11 ("the
-//     sprays and streams still aren't reaching their full length"), MEASURED: its ONE light 128 out (radius 1766 on paper)
-//     left the far half dark - inverse square light is spent long before its stated reach. So a flame spray now gets a
-//     LADDER: 2 or 3 lights, each in the middle of its own share of the range, each reaching a little past its share
-//     (RELight's own ladder of 2026-09-23, "together they light the whole length").
-//  3. A beam's light is parented to its `BeamEnd` node, so it rides the tip (the root when the mesh has none).
-//  4. Community Shaders' inverse square flag and cutoff are written after `SetLightAttenuation`, with
-//     cutoff = K * fade / (radius² + size²), so the reach comes out at the radius asked for.
-//     On ENB and Vanilla (Lighting.cpp) nothing is written there; the light is drawn plain, the reach asked for as
-//     the game's own lighting draws it, with a tenth of its colour as ambient.
-//  5. The scene is only ever touched on the main thread: 3D built or released on one of the game's loader threads is
-//     queued, and lit or dropped at the next frame (StreamLightsFrame).
-// Live lights are capped per projectile base and swept when their parent is gone, or a held spray piles them up.
-//
-// How it works. When the game builds a cone, beam, flame or barrier projectile's 3D, this hooks the call and
-// hangs NiPointLights off that 3D - one for a flame spray or a beam, up to three at fixed steps along the
-// forward axis for a cone - then hands each one to the shadow scene node, which is what actually renders it.
-// The lights are children of the projectile's own node, so they travel and turn with the stream and disappear
-// with it; when the game releases that 3D, the lights are taken off the scene node here as well. Nothing on any
-// record is edited except the projectile's own hand light, which is taken off while this pass is on and given
-// back when it is switched off - the same remember-and-restore the other passes use.
-//
-// The settings decide everything: the setting "Stream Lights" turns the pass on, and the Brightness and Reach
-// sliders scale each light's fade and radius. Colors come from the spray markers (frost, shock, fire), or from the
-// projectile's own light record when the markers say nothing about it.
+// A ward dome (Dynamic Wards absent) is the one projectile this pass still hangs a light on: its Load3D / Release3D hooks,
+// the live list and the main-thread queue below are for that. CREDIT: how that light is made and registered follows ReLight
+// by Truman (github.com/TrumanGIT/ReLight), GPL-3.0-or-later, with his permission and kept under the same license: one master
+// NiPointLight made once and cloned for every use, the light's size carried in the radius' z, the create parameters a
+// non-shadow light needs, and handing the light to the shadow scene node. The scene is only ever touched on the main thread
+// (3D built or released on a loader thread is queued for the next frame - StreamLightsFrame).
 
 #include "Plugin.h"
 
@@ -55,31 +35,25 @@ namespace Plugin
 		constexpr float            kWardFade = 1.0f;
 		// a ward with no color of its own: the pale blue-white of the vanilla dome
 		constexpr float       kWardRed = 0.62f, kWardGreen = 0.78f, kWardBlue = 1.0f;
-		constexpr std::size_t kMaxLightsPerStream = 3;
-		constexpr float       kStepUnits = 300.0f;   // one light per this much stream, up to the maximum
-		constexpr float       kRadiusOfStep = 1.4f;  // each light reaches a little past the next step
 		constexpr float       kShortestStream = 120.0f;
 		constexpr const char* kLightName = "IlluminatedStream";
 		constexpr float       kLightSize = LightKit::kLightSize;  // the light's size, which lives in the radius' z (from ReLight)
-		// rule 2: a flame spray's one light sits this far out (half the range for a short spray) and reaches from there
-		// to the end of the spray and a little past, never less than the shortest reach
-		constexpr float       kFlameStep = 260.0f;  // one ladder light per this much spray (2 at least, 3 at most)
-		constexpr std::size_t kFlameMinLights = 2, kFlameMaxLights = 3;
-		constexpr float       kFlameShortestReach = 133.0f;
-		// rule 3: a beam's light rides the tip, on this node when the mesh has it
-		constexpr float       kBeamRadius = 420.0f;
-		constexpr const char* kBeamNode = "BeamEnd";
-		// rule 4: the house K, 0.8 * 69.99² - the same number gen.py writes every config's cutoff from (LightKit.h)
+		// rules 2 and 3 - the projectile's own light, raised the way RE::Light's isPluginLight configs raise it in RELight - Spell
+		// Addon (relightgen spray_record_config): brightness 1.72 at size 2.5 (the hand light's peak), reach the whole length plus
+		// 15%, bounded by what one light carries at a cutoff of 0.01, never under the hand reach
 		using LightKit::kK;
-		constexpr float kLowestCutoff = LightKit::Isl::kLowestCutoff;
-		// no one projectile base keeps more than this many of its refs lit at a time
+		constexpr float       kOwnSize = 2.5f;
+		constexpr float       kOwnFade = 1077.69f * kOwnSize * kOwnSize / 3918.88f;
+		constexpr float       kOwnEndReach = 1.15f;
+		constexpr float       kOwnShortestReach = 133.0f;
+		constexpr float       kOwnLowestCutoff = 0.01f;
 		constexpr std::size_t kMaxLivePerBase = 4;
 
 		struct Recipe
 		{
 			bool        ward{ false };   // a ward dome: one light where the dome sits, and its own setting
 			bool        flame{ false };  // a flamethrower-type spray: one light at the root (rule 2)
-			bool        beam{ false };   // a beam: one light on its BeamEnd node (rule 3)
+			bool        beam{ false };   // a beam: a ladder moved along its real length every frame (rule 3)
 			std::size_t lights{ 1 };
 			float       gap{ 0.0f };    // units between lights along the stream
 			float       start{ 0.0f };  // where the first light sits (the others follow every gap)
@@ -89,8 +63,9 @@ namespace Plugin
 			RE::NiColor color{ 1.0f, 1.0f, 1.0f };
 		};
 
-		std::unordered_map<RE::FormID, Recipe>             gRecipes;    // projectile base form -> what to hang on it
-		std::unordered_map<RE::FormID, RE::TESObjectLIGH*> gHandLight;  // its own light, to give back
+		std::unordered_map<RE::FormID, Recipe>             gRecipes;     // projectile base form -> what to hang on it
+		std::unordered_map<RE::FormID, RE::TESObjectLIGH*> gHandLight;   // its own light, to give back
+		std::unordered_map<RE::FormID, RE::TESObjectLIGH*> gStreamCopy;  // its own light's raised copy, worn while the setting is on
 
 		// One lit projectile, keyed by its 3D ROOT, not its reference ID: a projectile's reference is temporary and the game
 		// hands its ID to a new one, so an ID-keyed entry could be taken for the new projectile or dropped by the old one's
@@ -112,7 +87,6 @@ namespace Plugin
 		std::vector<RE::NiPointer<RE::TESObjectREFR>> gToHang;
 		std::vector<const RE::NiAVObject*>            gToDrop;
 		std::uint32_t                                 gSweepClock = 0;  // frames since the last sweep (main thread)
-		bool                                          gTaken = false;   // the hand lights are off right now
 
 		// fire, frost or shock, read from the editor ID (the spray pass's words, and spark / storm for the shock streams)
 		Family StreamFamily(std::string_view a_editorID)
@@ -263,13 +237,8 @@ namespace Plugin
 					}
 				}
 			}
-			// rule 3: a beam's light rides the tip of the bolt, on the node the mesh names
+			// a ward's light hangs off the barrier's root
 			RE::NiNode* parent = root;
-			if (r.beam) {
-				if (auto* node = root->GetObjectByName(RE::BSFixedString(kBeamNode)); node && node->AsNode()) {
-					parent = node->AsNode();
-				}
-			}
 			Told("making its lights", a_ref);
 			const bool isl = InverseSquare();
 			// ENB and Vanilla (Lighting.cpp): the reach asked for, drawn by the game's own lighting
@@ -327,7 +296,11 @@ namespace Plugin
 				return;
 			}
 			std::lock_guard l{ gLiveLock };
-			gLive.emplace(root, Live{ RE::NiPointer<RE::NiAVObject>(root), base->GetFormID(), std::move(made) });
+			Live            live{};
+			live.root.reset(root);
+			live.base = base->GetFormID();
+			live.lights = std::move(made);
+			gLive.emplace(root, std::move(live));
 			++gLiveCount[base->GetFormID()];
 		}
 
@@ -434,6 +407,7 @@ namespace Plugin
 	{
 		gRecipes.clear();
 		gHandLight.clear();
+		gStreamCopy.clear();
 		const auto  sc = ReadSprayChoice();
 		std::size_t cones = 0, beams = 0, flames = 0, skipped = 0;
 		for (auto* proj : LightKit::FormsOf<RE::BGSProjectile>()) {
@@ -461,48 +435,83 @@ namespace Plugin
 				++skipped;
 				continue;
 			}
-			Recipe r;
-			r.flame = flame;
-			r.beam = beam;
-			if (flame) {
-				// rule 2: the ladder - each light in the middle of its share; its reach is set below, once its fade is known
-				r.lights = static_cast<std::size_t>(std::clamp<int>(static_cast<int>(std::lround(range / kFlameStep)), static_cast<int>(kFlameMinLights),
-					static_cast<int>(kFlameMaxLights)));
-				r.gap = range / static_cast<float>(r.lights);
-				r.start = r.gap / 2.0f;
-			} else if (beam) {
-				// rule 3: one light, on BeamEnd, so it rides the tip
-				r.lights = 1;
-				r.gap = 0.0f;
-				r.start = 0.0f;
-				r.radius = kBeamRadius;
+			// HIS RULE (CLAUDE.md, "RELIGHT'S METHOD"): the projectile's OWN light record, a bigger and brighter copy - one light
+			// per spray / stream / bolt, as RE::Light's isPluginLight configs do (RELight - Spell Addon's spray configs: the record's
+			// copy, brightness 1.72 at size 2.5, reach from the hand to the end plus 15%, bounded by one light's reach). No light
+			// of ours is hung on it. A projectile with no light of its own is left as it is.
+			// a beam whose rows the build moved out of Light Placer (lagen move_beams): the data's color for it, and its light when
+			// the projectile has none of its own
+			const auto* row = beam ? StreamRowFor(model) : nullptr;
+			auto*       own = proj->data.light;
+			const auto* base = own;
+			if (!base && row && !row->light.empty()) {
+				const auto c = std::ranges::find_if(LightCopies(), [&](const LightCopy& a_c) { return a_c.id == row->light; });
+				base = c != LightCopies().end() ? c->form : RE::TESForm::LookupByEditorID<RE::TESObjectLIGH>(row->light);
+			}
+			if (!base) {
+				++skipped;
+				continue;
+			}
+			// pass 4 stretched a spray model's light already (the old patcher's spray lights, his settled numbers): that copy is
+			// this way's copy. Any other copy (pass 0's look, a record light) is the light the projectile wears - raised here.
+			const bool alreadyRaised = own && std::ranges::any_of(LightCopies(), [&](const LightCopy& a_c) {
+				return a_c.form == own && a_c.id.starts_with("spray ");
+			});
+			if (alreadyRaised) {
+				++skipped;
+				continue;
+			}
+			auto* copy = CopyLight(base);
+			if (!copy) {
+				++skipped;
+				continue;
+			}
+			const auto  family = StreamFamily(id);
+			float       fade = kOwnFade;
+			const float limit = std::sqrt((std::max)(kK * fade / kOwnLowestCutoff - kOwnSize * kOwnSize, 1.0f));
+			const float reach = std::clamp(range * kOwnEndReach, kOwnShortestReach, limit);
+			float       radius = reach, cutoff = 0.0f;
+			if (InverseSquare()) {
+				// Community Shaders draws a record carrying the inverse-square flag by its fade and cutoff - the record's falloff
+				// field IS the cutoff then (LightCopies.cpp, pass 0), and its size is the field of view
+				cutoff = kK * fade / (reach * reach + kOwnSize * kOwnSize);
+				copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(copy->data.flags.underlying() | LightKit::kRecordInverseSquare);
+				copy->data.fallofExponent = cutoff;
+				copy->data.fov = kOwnSize;
 			} else {
-				r.lights = static_cast<std::size_t>(std::clamp<int>(static_cast<int>(range / kStepUnits), 1, static_cast<int>(kMaxLightsPerStream)));
-				r.gap = range / static_cast<float>(r.lights + 1);
-				r.start = r.gap;
-				r.radius = r.gap * kRadiusOfStep;
+				// ENB and Vanilla (Lighting.cpp): the same reach drawn plain by the game's own lighting, its falloff left as the record
+				// has it. (Until 2026-10-13 the cutoff went into the falloff field here too, where the game reads it as the falloff
+				// exponent - a ~0.01 exponent is a flat disc of light that ends hard at the radius.)
+				const auto plain = Plain(fade, 0.0f, reach);
+				fade = plain.fade;
+				radius = plain.radius;
+				copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(copy->data.flags.underlying() & ~LightKit::kRecordInverseSquare);
 			}
-			r.falloff = sc.falloff > 0.0f ? sc.falloff : 2.0f;
-			const auto family = StreamFamily(id);
-			r.fade = family == Family::kFrost ? sc.frostFade : sc.fade;
-			if (r.fade <= 0.0f) {
-				r.fade = 1.0f;
-			}
-			if (flame) {
-				// each reaches a little past its share, no further than one light of this fade carries (rule 4 at the lowest
-				// cutoff): a dragon's breath ranges 3000
-				// the upper bound never below the lower: a faint marker fade would reverse them (CodeRabbit, Illuminated #9)
-				r.radius = std::clamp(r.gap * kRadiusOfStep, kFlameShortestReach, (std::max)(kFlameShortestReach, std::sqrt(kK * r.fade / kLowestCutoff)));
-			}
-			if (family == Family::kFrost && sc.frostSet) {
-				r.color = { sc.frost.r / 255.0f, sc.frost.g / 255.0f, sc.frost.b / 255.0f };
+			copy->data.radius = static_cast<std::uint32_t>(std::lround(radius));
+			copy->fade = fade;
+			if (row && row->hasColor) {  // the data's color for this beam - what its Light Placer rows were lit in
+				copy->data.color.red = row->r;
+				copy->data.color.green = row->g;
+				copy->data.color.blue = row->b;
+			} else if (family == Family::kFrost && sc.frostSet) {
+				copy->data.color.red = static_cast<std::uint8_t>(std::clamp(sc.frost.r, 0, 255));
+				copy->data.color.green = static_cast<std::uint8_t>(std::clamp(sc.frost.g, 0, 255));
+				copy->data.color.blue = static_cast<std::uint8_t>(std::clamp(sc.frost.b, 0, 255));
 			} else if (family == Family::kShock && sc.shockSet) {
-				r.color = { sc.shock.r / 255.0f, sc.shock.g / 255.0f, sc.shock.b / 255.0f };
-			} else {
-				r.color = ColorOf(proj->data.light);
+				copy->data.color.red = static_cast<std::uint8_t>(std::clamp(sc.shock.r, 0, 255));
+				copy->data.color.green = static_cast<std::uint8_t>(std::clamp(sc.shock.g, 0, 255));
+				copy->data.color.blue = static_cast<std::uint8_t>(std::clamp(sc.shock.b, 0, 255));
 			}
-			gRecipes[proj->GetFormID()] = r;
-			gHandLight[proj->GetFormID()] = proj->data.light;
+			// the sliders reach it like every copy (LightCopies.cpp ApplyLightStrength): the cutoff too, so Reach moves an inverse-square
+			// stream's reach (it is Community Shaders' only lever)
+			LightCopies().push_back({ .id = "stream " + id,
+				.base = EditorID(base),
+				.form = copy,
+				.startFade = copy->fade,
+				.startRadius = copy->data.radius,
+				.startCutoff = cutoff });
+			gHandLight[proj->GetFormID()] = own;
+			gStreamCopy[proj->GetFormID()] = copy;
 			if (flame) {
 				++flames;
 			} else if (cone) {
@@ -510,25 +519,21 @@ namespace Plugin
 			} else {
 				++beams;
 			}
-			SKSE::log::info("[STREAM] {} | {} | range {:.0f} | {} light(s) every {:.0f} | radius {:.0f} | fade {:.2f} | model {}",
+			SKSE::log::info("[STREAM] {} | {} | range {:.0f} | {} {} raised: reach {:.0f} | fade {:.2f} | color {},{},{}{} | model {}",
 				Label(proj), flame ? "flame spray" : cone ? "spray" :
 															"bolt",
-				range, r.lights, r.gap, r.radius, r.fade, model);
+				range, own ? "its own light" : "(none of its own) the data's light",
+				EditorID(base), reach, fade, copy->data.color.red, copy->data.color.green, copy->data.color.blue,
+				row ? " (the data's beam row)" : "", model);
 		}
 		SKSE::log::info(
-			"stream lights: {} flame spray(s), {} spray(s) and {} bolt(s) can carry a light of their own, "
-			"{} left alone; no one projectile keeps more than {} lit at a time; the setting is {}",
-			flames, cones, beams, skipped, kMaxLivePerBase, StreamLightsOn() ? "on" : "off");
+			"stream lights: {} flame spray(s), {} spray(s) and {} bolt(s) carry their own light, raised; {} left alone; the "
+			"setting is {}",
+			flames, cones, beams, skipped, StreamLightsOn() ? "on" : "off");
+		ApplyLightStrength(false);  // the raised copies at the sliders' values from the start (main.cpp ran it before this pass)
 		WardLights();
-		Load3D<RE::ConeProjectile>::Install();
-		Load3D<RE::BeamProjectile>::Install();
-		Load3D<RE::BarrierProjectile>::Install();
-		// rule 1: nothing else hooks this one, and it is what the vanilla sprays are
-		Load3D<RE::FlameProjectile>::Install();
-		Release3D<RE::ConeProjectile>::Install();
-		Release3D<RE::BeamProjectile>::Install();
+		Load3D<RE::BarrierProjectile>::Install();  // a ward dome's light (Dynamic Wards absent) - the only light hung here
 		Release3D<RE::BarrierProjectile>::Install();
-		Release3D<RE::FlameProjectile>::Install();
 		ApplyStreamLights(true);
 	}
 
@@ -562,33 +567,25 @@ namespace Plugin
 		}
 	}
 
-	// the projectile's own hand light is taken off while this pass is on, and given back when it is switched off
+	// the projectile wears its own light's raised copy while this pass is on, and its own light when it is switched off
 	void ApplyStreamLights(bool a_log)
 	{
-		const bool want = StreamLightsOn();
-		if (!want && !gTaken && !a_log) {
-			return;  // off and nothing taken; while it is on, every call takes off whatever light has come back
-		}
+		const bool  want = StreamLightsOn();
 		std::size_t changed = 0;
-		for (auto& [formID, own] : gHandLight) {
-			auto* proj = RE::TESForm::LookupByID<RE::BGSProjectile>(formID);
-			if (!proj) {
+		for (const auto& [formID, own] : gHandLight) {
+			auto*      proj = RE::TESForm::LookupByID<RE::BGSProjectile>(formID);
+			const auto copy = gStreamCopy.find(formID);
+			if (!proj || copy == gStreamCopy.end()) {
 				continue;
 			}
-			// taken off: what it carries now is what to give back - the spray pass may have given it a copy of its
-			// own since this table was read, and that copy must come back, not the record's first light
-			if (want && proj->data.light) {
-				own = proj->data.light;
-			}
-			auto* wanted = want ? nullptr : own;
+			auto* wanted = want ? copy->second : own;
 			if (proj->data.light != wanted) {
 				proj->data.light = wanted;
 				++changed;
 			}
 		}
-		gTaken = want;
 		if (a_log || changed) {
-			SKSE::log::info("stream lights: {}; {} hand light(s) {}", want ? "on" : "off", changed, want ? "taken off" : "given back");
+			SKSE::log::info("stream lights: {}; {} projectile(s) wear {}", want ? "on" : "off", changed, want ? "their raised own light" : "their own light");
 		}
 		if (!want) {
 			// every stream light still lit comes off the scene node now, with every map that counts it: a light

@@ -157,6 +157,8 @@ namespace Plugin
 	void                  KeepConfigLights(bool a_keep);                                                      // before ReadCoverage: keep every light row too, per model
 	const ConfigLightMap& ConfigLights();
 	void                  DropConfigLights();  // once the record lights are made
+	// a beam's row out of the Streams folder whose settings hold now (lagen move_beams), or nullptr - pass 6's color for it
+	[[nodiscard]] const ConfigLight* StreamRowFor(const std::string& a_model);
 
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
 	void                             DecideRecordRoute();  // before ReadCoverage
@@ -170,6 +172,7 @@ namespace Plugin
 	[[nodiscard]] float              RecordFadeNow(const RE::TESObjectLIGH* a_record, const void* a_light);  // its fade now, a flicker's keys played
 	// ArtLights.cpp (his report: "bound weapons not lighting up on vanilla"): a light of ours on every art effect and
 	// drawn weapon whose model a config row lights now; once a frame on the main thread
+	void                      NoteEnchantShaders();  // at load, while the passes' editor IDs are still known (record route)
 	void                      TickArtLights();
 	void                      DropArtLights();  // a game loads
 	[[nodiscard]] std::size_t ArtLightCount();

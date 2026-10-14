@@ -16,7 +16,8 @@
 // kFleshLooks), which has no light record slot either, and without Light Placer nothing lit them. Each flesh shader effect
 // gets its row's light on the body (the effect's own attach root, the third-person one - a light under the first-person
 // skeleton lights nothing on ENB), switched off while its caster sneaks as the row's sneak test says, and drawn in FleshFX's
-// hue where FleshFX's look wins (FleshLights.cpp has why). Only the flesh shaders: no other effect shader is followed here.
+// hue where FleshFX's look wins (FleshLights.cpp has why). Only the flesh shaders are followed as effects; a drawn weapon's
+// enchantment SHADER (the blade's glow) is reached through the weapon instead (VisitWeapons, EnchantShaderLight).
 //
 // CREDIT: a light is made and registered the way ReLight by Truman does it (github.com/TrumanGIT/ReLight, GPL-3.0-or-later,
 // used with his permission): a master NiPointLight cloned for every use and handed to the shadow scene node.
@@ -221,10 +222,56 @@ namespace Plugin
 		// own model and its enchantment art - two lights on one blade; the art's is the one kept)
 		std::unordered_set<const RE::NiAVObject*> gArtUnder;
 
+		// the enchantment on the weapon in this hand: the one made at the table (ExtraEnchantment on the held instance), else
+		// the weapon record's own
+		const RE::EnchantmentItem* HeldEnchantment(RE::Actor* a_actor, const RE::TESObjectWEAP* a_weapon, bool a_left)
+		{
+			if (auto* entry = a_actor->GetEquippedEntryData(a_left); entry && entry->extraLists) {
+				for (auto* list : *entry->extraLists) {
+					if (const auto* xEnch = list ? list->GetByType<RE::ExtraEnchantment>() : nullptr; xEnch && xEnch->enchantment) {
+						return xEnch->enchantment;
+					}
+				}
+			}
+			return a_weapon->formEnchanting;
+		}
+
+		// every magic effect's enchantment shader -> the key its config rows are kept under (Configs.cpp: "formid:" + its editor
+		// ID), noted at load (NoteEnchantShaders) - the game keeps no effect shader's editor ID, and ours are forgotten once
+		// the passes are done (Fade::ForgetPassEditorIDs). Measured 2026-10-13 on Vanilla: asked of the game at run time the
+		// name was empty and the Ebony Sword of Storms stayed dark.
+		std::unordered_map<const RE::TESEffectShader*, std::string> gEnchShaderKey;
+
+		// the light row of a weapon enchantment's SHADER (the blade's glow - Shock / Fire / Frost Damage and every other
+		// enchantment without art of its own). His word 2026-10-13: "yes make the weapon light fix for vanilla and enb" - with
+		// Light Placer these rows hang on the blade by the shader's form; without it nothing lit them (only art and a weapon's
+		// own model were followed here), so an ordinary enchanted weapon stayed dark on Vanilla and ENB. The first effect whose
+		// shader has a row that holds now
+		RE::TESObjectLIGH* EnchantShaderLight(const RE::EnchantmentItem* a_ench)
+		{
+			if (!a_ench) {
+				return nullptr;
+			}
+			for (const auto* effect : a_ench->effects) {
+				const auto* shader = effect && effect->baseEffect ? effect->baseEffect->data.enchantShader : nullptr;
+				const auto  it = shader ? gEnchShaderKey.find(shader) : gEnchShaderKey.end();
+				if (it != gEnchShaderKey.end()) {
+					if (auto* record = RecordLightFor(it->second)) {
+						return record;
+					}
+				}
+			}
+			return nullptr;
+		}
+
 		void VisitWeapons(RE::Actor* a_actor, RE::ShadowSceneNode* a_scene)
 		{
 			const auto* state = a_actor ? a_actor->AsActorState() : nullptr;
 			if (!a_actor || !a_actor->Is3DLoaded() || !state || !state->IsWeaponDrawn()) {
+				return;
+			}
+			// the weapon rows' own sneak test (as KeepFlesh does for the flesh rows)
+			if (a_actor->IsSneaking() && SettingValue("IlluminatedSneaking", 0) == 0) {
 				return;
 			}
 			for (const bool left : { false, true }) {
@@ -236,6 +283,9 @@ namespace Plugin
 				const auto& model = WeaponModel(weapon);
 				auto*       record = model.empty() ? nullptr : RecordLightFor(model);
 				if (!record) {
+					record = EnchantShaderLight(HeldEnchantment(a_actor, weapon, left));
+				}
+				if (!record) {
 					continue;
 				}
 				if (auto* part = WeaponPart(a_actor, weapon, left); part && !gArtUnder.contains(part)) {
@@ -243,6 +293,21 @@ namespace Plugin
 				}
 			}
 		}
+	}
+
+	void NoteEnchantShaders()
+	{
+		gEnchShaderKey.clear();
+		for (const auto* effect : LightKit::FormsOf<RE::EffectSetting>()) {
+			const auto* shader = effect ? effect->data.enchantShader : nullptr;
+			if (!shader || gEnchShaderKey.contains(shader)) {
+				continue;
+			}
+			if (const auto id = EditorID(shader); !id.empty()) {
+				gEnchShaderKey.emplace(shader, FormKey(Lower(id)));
+			}
+		}
+		SKSE::log::info("art lights: {} enchantment shader(s) noted for the drawn-weapon lights", gEnchShaderKey.size());
 	}
 
 	void TickArtLights()

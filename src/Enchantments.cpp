@@ -66,32 +66,33 @@ namespace Plugin
 			const RE::TESEffectShader* kept{ nullptr };
 		};
 
-		// One enchantment, the keep-the-first rule. `a_log` writes a row per moved effect.
+		// One enchantment: the lit effect the game SHOWS keeps its light - the costliest one, whose shader the game plays on the
+		// weapon (MagicItem::GetCostliestEffectItem) - and every other lit effect gets the unlit copy. `a_log` writes a row per
+		// moved effect. ⚠ It kept the FIRST lit effect until 2026-10-13: Chillrend (Frost Damage cost 1, then Paralyze cost 180,
+		// both FrostChillrendFXShader) showed Paralyze's shader - our unlit copy - and had no light at all on Community Shaders
+		// (measured, `cswordprobe own bottled.json`: no light on the blade, not even a culled one); every weapon with two lit
+		// effects whose first is not the costliest went dark the same way.
 		FixResult FixEnchantment(RE::EnchantmentItem* a_ench, std::vector<Swap>& a_out, bool a_log)
 		{
 			FixResult   r;
 			std::size_t lit = 0;
+			RE::Effect* first = nullptr;
 			for (auto* eff : a_ench->effects) {
-				if (const auto* shader = LitShaderOf(eff)) {
-					if (!r.kept) {
-						r.kept = shader;
-					}
+				if (LitShaderOf(eff)) {
+					first = first ? first : eff;
 					++lit;
 				}
 			}
 			if (lit < 2) {
-				r.kept = nullptr;
 				return r;
 			}
-			bool keptOne = false;
+			auto* shown = a_ench->GetCostliestEffectItem();
+			auto* keep = shown && LitShaderOf(shown) ? shown : first;
+			r.kept = LitShaderOf(keep);
 			for (std::uint32_t i = 0; i < a_ench->effects.size(); ++i) {
 				auto*       eff = a_ench->effects[i];
 				const auto* shader = LitShaderOf(eff);
-				if (!shader) {
-					continue;
-				}
-				if (shader == r.kept && !keptOne) {
-					keptOne = true;
+				if (!shader || eff == keep) {
 					continue;
 				}
 				auto* original = eff->baseEffect;

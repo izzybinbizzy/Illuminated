@@ -41,6 +41,9 @@ namespace Plugin
 		Coverage       gCoverage;
 		bool           gKeepLights = false;
 		ConfigLightMap gConfigLights;
+		// the beam rows Light Placer never sees (lagen move_beams, his rule "RELIGHT'S METHOD"): model -> its rows, read for their
+		// color by pass 6, which raises the beam's own light instead of hanging lights along it
+		std::unordered_map<std::string, std::vector<ConfigLight>> gStreamRows;
 
 		[[nodiscard]] ConfigLight ReadConfigLight(const Json& a_light, std::vector<std::vector<Clause>> a_test)
 		{
@@ -74,7 +77,8 @@ namespace Plugin
 		using Clock = std::chrono::steady_clock;
 		double gReadMs = 0.0, gParseMs = 0.0;  // the load's two costs, logged by ReadCoverage (the speed pass)
 
-		void ReadConfig(const fs::path& a_file, Coverage& a_cov)
+		// a_stream: a file of the Streams folder - its rows go to gStreamRows only, never into what Light Placer's configs cover
+		void ReadConfig(const fs::path& a_file, Coverage& a_cov, bool a_stream = false)
 		{
 			const auto    t0 = Clock::now();
 			std::ifstream in(a_file, std::ios::binary | std::ios::ate);
@@ -103,7 +107,9 @@ namespace Plugin
 				SKSE::log::warn("[CONFIG-UNREADABLE] {} | not a list of entries this plugin can read; its lights are not counted", Fade::PathText(a_file.filename()));
 				return;
 			}
-			++a_cov.files;
+			if (!a_stream) {
+				++a_cov.files;
+			}
 			for (const auto& entry : root.items) {
 				if (entry.kind != Json::Kind::kObject) {
 					continue;
@@ -124,10 +130,19 @@ namespace Plugin
 							}
 						}
 						tests.push_back(ParseConditions(conds));
-						if (gKeepLights) {
+						if (gKeepLights || a_stream) {
 							rows.push_back(ReadConfigLight(light, tests.back()));
 						}
 					}
+				}
+				if (a_stream) {
+					if (const auto* models = entry.Get("models"); models && models->kind == Json::Kind::kArray) {
+						for (const auto& m : models->items) {
+							auto& to = gStreamRows[NormalPath(m.text)];
+							to.insert(to.end(), rows.begin(), rows.end());
+						}
+					}
+					continue;
 				}
 				if (tests.empty()) {
 					tests.emplace_back();
@@ -229,9 +244,40 @@ namespace Plugin
 				}
 			}
 		}
+		// the beam rows (lagen move_beams): Data\SKSE\Plugins\Illuminated\Streams, a folder Light Placer never reads
+		decltype(gStreamRows){}.swap(gStreamRows);
+		{
+			std::error_code ec;
+			const auto      dir = fs::current_path() / "Data" / "SKSE" / "Plugins" / "Illuminated" / "Streams";
+			if (fs::is_directory(dir, ec)) {
+				for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
+					!ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+					std::error_code one;
+					if (it->is_regular_file(one) && Lower(Fade::PathText(it->path().extension())) == ".json") {
+						ReadConfig(it->path(), gCoverage, true);
+					}
+				}
+			}
+		}
 		const double total = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
-		SKSE::log::info("configs: read in {:.1f} ms - files {:.1f} ms, parsing {:.1f} ms, finding them {:.1f} ms", total, gReadMs, gParseMs,
-			total - gReadMs - gParseMs);
+		SKSE::log::info(
+			"configs: read in {:.1f} ms - files {:.1f} ms, parsing {:.1f} ms, finding them {:.1f} ms; {} beam model(s) lit by "
+			"their own light (the Streams folder)",
+			total, gReadMs, gParseMs, total - gReadMs - gParseMs, gStreamRows.size());
 		return gCoverage;
+	}
+
+	const ConfigLight* StreamRowFor(const std::string& a_model)
+	{
+		const auto it = gStreamRows.find(a_model);
+		if (it == gStreamRows.end()) {
+			return nullptr;
+		}
+		for (const auto& row : it->second) {
+			if (ConditionsHold(row.test)) {
+				return &row;
+			}
+		}
+		return nullptr;
 	}
 }
