@@ -136,11 +136,14 @@ namespace Plugin
 					}
 				}
 				if (a_stream) {
-					if (const auto* models = entry.Get("models"); models && models->kind == Json::Kind::kArray) {
+					if (const auto* models = entry.Get("models"); models && models->kind == Json::Kind::kArray && !models->items.empty()) {
 						for (const auto& m : models->items) {
 							auto& to = gStreamRows[NormalPath(m.text)];
 							to.insert(to.end(), rows.begin(), rows.end());
 						}
+					} else {
+						// a beam row is keyed by its model (lagen move_beams); one claimed any other way would be lost here unseen
+						SKSE::log::warn("[STREAM-ROW-SKIPPED] {} | an entry without models - beam rows are read by model only", Fade::PathText(a_file.filename()));
 					}
 					continue;
 				}

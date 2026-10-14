@@ -53,7 +53,7 @@ namespace Plugin
 		{
 			bool        ward{ false };   // a ward dome: one light where the dome sits, and its own setting
 			bool        flame{ false };  // a flamethrower-type spray: one light at the root (rule 2)
-			bool        beam{ false };   // a beam: a ladder moved along its real length every frame (rule 3)
+			bool        beam{ false };   // a beam: its color may come from its Streams-folder row (StreamRowFor) - its own light raised, nothing hung on it
 			std::size_t lights{ 1 };
 			float       gap{ 0.0f };    // units between lights along the stream
 			float       start{ 0.0f };  // where the first light sits (the others follow every gap)
