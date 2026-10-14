@@ -141,9 +141,14 @@ namespace
 			break;
 		case SKSE::MessagingInterface::kSaveGame:
 			// the save is written inside the call this message comes before; the copies return on the next frame
-			if (auto* tasks = SKSE::GetTaskInterface(); tasks && AnyLitShaders()) {
+			// the originals go in whatever happens: a save must never hold a copy made in memory
+			if (AnyLitShaders()) {
 				UseOriginals("saving");
-				tasks->AddTask([]() { UseQuiet("save written"); });
+				if (auto* tasks = SKSE::GetTaskInterface()) {
+					tasks->AddTask([]() { UseQuiet("save written"); });
+				} else {
+					UseQuiet("save written");
+				}
 			}
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:

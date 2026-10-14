@@ -109,6 +109,13 @@ namespace Plugin
 			copy->data.flickerIntensityAmplitude = s.flickerIntensity;
 			copy->data.flickerMovementAmplitude = s.flickerMovement;
 			copy->fade = fade;
+			// read back what the copy now holds (made plain, its field of view stays the original's)
+			if (copy->data.radius != radius || copy->data.flags.underlying() != flags || copy->fade != fade ||
+				(!madePlain && copy->data.fov != s.fov) || copy->data.color.red != static_cast<std::uint8_t>(s.r)) {
+				++failed;
+				SKSE::log::warn("[LIGHT-FAILED] {} | the copy's values did not take", Label(light));
+				continue;
+			}
 			// what Light Placer reads off the record and a config cannot state
 			const auto dynamic = static_cast<std::uint32_t>(RE::TES_LIGHT_FLAGS::kDynamic);
 			if ((s.flags & dynamic) && !(light->data.flags.underlying() & dynamic)) {

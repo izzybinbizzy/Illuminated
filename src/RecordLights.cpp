@@ -22,7 +22,7 @@
 // mean - HIS ORDER: "build flicker in our dll you can use relight code if you want". The keyframe maths is
 //   Truman's (RE::Light's controller.h, GPL-3.0; his permission for RELight's code, credited), each light starting at its
 //   own place in the loop as RE::Light's random start does. Nothing walks the scene: each caster writes the one light it
-//   holds, on the thread the game updates it on.
+//   holds, on the thread the game updates it on. Not in VR (the caster's layout there is not proven; VR is never played here).
 // The color: the row's, as the game draws it - deeper than Community Shaders shows the same row, whose colors are
 // linear light. On Community Shaders each one is drawn as Community Shaders shows it (the row's color turned from linear
 // light to the screen's, Dynamic Wards' wardgen.srgb); on Vanilla / ENB it keeps the row's deeper color (his call: "use pale
@@ -384,7 +384,7 @@ namespace Plugin
 
 	void RecordFlicker(RE::ActorMagicCaster* a_caster)
 	{
-		if (!gTablesReady.load(std::memory_order_acquire) || !gOn || gAllOurs.empty() || !a_caster) {
+		if (!gTablesReady.load(std::memory_order_acquire) || !gOn || gAllOurs.empty() || !a_caster || REL::Module::IsVR()) {
 			return;
 		}
 		RE::NiLight* light = a_caster->light ? a_caster->light->light.get() : nullptr;

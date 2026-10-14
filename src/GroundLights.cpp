@@ -77,6 +77,8 @@ namespace Plugin
 				return false;
 			}
 			light->name = kName;
+			// no radius yet: the first Follow always sees a change and sets the attenuation (the clone's own may equal the source's)
+			light->GetLightRuntimeData().radius.x = -1.0f;
 			a_hand->AttachChild(light, true);
 			a_twin = { RE::NiPointer<RE::NiPointLight>(a_source), RE::NiPointer<RE::NiNode>(a_hand), RE::NiPointer<RE::NiPointLight>(light),
 				{}, true, {}, false, {} };

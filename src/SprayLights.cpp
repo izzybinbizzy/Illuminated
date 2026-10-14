@@ -103,8 +103,13 @@ namespace Plugin
 				copy->data.color.green = Clamp255(copy->data.color.green + sc.fireDelta.g);
 				copy->data.color.blue = Clamp255(copy->data.color.blue + sc.fireDelta.b);
 			}
-			gOriginal[proj] = bulb;
 			proj->data.light = copy;
+			if (proj->data.light != copy || copy->data.radius != static_cast<std::uint32_t>(radius)) {
+				++failed;
+				SKSE::log::warn("[SPRAY-FAILED] {} | the new light did not take", Label(proj));
+				continue;
+			}
+			gOriginal[proj] = bulb;
 			LightCopies().push_back({ .id = "spray " + EditorID(proj), .base = EditorID(bulb), .form = copy, .startFade = copy->fade, .startRadius = copy->data.radius });
 			++raised;
 			SKSE::log::info("[SPRAY-RAISED] {} | range {} | radius {} | from {} | family {} | color {},{},{}", Label(proj), range,
