@@ -2,15 +2,16 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Pass 5: an enchantment carrying two or more lit shaders keeps the light of its first one only.
+// Pass 5: an enchantment carrying two or more lit shaders keeps the light of the one the game shows (its costliest effect's).
 
 #include "Plugin.h"
 
 namespace Plugin
 {
 	// ------------------------------------------------------------------ pass 5: enchantments with two lit shaders
-	// An enchantment carrying two or more lit shaders keeps the light of its first one; each other lit
-	// effect is pointed at an in-memory copy of its magic effect whose shader is an unlit copy.
+	// An enchantment carrying two or more lit shaders keeps the light of the one the game shows; each other lit effect is
+	// pointed at an in-memory copy of its magic effect whose shader is an unlit copy - never a scripted effect, whose copy
+	// would carry no Papyrus script (the game plays only the costliest effect's shader anyway, below).
 	//
 	// A form made in memory has no place in a save, so no saved form may ever point at one:
 	//   - enchantments from plugins are never written to a save, so they keep their copies;
@@ -96,6 +97,9 @@ namespace Plugin
 					continue;
 				}
 				auto* original = eff->baseEffect;
+				if (original->data.archetype == RE::EffectArchetypes::ArchetypeID::kScript) {
+					continue;  // a copy made in memory carries no script: the enchantment would stop doing what it does
+				}
 				auto* quiet = QuietCopyOf(original);
 				if (!quiet) {
 					++r.failed;

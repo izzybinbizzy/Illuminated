@@ -11,8 +11,9 @@
 // own ward art (a vampire's blood ward) is never touched.
 //
 // THE BLUE SPHERE. 360 Ward's own sphere is orange (its mesh uses the fire gradient); with 360 Ward loaded the vanilla
-// dome art form and 360 Ward's hit flash point at our blue copies under `meshes\magic\Glow Wards\Blue\` (his report,
-// "the 360 ward is orange"). Nothing is saved; a Light Placer config on the ward hand still lights the hand.
+// dome art form and 360 Ward's hit flash point at our copies under `meshes\magic\Glow Wards\Vanilla\` (his report,
+// "the 360 ward is orange"; the look below). Nothing is saved. The ward hand wears our copy under `Glow Wards\Blue\`, and
+// its light row claims that copy beside the vanilla mesh (lagen.py WARD_HAND_COPIES), so it is lit on either route.
 //
 // THE WARD LOOK (his words 2026-10-09: "change the blue ward to vanilla blue. add transparent ward with vanilla outline as a
 // preset for wards, no slider just pure transparent with outline."): the setting IlluminatedWardLook - 0 the vanilla ward's own
@@ -38,13 +39,11 @@ namespace Plugin
 		constexpr const char*      kClearDome = "Magic\\Glow Wards\\Transparent\\wardbodyfx.nif";
 		constexpr std::string_view kWardLook = "IlluminatedWardLook";  // 0 vanilla blue, 1 transparent
 		int                        gLookApplied = -1;                  // the look last put on the forms (-1 none yet)
-		// his call: without 360 Ward the dome and the hand wear OUR vanilla-blue copies (their own textures, so no
+		// his call: the dome (without 360 Ward) and the hand (always) wear OUR vanilla-blue copies (their own textures, so no
 		// other mod's loose textures reach them)
 		constexpr std::uint32_t kHandArt = 0x0253F1;  // Skyrim.esm: magic\wardinhandfx.nif
 		constexpr const char*   kBlueDome = "Magic\\Glow Wards\\Blue\\wardbodyfx.nif";
 		constexpr const char*   kBlueHand = "Magic\\Glow Wards\\Blue\\wardinhandfx.nif";
-
-		bool DynamicWardsLoaded() { return REX::W32::GetModuleHandleA("DynamicWards.dll") != nullptr; }
 
 		// HIS REPORT (Spellbreaker - the old fix, lost in a handoff purge): a WORN ward - Spellbreaker, the Divine
 		// Crusader shield, the Shield of Reman - never drives a cast ward's transitions, so the vanilla meshes sit idle: only
@@ -95,6 +94,13 @@ namespace Plugin
 			return a_e->data.archetype == RE::EffectArchetypes::ArchetypeID::kAccumulateMagnitude &&
 			       a_e->data.primaryAV == RE::ActorValue::kWardPower;
 		}
+	}
+
+	// Dynamic Wards 2.0 and later is a DLL only (no plugin); it dresses every ward itself
+	bool DynamicWardsLoaded()
+	{
+		static const bool loaded = REX::W32::GetModuleHandleA("DynamicWards.dll") != nullptr;
+		return loaded;
 	}
 
 	void ApplyWardLook()

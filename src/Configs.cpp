@@ -13,6 +13,13 @@ namespace Plugin
 {
 	namespace
 	{
+		constexpr std::string_view kCSFolder = "CS Light";  // CS Light's own configs, read beside ours
+
+		[[nodiscard]] fs::path LightPlacerDir(std::string_view a_folder)
+		{
+			return fs::current_path() / "Data" / "LightPlacer" / fs::path(std::string(a_folder));
+		}
+
 		// a claim written as "0xID~Plugin.esp" (a vanilla record a mod renames, gen.RENAMED_BASE_FORMS): its form in this load
 		// order, or nothing (not that form of claim, or its plugin is not loaded)
 		[[nodiscard]] std::optional<RE::FormID> FormOfToken(std::string_view a_text)
@@ -189,11 +196,6 @@ namespace Plugin
 	}
 
 	// ------------------------------------------------------------------ what the configs light
-	fs::path LightPlacerDir(std::string_view a_folder)
-	{
-		return fs::current_path() / "Data" / "LightPlacer" / fs::path(std::string(a_folder));
-	}
-
 	bool Coverage::ModelLit(const std::string& a_model) const
 	{
 		const auto it = modelTests.find(a_model);
@@ -251,7 +253,7 @@ namespace Plugin
 		decltype(gStreamRows){}.swap(gStreamRows);
 		{
 			std::error_code ec;
-			const auto      dir = fs::current_path() / "Data" / "SKSE" / "Plugins" / "Illuminated" / "Streams";
+			const auto      dir = OurFolder() / "Streams";
 			if (fs::is_directory(dir, ec)) {
 				for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
 					!ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {

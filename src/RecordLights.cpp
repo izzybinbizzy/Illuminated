@@ -22,11 +22,13 @@
 // mean - HIS ORDER: "build flicker in our dll you can use relight code if you want". The keyframe maths is
 //   Truman's (RE::Light's controller.h, GPL-3.0; his permission for RELight's code, credited), each light starting at its
 //   own place in the loop as RE::Light's random start does. Nothing walks the scene: each caster writes the one light it
-//   holds, on the thread the game updates it on. Not in VR (the caster's layout there is not proven).
+//   holds, on the thread the game updates it on.
 // The color: the row's, as the game draws it - deeper than Community Shaders shows the same row, whose colors are
-// linear light. The paler look draws each one as Community Shaders shows it (the row's color turned from linear light to
-// the screen's, Dynamic Wards' wardgen.srgb). The setting "Light colors": Automatic (his call) = paler on the
-// Community Shaders pick, deeper on Vanilla / ENB; Paler / Deeper force one. It reaches the next light the game makes.
+// linear light. On Community Shaders each one is drawn as Community Shaders shows it (the row's color turned from linear
+// light to the screen's, Dynamic Wards' wardgen.srgb); on Vanilla / ENB it keeps the row's deeper color (his call: "use pale
+// colors for cs and default for vanilla/enb" - the "Light colors" setting that once forced one look is gone).
+// On Community Shaders a record light of an inverse-square row is flagged as one, with its cutoff in the falloff field and
+// its size in the field of view - what Community Shaders reads off a record (LightKit.h), as pass 0's lights are.
 // A model with several rows takes the strongest one whose settings hold now: a record has ONE light. Passes 1 and 2
 // (CastingLights.cpp, EffectLights.cpp) point the records at these lights instead of taking the game's light off, and
 // give one to the records that had none. A row that names a light other than one of our copies (CS Light's own configs)
@@ -75,8 +77,6 @@ namespace Plugin
 		std::unordered_set<const RE::TESObjectLIGH*>          gOurRecords;     // every record light made here
 		std::atomic<float>                                    gClock{ 0.0f };  // seconds, advanced once a frame on the main thread
 
-		constexpr std::string_view kPaleColors = "IlluminatedPaleColors";
-
 		// the keys' signature, so two rows that flicker differently never share one record light
 		[[nodiscard]] std::string KeysOf(const ConfigLight& a_row)
 		{
@@ -94,7 +94,7 @@ namespace Plugin
 			return static_cast<float>(bits % 10007u) / 10007.0f * a_duration;
 		}
 
-		// every light record of ours a hand can wear: the record lights, the automatic and element ones, and every light copy
+		// every light record of ours a hand can wear: the record lights, the automatic ones, and every light copy
 		// (pass 0's copies of the game's magic lights among them) - filled when the data load is done (RecordTablesReady)
 		std::unordered_set<const RE::TESObjectLIGH*> gAllOurs;
 
@@ -216,6 +216,12 @@ namespace Plugin
 						if (row.portalStrict) {
 							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | kPortalStrict);
 						}
+						if (InverseSquare() && copy.startCutoff > 0.0f) {
+							// Community Shaders reads an inverse-square record's falloff as its cutoff (the sliders write it there,
+							// LightCopies.cpp) and its field of view as its size (Light Placer's GetSize)
+							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | LightKit::kRecordInverseSquare);
+							light->data.fov = LightKit::LightPlacerSize(light->data.fov);
+						}
 						gMadeColors.emplace_back(light, light->data.color);
 						gOurRecords.insert(light);
 						if (flickers) {
@@ -253,10 +259,9 @@ namespace Plugin
 		ApplyLightStrength(false);  // the new lights at the sliders' values
 		gMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
 		SKSE::log::info(
-			"record lights: {} made ({} flicker{}) for {} lit models from {} config rows ({} name a light that is not one of ours, {} "
+			"record lights: {} made ({} flicker) for {} lit models from {} config rows ({} name a light that is not one of ours, {} "
 			"a copy whose light is not in this load order, {} failed) in {:.1f} ms",
-			gMade, gFlickerOf.size(), REL::Module::IsVR() ? ", held steady in VR" : "", gChoices.size(), gRows, gNotOurs, gMissing, gFailed,
-			gMs);
+			gMade, gFlickerOf.size(), gChoices.size(), gRows, gNotOurs, gMissing, gFailed, gMs);
 	}
 
 	RE::TESObjectLIGH* AutoLight(RE::Color a_color, const std::vector<const RE::TESObjectLIGH*>& a_tuned)
@@ -333,118 +338,8 @@ namespace Plugin
 	bool TouchedByENBLight(const RE::TESForm* a_form)
 	{
 		const auto* files = a_form ? a_form->sourceFiles.array : nullptr;
-		return files && std::ranges::any_of(*files, [](const RE::TESFile* f) { return f && f->GetFilename() == "ENB Light.esp"; });
-	}
-
-	// ------------------------------------------------------------------ per-element colors
-	// HIS GO-TO PICK ("a per-element colour row with Auto - match the spell art"; "do all of them"
-	// ), without Light Placer: Fire, Frost and Shock each have a color setting - Auto (the spell's own, as tuned)
-	// or one named color. A spell's element is read off its effect (what it is resisted by); its bolt and explosion take
-	// the element of the effect that fires them. Each record light such a spell can wear gets one copy per element at data
-	// load, so a change of color in the menu only recolors those copies and points the records at them - no light is made
-	// while the game plays. A changed color reaches the next spell readied.
-	namespace
-	{
-		constexpr std::string_view kElementSetting[] = { "", "IlluminatedFireColor", "IlluminatedFrostColor", "IlluminatedShockColor" };
-		// the named colors are LightKit.h's (lagen.py ELEMENT_COLORS, in the same order): Dynamic Wards' preset hues
-		std::map<std::pair<const RE::TESObjectLIGH*, int>, RE::TESObjectLIGH*> gVariants;
-		std::unordered_map<const RE::TESForm*, int>                            gElementOfForm;  // projectiles and explosions
-		bool                                                                   gElementsBuilt = false;
-	}
-
-	int ElementOf(const RE::EffectSetting* a_effect)
-	{
-		if (!a_effect) {
-			return 0;
-		}
-		switch (a_effect->data.resistVariable) {
-		case RE::ActorValue::kResistFire:
-			return 1;
-		case RE::ActorValue::kResistFrost:
-			return 2;
-		case RE::ActorValue::kResistShock:
-			return 3;
-		default:
-			return 0;
-		}
-	}
-
-	int ElementOfForm(const RE::TESForm* a_form)
-	{
-		if (!gElementsBuilt) {
-			gElementsBuilt = true;
-			// once, at data load: a projectile or an explosion fired by effects of one element is that element; by more than
-			// one, none
-			for (const auto* effect : LightKit::FormsOf<RE::EffectSetting>()) {
-				const int e = ElementOf(effect);
-				for (const RE::TESForm* f : { static_cast<const RE::TESForm*>(effect ? effect->data.projectileBase : nullptr),
-						 static_cast<const RE::TESForm*>(effect ? effect->data.explosion : nullptr) }) {
-					if (f && e) {
-						auto [it, added] = gElementOfForm.try_emplace(f, e);
-						if (!added && it->second != e) {
-							it->second = -1;
-						}
-					}
-				}
-			}
-		}
-		const auto it = gElementOfForm.find(a_form);
-		return it == gElementOfForm.end() || it->second < 0 ? 0 : it->second;
-	}
-
-	void PrepareElementLights(const RE::TESObjectLIGH* a_record, int a_element)
-	{
-		if (!gOn || !a_record || a_element <= 0 || gVariants.contains({ a_record, a_element })) {
-			return;
-		}
-		auto&      copies = LightCopies();
-		const auto source = std::ranges::find(copies, a_record, &LightCopy::form);
-		auto*      light = source == copies.end() ? nullptr : CopyLight(a_record);
-		if (!light) {
-			return;
-		}
-		gOurRecords.insert(light);
-		if (const auto f = gFlickerOf.find(a_record); f != gFlickerOf.end()) {
-			gFlickerOf.emplace(light, f->second);
-		}
-		LightCopy copy{ .id = std::format("{} element {}", source->id, a_element),
-			.base = source->id,
-			.form = light,
-			.startFade = source->startFade,
-			.startRadius = source->startRadius,
-			.startCutoff = source->startCutoff };
-		copies.push_back(std::move(copy));
-		gVariants.emplace(std::pair{ a_record, a_element }, light);
-	}
-
-	void PrepareElementLightsFor(const std::string& a_model, int a_element)
-	{
-		if (const auto it = gChoices.find(a_model); it != gChoices.end()) {
-			for (const auto& c : it->second) {
-				PrepareElementLights(c.light, a_element);
-			}
-		}
-	}
-
-	RE::TESObjectLIGH* ElementLight(RE::TESObjectLIGH* a_record, int a_element)
-	{
-		if (!gOn || !a_record || a_element <= 0 || a_element >= static_cast<int>(std::size(kElementSetting))) {
-			return a_record;
-		}
-		const int  pick = SettingValue(kElementSetting[a_element], 0);
-		const auto it = gVariants.find({ a_record, a_element });
-		if (pick <= 0 || pick > LightKit::kNamedColorCount || it == gVariants.end()) {
-			return a_record;
-		}
-		// the named color, drawn as ApplyRecordColors last drew every record light (it runs first on each refresh), so
-		// "Light colors" reaches the element colors too (CodeRabbit, Illuminated #5: the variant skipped Paler)
-		const auto c = LightKit::NamedColorRgb(pick);
-		const auto drawn = [](std::uint32_t a_c) { return gPale ? ScreenChannel(static_cast<std::uint8_t>(a_c)) : static_cast<std::uint8_t>(a_c); };
-		auto&      color = it->second->data.color;
-		color.red = drawn(c >> 16);
-		color.green = drawn(c >> 8);
-		color.blue = drawn(c);
-		return it->second;
+		// case-blind, as the load order's own lookup above (LookupLoadedModByName)
+		return files && std::ranges::any_of(*files, [](const RE::TESFile* f) { return f && LightKit::SameText(f->GetFilename(), "ENB Light.esp"); });
 	}
 
 	void AdvanceRecordFlicker(float a_delta)
@@ -489,7 +384,7 @@ namespace Plugin
 
 	void RecordFlicker(RE::ActorMagicCaster* a_caster)
 	{
-		if (!gTablesReady.load(std::memory_order_acquire) || !gOn || gAllOurs.empty() || !a_caster || REL::Module::IsVR()) {
+		if (!gTablesReady.load(std::memory_order_acquire) || !gOn || gAllOurs.empty() || !a_caster) {
 			return;
 		}
 		RE::NiLight* light = a_caster->light ? a_caster->light->light.get() : nullptr;
@@ -513,19 +408,22 @@ namespace Plugin
 		// twin copies it and re-attenuates when it moves)
 		const float radius = static_cast<float>(record->data.radius);
 		if (radius > 0.0f && data.radius.x != radius) {
-			data.radius = RE::NiPoint3{ radius, radius, radius };
+			data.radius = RE::NiPoint3{ radius, radius, data.radius.z };  // z is the light's size: the game's, kept
 		}
 		// a steady one takes its record's fade too, so Brightness and Dim in daylight reach a hand already lit (run 9,
 		// the game set it once, when the spell was readied, and it never moved after); a flicker plays its keys
 		data.fade = RecordFadeNow(record, light);
+		// on Community Shaders the cutoff the sliders gave the record reaches the lit hand too (LightKit.h's two words)
+		if (InverseSquare() && (record->data.flags.underlying() & LightKit::kRecordInverseSquare)) {
+			LightKit::Isl::SetCutoff(light, record->data.fallofExponent, 0.01f, 1.0f);
+		}
 	}
 
 	void ApplyRecordColors()
 	{
-		// HIS CALL: "use pale colors for cs and default for vanilla/enb" - Automatic (0) follows the lighting;
-		// Paler (1) and Deeper (2) keep one look on every lighting (he kept the switch)
-		const int  pick = SettingValue(kPaleColors, 0);
-		const bool pale = pick == 1 || (pick == 0 && LightingPick() == Lighting::kShaders);
+		// HIS CALL: "use pale colors for cs and default for vanilla/enb" - the lighting is found once, at data load, so this
+		// runs once, as the record lights are made (the automatic ones copy a drawn color after it)
+		const bool pale = LightingPick() == Lighting::kShaders;
 		if (!gOn || pale == gPale) {
 			return;
 		}

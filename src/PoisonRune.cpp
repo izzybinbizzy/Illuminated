@@ -33,7 +33,8 @@ namespace Plugin
 		art->SetModel(kPoisonRuneArtModel.data());
 		art->data.artType = RE::BGSArtObject::ArtType::kMagicCastingArt;
 		rune->data.castingArt = art;
-		rune->data.light = nullptr;
-		SKSE::log::info("poison rune: {} now plays {} with no casting light", Label(rune), kPoisonRuneArtModel);
+		// its casting light is pass 1's now (main.cpp runs this pass first): off while a setting lights the art, given back when
+		// none does, a record light without Light Placer
+		SKSE::log::info("poison rune: {} now plays {}", Label(rune), kPoisonRuneArtModel);
 	}
 }

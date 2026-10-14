@@ -20,8 +20,8 @@
 //     when Thaumaturgy.esp is loaded too.
 //
 // Read when the game loads: changing the setting takes effect the next time the game starts.
-// The two tables below are gen.VAER_SWIRL_FORMS and gen.VAER_VANILLA_FORMS - the lists LTBG's patcher and RELight -
-// Spell Addon share - kept true by `lagen.py latables` (preflight): a change goes into gen.py, then `latables --write`.
+// The two tables below are gen.VAER_SWIRL_FORMS and gen.VAER_VANILLA_FORMS (RELight - Spell Addon carries the same rows),
+// kept true by `lagen.py latables` (preflight): a change goes into gen.py, then `latables --write`.
 
 #include "Plugin.h"
 
@@ -107,12 +107,12 @@ namespace Plugin
 			{ "Skyrim.esm", 0x0F1AC2, "VAEReborn.esp", 0x000810, "VAEReborn.esp", 0x000829, "MQ203DragonDamageFFContact" },
 		};
 
-		std::size_t BrighterStrands()
+		void BrighterStrands()
 		{
 			std::size_t pointed = 0, absent = 0;
 			auto*       dh = RE::TESDataHandler::GetSingleton();
 			if (!dh) {
-				return 0;
+				return;
 			}
 			for (auto* art : dh->GetFormArray<RE::BGSArtObject>()) {
 				if (!art) {
@@ -143,7 +143,14 @@ namespace Plugin
 			}
 			SKSE::log::info("VAER strands: {} swirl art object(s) now use the brighter meshes, {} without our copy left alone",
 				pointed, absent);
-			return pointed;
+		}
+
+		// A patch a tool writes (Synthesis, Mator Smash, Wrye Bash, xEdit's merged patch) lists every plugin before it as a
+		// master, VAER's too, without knowing VAER: its change is the winning plugin's carried forward, never one made for VAER
+		[[nodiscard]] bool GeneratedPatch(std::string_view a_file)
+		{
+			const auto low = Lower(a_file);
+			return low == "synthesis.esp" || low == "smashed patch.esp" || low.starts_with("bashed patch") || low == "merged patch.esp";
 		}
 
 		// The plugin that changed this effect last, when it knows VAER (VAEReborn.esp is one of its masters) - its change is
@@ -153,7 +160,7 @@ namespace Plugin
 		[[nodiscard]] const RE::TESFile* VaerAwareChange(const RE::EffectSetting* a_effect)
 		{
 			const auto* last = a_effect ? a_effect->GetFile(-1) : nullptr;
-			if (!last || _stricmp(last->fileName, kVaerPlugin.data()) == 0) {
+			if (!last || _stricmp(last->fileName, kVaerPlugin.data()) == 0 || GeneratedPatch(last->fileName)) {
 				return nullptr;
 			}
 			for (std::uint32_t i = 0; last->masterPtrs && i < last->masterCount; ++i) {
@@ -164,13 +171,13 @@ namespace Plugin
 			return nullptr;
 		}
 
-		std::size_t VaerOwnBack()
+		void VaerOwnBack()
 		{
 			// a plugin that is not loaded (a Creation Club file the player does not have) is simply skipped
 			std::size_t back = 0, already = 0, absent = 0, patched = 0;
 			auto*       dh = RE::TESDataHandler::GetSingleton();
 			if (!dh) {
-				return 0;
+				return;
 			}
 			for (const auto& c : kVaerOwn) {
 				auto* effect = dh->LookupForm<RE::EffectSetting>(c.effect, c.effectPlugin);
@@ -213,15 +220,14 @@ namespace Plugin
 				}
 			}
 			SKSE::log::info("VAER: {} shader texture name(s) ending .dds.dds fixed", typos);
-			return back;
 		}
 
-		std::size_t ThaumaturgyCopies()
+		void ThaumaturgyCopies()
 		{
 			std::size_t set = 0, missing = 0;
 			auto*       dh = RE::TESDataHandler::GetSingleton();
 			if (!dh) {
-				return 0;
+				return;
 			}
 			for (const auto& c : kSwirlCopies) {
 				auto* effect = dh->LookupForm<RE::EffectSetting>(c.effect, c.effectPlugin);
@@ -240,7 +246,6 @@ namespace Plugin
 			}
 			SKSE::log::info("VAER on Thaumaturgy: {} of {} effect(s) given VAER's swirl, {} not found", set,
 				std::size(kSwirlCopies), missing);
-			return set;
 		}
 	}
 

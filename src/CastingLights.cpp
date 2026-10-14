@@ -48,7 +48,6 @@ namespace Plugin
 			RE::TESObjectLIGH* own;  // the light the effect had before this plugin touched it (after pass 0)
 			std::string        model;
 			RE::TESObjectLIGH* autoLight{ nullptr };  // no config lights its art: the automatic light it gets while the setting is on
-			int                element{ 0 };          // fire, frost or shock (RecordLights.cpp): its color setting
 			bool               enbLight{ false };     // ENB Light changed the effect or its casting art: it steps aside on ENB
 		};
 		constexpr std::string_view kAutoSetting = "IlluminatedAutoLights";
@@ -68,7 +67,7 @@ namespace Plugin
 		void ApplyRecordRoute(CastingTarget& a_t, bool a_autoOn, bool a_yield, bool a_log, CastingCounts& a_n)
 		{
 			RE::TESObjectLIGH* lit = a_t.autoLight ? (a_autoOn ? a_t.autoLight : nullptr) : RecordLightFor(a_t.model);
-			auto* const        record = a_t.enbLight && a_yield ? nullptr : ElementLight(lit, a_t.element);
+			auto* const        record = a_t.enbLight && a_yield ? nullptr : lit;
 			auto* const        want = record ? record : a_t.own;
 			if (a_t.effect->data.light != want) {
 				a_t.effect->data.light = want;
@@ -113,8 +112,10 @@ namespace Plugin
 				ApplyLightPlacerRoute(t, a_log, n);
 			}
 		}
-		SKSE::log::info("casting lights for the settings as they are: {} taken off, {} pointed at a record light, {} given back, {} effects followed",
-			n.nulled, n.recorded, n.restored, gCastingTargets.size());
+		if (a_log) {
+			SKSE::log::info("casting lights for the settings as they are: {} taken off, {} pointed at a record light, {} given back, {} effects followed",
+				n.nulled, n.recorded, n.restored, gCastingTargets.size());
+		}
 	}
 
 	namespace
@@ -136,9 +137,15 @@ namespace Plugin
 					++byElement[t.effect->data.resistVariable][pack(record->data.color)];
 				}
 			}
+			// HIS ANSWER 2026-10-13: a matched color ONLY for fire, frost and shock - a spell resisted by magic, poison or
+			// disease resistance is no element (a modded Calm is not "magic-colored"), so it keeps the game's own light
 			const auto elementColor = [&](RE::ActorValue a_av) -> std::optional<RE::Color> {
+				using AV = RE::ActorValue;
+				if (a_av != AV::kResistFire && a_av != AV::kResistFrost && a_av != AV::kResistShock) {
+					return std::nullopt;
+				}
 				const auto it = byElement.find(a_av);
-				if (a_av == RE::ActorValue::kNone || it == byElement.end() || it->second.empty()) {
+				if (it == byElement.end() || it->second.empty()) {
 					return std::nullopt;
 				}
 				const auto best = std::ranges::max_element(it->second, {}, [](const auto& kv) { return kv.second; })->first;
@@ -243,14 +250,6 @@ namespace Plugin
 		if (RecordRoute()) {
 			for (auto& t : gCastingTargets) {
 				t.enbLight = TouchedByENBLight(t.effect) || TouchedByENBLight(t.effect->data.castingArt);
-				t.element = ElementOf(t.effect);
-				if (t.element > 0) {
-					if (t.autoLight) {
-						PrepareElementLights(t.autoLight, t.element);
-					} else {
-						PrepareElementLightsFor(t.model, t.element);
-					}
-				}
 			}
 		}
 		ApplyCastingLights(true);

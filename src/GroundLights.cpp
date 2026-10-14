@@ -18,7 +18,8 @@
 // copies a light it already scaled.
 //
 // CREDIT: a light is made and registered the way ReLight by Truman does it (github.com/TrumanGIT/ReLight, GPL-3.0-or-later,
-// used with his permission): a master NiPointLight cloned for every use and handed to the shadow scene node.
+// used with his permission): a master NiPointLight cloned for every use (LightKit::CloneLight), placed and updated once,
+// then handed to the shadow scene node (LightKit::AddToScene).
 
 #include "Plugin.h"
 
@@ -41,21 +42,8 @@ namespace Plugin
 		};
 
 		std::unordered_map<std::uint64_t, Twin> gTwins;  // main thread only; key = actor form id << 1 | hand
-		RE::NiPointer<RE::NiPointLight>         gMaster;
-		std::size_t                             gMade = 0;
-
-		RE::NiPointLight* CloneMaster()
-		{
-			if (!gMaster) {
-				const RE::NiPointer<RE::NiPointLight> fresh(RE::NiPointLight::Create());
-				auto*                                 clone = fresh ? netimmerse_cast<RE::NiPointLight*>(fresh->Clone()) : nullptr;
-				if (!clone) {
-					return nullptr;
-				}
-				gMaster.reset(clone);
-			}
-			return netimmerse_cast<RE::NiPointLight*>(gMaster->Clone());
-		}
+		// the counts the testing DLL's page and DevBench read, from the render thread too: gTwins itself is the main thread's
+		std::atomic<std::size_t> gLive{ 0 }, gMade{ 0 };
 
 		void Drop(Twin& a_twin, RE::ShadowSceneNode* a_scene)
 		{
@@ -71,35 +59,40 @@ namespace Plugin
 			a_twin = {};
 		}
 
-		bool Make(Twin& a_twin, RE::NiPointLight* a_source, RE::NiNode* a_hand, RE::ShadowSceneNode* a_scene)
+		// every twin let go, each source light given back (a load, the switch off, no scene)
+		void DropAll(RE::ShadowSceneNode* a_scene)
 		{
-			auto* light = CloneMaster();
+			for (auto& entry : gTwins) {
+				Drop(entry.second, a_scene);
+			}
+			gTwins.clear();
+			gLive.store(0, std::memory_order_relaxed);
+		}
+
+		// the twin made and hung on the hand node; it joins the scene in Visit, once Follow has given it its numbers and its place
+		bool Make(Twin& a_twin, RE::NiPointLight* a_source, RE::NiNode* a_hand)
+		{
+			auto* light = LightKit::CloneLight();
 			if (!light) {
 				return false;
 			}
 			light->name = kName;
-			light->GetLightRuntimeData() = a_source->GetLightRuntimeData();
-			light->SetLightAttenuation(light->GetLightRuntimeData().radius.x);
 			a_hand->AttachChild(light, true);
-			RE::ShadowSceneNode::LIGHT_CREATE_PARAMS params{};  // Dynamic Wards' hand light (DomeLights.cpp Make)
-			params.dynamic = true;
-			params.shadowLight = false;
-			params.portalStrict = true;
-			params.affectLand = true;
-			params.affectWater = true;
-			params.neverFades = true;
-			params.fov = 90.0f;
-			params.falloff = 1.0f;
-			params.nearDistance = 5.0f;
-			params.depthBias = 1.0f;
-			auto* bs = a_scene->AddLight(light, params);
+			a_twin = { RE::NiPointer<RE::NiPointLight>(a_source), RE::NiPointer<RE::NiNode>(a_hand), RE::NiPointer<RE::NiPointLight>(light),
+				{}, true, {}, false, {} };
+			return true;
+		}
+
+		// into the scene with Dynamic Wards' hand-light parameters (DomeLights.cpp Make: land and water lighting on); false when
+		// the scene refused it - the twin is then dropped
+		bool Register(Twin& a_twin, RE::ShadowSceneNode* a_scene)
+		{
+			auto* bs = LightKit::AddToScene(a_scene, a_twin.light.get());
 			if (!bs) {
-				a_hand->DetachChild(light);
 				return false;
 			}
-			a_twin = { RE::NiPointer<RE::NiPointLight>(a_source), RE::NiPointer<RE::NiNode>(a_hand), RE::NiPointer<RE::NiPointLight>(light),
-				RE::NiPointer<RE::BSLight>(bs), true, {}, false, {} };
-			++gMade;
+			a_twin.bs.reset(bs);
+			gMade.fetch_add(1, std::memory_order_relaxed);
 			return true;
 		}
 
@@ -137,12 +130,14 @@ namespace Plugin
 			auto*       light = a_twin.light.get();
 			auto*       source = a_twin.source.get();
 			const auto* anchor = a_twin.anchor ? a_twin.anchor.get() : source->parent;
-			auto&       data = light->GetLightRuntimeData();
-			const float radius = data.radius.x;
-			data = source->GetLightRuntimeData();
-			if (data.radius.x != radius) {
-				light->SetLightAttenuation(data.radius.x);
+			const auto& from = source->GetLightRuntimeData();
+			if (from.radius.x != light->GetLightRuntimeData().radius.x) {
+				// first: it writes the same two words Community Shaders reads its flag and cutoff from (LightKit.h Isl), which
+				// the copy below then sets to the source's
+				light->SetLightAttenuation(from.radius.x);
 			}
+			auto& data = light->GetLightRuntimeData();
+			data = from;
 			// the casting light's place under its own magic node, put under the anchor (the third-person magic node of that name)
 			light->local = anchor ? anchor->local : RE::NiTransform{};
 			light->local.translate = light->local * OffsetUnder(a_twin.magic.get(), source);
@@ -216,7 +211,7 @@ namespace Plugin
 				if (twin.light && (twin.source.get() != source || twin.parent.get() != parent)) {
 					Drop(twin, a_scene);
 				}
-				if (!twin.light && !Make(twin, source, parent, a_scene)) {
+				if (!twin.light && !Make(twin, source, parent)) {
 					continue;
 				}
 				if (twin.anchor.get() != anchor) {
@@ -225,8 +220,12 @@ namespace Plugin
 				if (twin.magic.get() != magic) {
 					twin.magic.reset(magic);
 				}
-				twin.seen = true;
 				Follow(twin);
+				if (!twin.bs && !Register(twin, a_scene)) {
+					Drop(twin, a_scene);  // not seen: let go below, tried again next frame
+					continue;
+				}
+				twin.seen = true;
 			}
 		}
 	}
@@ -240,10 +239,7 @@ namespace Plugin
 		if (!scene || gGroundLightsOn.load(std::memory_order_relaxed) < 0.5f) {  // switched off in the advanced settings file
 			// no scene to light, or switched off: let every twin go and give each source light back (with a scene, each twin
 			// leaves its lists too - CodeRabbit, RELight #8)
-			for (auto& entry : gTwins) {
-				Drop(entry.second, scene);
-			}
-			gTwins.clear();
+			DropAll(scene);
 			return;
 		}
 		for (auto& entry : gTwins) {
@@ -265,8 +261,11 @@ namespace Plugin
 			}
 			return false;
 		});
+		gLive.store(gTwins.size(), std::memory_order_relaxed);
 	}
 
-	std::size_t GroundLightCount() { return gTwins.size(); }
-	std::size_t GroundLightsMade() { return gMade; }
+	void DropGroundLights() { DropAll(RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0]); }
+
+	std::size_t GroundLightCount() { return gLive.load(std::memory_order_relaxed); }
+	std::size_t GroundLightsMade() { return gMade.load(std::memory_order_relaxed); }
 }

@@ -7,7 +7,7 @@
 //
 //   Community Shaders   inverse square lighting: a light's reach is worked out from its fade and its cutoff (LightCopies.cpp)
 //   ENB                 } the game's own lighting: the inverse square flag means nothing, a light reaches its radius. Every
-//   Vanilla             } inverse-square light this mod makes or copies is turned into a plain one (Plain, below)
+//   Vanilla             } inverse-square light this mod makes or copies is turned into a plain one (LightKit::PlainOf)
 //
 // AUTOMATIC ONLY - HIS WORD: "i also want the detection to be automatic and users to not be able to manually switch
 // between versions" (it was a menu pick and an installer's Lighting.txt). The game is looked at once, at data load:
@@ -15,7 +15,8 @@
 //
 // The plain light: the reach an inverse-square light has (reach² = K x fade / cutoff - size²) as the game's own lighting
 // draws it - Dynamic Wards' house light, LTBG section 4's reach 133 drawn at radius 178 with fade 1.14 (wardgen.plain_light).
-// Never shorter than the radius the light already states: a plain light is not made dimmer than the game's own.
+// Never shorter than the radius the light already states: a plain light is not made dimmer than the game's own. The maths
+// is LightMath.h's PlainOf / PlainAt, the one copy both mods use and the fading tests check.
 
 #include "Plugin.h"
 
@@ -28,9 +29,6 @@ namespace Plugin
 		// separate shader above): its attenuation reads each light's InverseSquare flag
 		constexpr const char* kLlfAttenuation = "Data/Shaders/LightLimitFix/Attenuation.hlsli";
 		constexpr const char* kEnbFiles[] = { "enbseries.ini", "enblocal.ini" };
-		constexpr float       kK = LightKit::kK;              // the house K, 0.8 * 69.99² (LightKit.h, gen.py)
-		constexpr float       kPlainReach = 178.0f / 133.0f;  // Dynamic Wards' house light: reach 133 drawn at radius 178
-		constexpr float       kPlainFade = 1.14f;
 
 		std::atomic<Lighting> gPick{ Lighting::kShaders };
 		std::atomic<bool>     gIslShader{ false };
@@ -84,19 +82,6 @@ namespace Plugin
 	bool InverseSquare()
 	{
 		return gPick.load() == Lighting::kShaders && gIslShader.load();
-	}
-
-	float IslReach(float a_fade, float a_cutoff, float a_size)
-	{
-		if (a_cutoff <= 0.0f || a_fade <= 0.0f) {
-			return 0.0f;
-		}
-		return std::sqrt((std::max)(kK * a_fade / a_cutoff - a_size * a_size, 0.0f));
-	}
-
-	PlainLight Plain(float a_fade, float a_radius, float a_reach)
-	{
-		return { a_fade * kPlainFade, (std::max)(a_radius, a_reach * kPlainReach) };
 	}
 
 	std::string LightingReport()
