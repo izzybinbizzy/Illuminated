@@ -90,7 +90,8 @@ namespace
 		SKSE::log::info("configs: {} file(s), {} lit model(s), {} shader name(s)", cov.files, cov.models.size(), cov.shaders.size());
 		LightKit::FleshFx::Find();  // which flesh spells wear FleshFX's look: their lights take its hue (FleshLights.cpp)
 		if (record) {
-			MakeRecordLights();  // before passes 1 and 2, which point the records at them
+			MakeRecordLights();    // before passes 1 and 2, which point the records at them
+			NoteEnchantShaders();  // a drawn weapon's enchantment shader -> its rows (ArtLights.cpp), before the editor IDs go
 		}
 		if (cov.files == 0) {
 			SKSE::log::warn("no Illuminated configs were found under Data\\LightPlacer; nothing was changed");
