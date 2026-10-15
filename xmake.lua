@@ -33,7 +33,7 @@ target("Illuminated", function()
     add_rules("commonlibsse-ng.plugin", {
         name = "Illuminated",
         author = "izzydoingit",
-        description = "Illuminated - sets its magic lights and takes the game's own light off what Illuminated lights, in memory",
+        description = "Illuminated - spell, enchantment and effect lights for Vanilla, ENB and Community Shaders, made in memory",
     })
     -- the source is split by job (see the file map at the top of src/main.cpp); every .cpp in src is built
     add_files("src/*.cpp")

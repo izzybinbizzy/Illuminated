@@ -10,17 +10,18 @@
 //   0. its own copies of the game's magic lights, carrying the look its lights were made with (see pass 0);
 //   1. a magic effect whose casting art Illuminated or CS Light lights loses the game's own
 //      casting light, so the hand does not carry two lights;
-//   2. the same for projectiles, explosions and hazards whose model is lit - except cone and flame
-//      projectiles, which keep their light, and poison sprays, which lose it whether lit or not;
-//   3. the Dragonborn poison rune gets the casting art its lit hand needs;
+//   2. the same for projectiles, explosions and hazards whose model is lit - except flame, cone and beam
+//      projectiles (sprays, streams and bolts), which keep their light for pass 6, and poison sprays, which lose it
+//      whether lit or not;
+//   3. the Dragonborn poison rune gets the casting art its lit hand needs (before pass 1, which then follows it);
 //   4. with the Spray Lights setting on, each spray projectile gets a private copy of its own
 //      light, stretched to cover the spray and colored from the settings' markers;
-//   5. an enchantment carrying two or more lit shaders keeps the light of its first one only - the ones
-//      plugins define and the ones made at the enchanting table, never letting a save hold a copy.
-// If Let There Be Glow's own plugin is loaded, nothing is changed at all: the two mods are never
-// installed together.
-// Every choice is a setting in the menu (SKSE Menu Framework - the only menu this mod has).
-// Passes 1 and 2 follow the settings live; pass 4 reads them when the game loads. The
+//   5. an enchantment carrying two or more lit shaders keeps the light of the one the game shows (the costliest) only -
+//      the ones plugins define and the ones made at the enchanting table, never letting a save hold a copy;
+//   6. a spray, stream or bolt is lit by its own light record made bigger and brighter (his stream rule).
+// Every choice is a setting in the menu (SKSE Menu Framework - the only menu this mod has); the few values the menu does
+// not show are in the one advanced settings file (Fade::Tuning, registered below).
+// Passes 1, 2 and 6 follow the settings live; pass 4 reads them when the game loads. The
 // Brightness and Reach sliders set the fade, radius and cutoff of the light copies LightCopies.cpp makes;
 // a light that is already lit follows at the next frame.
 // Without Light Placer, passes 1 and 2 give the game's own light records Illuminated's lights instead of taking
@@ -28,20 +29,22 @@
 //
 // THE FILES, AND WHAT EACH ONE IS FOR
 //   main.cpp           this file - the passes in order, and the SKSE messages
-//   Plugin.h           what the files share; LightKit.h the small helpers RELight - Spell Addon carries too
+//   Plugin.h           what the files share; LightKit.h and LightMath.h the small helpers RELight - Spell Addon carries
+//                      too (LightMath.h and ConfigText.h are game-free and tested); PCH.h what every file includes
 //   Text.cpp           lower case, paths, trimming, number parsing      EditorIDs.cpp  the passes' way to an editor ID
 //   Settings.cpp       the settings files, the INI and the game globals Menu.cpp       the menu pages
 //   DevBench.cpp       DevBench's inspect and control (optional)       Lighting.cpp   Community Shaders, ENB or Vanilla
-//   Configs.cpp        what the Light Placer configs light              FormCopies.cpp copies of forms, in memory
+//   Configs.cpp        what the Light Placer configs light (ConfigText.h reads them)    FormCopies.cpp copies of forms
 //   LightSettings.cpp  pass 0      CastingLights.cpp  pass 1      EffectLights.cpp  pass 2 (and RefreshLights)
 //   PoisonRune.cpp     pass 3      SprayLights.cpp    pass 4      Enchantments.cpp  pass 5
 //   StreamLights.cpp   pass 6      VaerSwirls.cpp     pass 7      Wards.cpp         one dome per ward
-//   SprayMarkers.cpp   the spray settings                         LightCopies.cpp   the sliders, and every hook
+//   SprayMarkers.cpp   the spray settings                         LightCopies.cpp   the sliders and the update hooks
 //   RecordLights.cpp   the game's own light records, lit without Light Placer
+//   GroundLights.cpp   without Light Placer: a twin of each hand light that lights the ground
 //   ArtLights.cpp      without Light Placer: lights of ours on lit art and weapon models (bound weapons) and flesh spells
 //   FleshLights.cpp    the flesh spells' lights in FleshFX's hue, where FleshFX's look wins (LightKit.h FleshFx)
-//   Fade*.cpp, Fade*.h the fading module (identical in RELight - Spell Addon but for FadeConfig.h, FadeOwnLight.cpp
-//                      and FadeDevBench.cpp - PC Runner\fade copies check.py)
+//   Fade*.cpp, Fade*.h the fading module (identical in RELight - Spell Addon but for FadeConfig.h and FadeDevBench.cpp -
+//                      PC Runner\fade copies check.py); its hooks are in FadeMain.cpp
 //   SKSEMenuFramework.h, DevBenchAPI.*  those mods' own files; DevBenchGlue.h, MenuStyle.h, Translation.h are
 //                      shared word for word with our other plugins
 
@@ -52,25 +55,10 @@ using namespace Plugin;
 
 namespace
 {
-	// ------------------------------------------------------------------ rules
-	constexpr std::string_view kOtherPluginDll = "LetThereBeGlow.dll";
-
 	// ------------------------------------------------------------------ order of work
-	bool OtherPluginLoaded()
-	{
-		return REX::W32::GetModuleHandleA(kOtherPluginDll.data()) != nullptr;
-	}
-
 	void LoadEverything()
 	{
 		const auto loadStarted = std::chrono::steady_clock::now();
-		if (OtherPluginLoaded()) {
-			SKSE::log::info(
-				"Let There Be Glow's plugin ({}) is loaded: this plugin changes nothing. "
-				"Illuminated and Let There Be Glow are never used together.",
-				kOtherPluginDll);
-			return;
-		}
 		// the advanced settings file's own values (his rule) - read with the fading module's, in Fade::OnDataLoaded
 		Fade::Tuning::Register("Lights", "NearbyDistance", 2800.0f, 300.0f, 30000.0f, "Hand lights for - Everyone nearby: how far from you, in game units", gNearby);
 		Fade::Tuning::Register("Vanilla and ENB", "GroundLights", 1.0f, 0.0f, 1.0f, "1: a hand light lights the ground too (its twin, made with land lighting on); 0: off", gGroundLightsOn);
@@ -94,29 +82,30 @@ namespace
 			NoteEnchantShaders();  // a drawn weapon's enchantment shader -> its rows (ArtLights.cpp), before the editor IDs go
 		}
 		if (cov.files == 0) {
-			SKSE::log::warn("no Illuminated configs were found under Data\\LightPlacer; nothing was changed");
-			StreamLights();  // pass 6: the lights that travel with a spray or a bolt, and its two hooks
+			SKSE::log::warn(
+				"no Illuminated configs were found under Data\\LightPlacer: passes 1 to 5 skipped (pass 0, VAER, the wards and "
+				"pass 6 still run)");
+			StreamLights();  // pass 6: a spray's or bolt's own light raised, and the ward dome's two hooks
 			RecordTablesReady();
-			Fade::ForgetPassEditorIDs();  // only what a fading rule file can name stays, as on the full path
+			Fade::ForgetPassEditorIDs();  // only the fading module's three kept types stay, as on the full path
 			return;
 		}
+		PoisonRuneArt();  // pass 3 first: its new casting art is then followed by pass 1 like any lit art
 		CastingLights(cov);
 		EffectLights<RE::BGSProjectile>(cov, "projectile");
 		EffectLights<RE::BGSExplosion>(cov, "explosion");
 		EffectLights<RE::BGSHazard>(cov, "hazard");
 		ApplyEffectLights(true);
-		PoisonRuneArt();
 		SprayLights();
-		ApplyLightStrength(false);  // the sliders onto pass 4's spray lights too
-		StreamLights();             // pass 6, after pass 4: a spray's hand light is its stretched copy by now; and its two hooks
-		if (!record) {              // pass 5 is about Light Placer's lit shaders: there are none without it
+		StreamLights();  // pass 6, after pass 4 (a spray's own light is its stretched copy by now); it sets the sliders on every copy
+		if (!record) {   // pass 5 is about Light Placer's lit shaders: there are none without it
 			DoubledEnchantments(cov);
 		}
 		if (AnyLitShaders()) {
 			WatchCraftingMenu();
 		}
 		RecordTablesReady();          // last: the hooks installed earlier may read the record tables from here on
-		Fade::ForgetPassEditorIDs();  // the passes have run: only what a fading rule file can name stays
+		Fade::ForgetPassEditorIDs();  // the passes have run: only the fading module's three kept types stay
 		SKSE::log::info("done in {:.1f} ms",
 			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - loadStarted).count());
 	}
@@ -135,11 +124,8 @@ namespace
 		}
 	}
 
-	void OnMessage(SKSE::MessagingInterface::Message* a_msg)
+	void Handle(SKSE::MessagingInterface::Message* a_msg)
 	{
-		if (!a_msg) {
-			return;
-		}
 		switch (a_msg->type) {
 		case SKSE::MessagingInterface::kPostLoad:
 			Fade::OnPluginLoad();                        // the one editor-ID recorder (weapons, enchantments, magic effects), before the plugins load
@@ -156,6 +142,7 @@ namespace
 			break;
 		case SKSE::MessagingInterface::kSaveGame:
 			// the save is written inside the call this message comes before; the copies return on the next frame
+			// the originals go in whatever happens: a save must never hold a copy made in memory
 			if (AnyLitShaders()) {
 				UseOriginals("saving");
 				if (auto* tasks = SKSE::GetTaskInterface()) {
@@ -167,6 +154,7 @@ namespace
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
 			DropArtLights();  // the art and weapons they hang on are the old game's
+			DropGroundLights();
 			Fade::OnGameLoading();
 			// the enchantments made during play are about to be replaced by the save's; never touch them again
 			ForgetCreatedEnchantments();
@@ -176,6 +164,10 @@ namespace
 			// a save holds the plugin's globals as they were when it was made; the settings file is the truth
 			ApplyGlobals();
 			if (a_msg->type == SKSE::MessagingInterface::kNewGame) {
+				// no kPreLoadGame comes before a new game: the last game's lights and crafted enchantments go here
+				DropArtLights();
+				DropGroundLights();
+				ForgetCreatedEnchantments();
 				Fade::OnGameLoading();
 			}
 			if (AnyLitShaders()) {
@@ -184,6 +176,14 @@ namespace
 			break;
 		default:
 			break;
+		}
+	}
+
+	// an exception never leaves into the game from any message either (kDataLoaded's work has its own, more telling, guard)
+	void OnMessage(SKSE::MessagingInterface::Message* a_msg)
+	{
+		if (a_msg) {
+			LightKit::Guarded("SKSE message", [a_msg]() { Handle(a_msg); });
 		}
 	}
 }

@@ -3,7 +3,7 @@
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
 // DevBench, when it is in the load order (it is optional; nothing here runs without it):
-//   inspect kind=illuminatedfade    the Debug page as JSON - each tracked hand, and the fade each of its lights holds now next to
+//   inspect kind=illuminatedfade    the fading state as JSON (what the testing DLL's debug page shows) - each tracked hand, and the fade each of its lights holds now next to
 //                              the base it was scaled from.
 //   illuminatedfade.control         action = preview (value = charge 0-1, -1 stops) | pulse | flare | setting (key = a
 //                              Illuminated/Fading.ini key, value = a whole number) | settings (every key and its value) |
@@ -28,7 +28,7 @@ namespace Fade
 			R"json({"description":"Illuminated - each tracked hand (weapon, enchantment, charge, brightness, reach, cooling, lights found), and every light being scaled with the fade it holds now and the base it was scaled from. Read only.","inputSchema":{"type":"object","properties":{}},"readOnly":true})json";
 
 		constexpr const char* kTool =
-			R"json({"description":"Illuminated (enchanted weapon and spell-hand lights that fade with charge or magicka): drive its Debug page and settings. action=preview with value = the charge to show on every tracked hand (0..1, -1 stops the preview); pulse / flare start a hit pulse or recharge flare on every tracked hand; setting sets one Illuminated/Fading.ini key (key, value = whole number) the way the Settings page does, not saved; settings lists every key and its value; reloadrules reads the rule files again. Read state with inspect kind=illuminatedfade.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["preview","pulse","flare","setting","settings","reloadrules"]},"value":{"type":"number","description":"preview: charge 0..1, or -1 to stop; setting: the whole-number value"},"key":{"type":"string","description":"setting: a Illuminated/Fading.ini key, e.g. EmptyBrightness, Curve, Sputter (action=settings lists them)"}},"required":["action"]}})json";
+			R"json({"description":"Illuminated (enchanted weapon and spell-hand lights that fade with charge or magicka): drive its fading (a preview charge, a pulse or a flare) and settings. action=preview with value = the charge to show on every tracked hand (0..1, -1 stops the preview); pulse / flare start a hit pulse or recharge flare on every tracked hand; setting sets one Illuminated/Fading.ini key (key, value = whole number) the way the Settings page does, not saved; settings lists every key and its value; reloadrules reads the rule files again. Read state with inspect kind=illuminatedfade.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["preview","pulse","flare","setting","settings","reloadrules"]},"value":{"type":"number","description":"preview: charge 0..1, or -1 to stop; setting: the whole-number value"},"key":{"type":"string","description":"setting: a Illuminated/Fading.ini key, e.g. EmptyBrightness, Curve, Sputter (action=settings lists them)"}},"required":["action"]}})json";
 
 		constexpr const char* kMenu =
 			R"json({"description":"Illuminated - the same as the illuminatedfade.control tool, with set for action: set=preview value=charge 0..1 (-1 stops), set=pulse, set=flare, set=setting key=<Illuminated/Fading.ini key> value=<whole number>, set=settings, set=reloadrules. Not saved from here.","inputSchema":{"type":"object","properties":{"set":{"type":"string"},"key":{"type":"string"},"value":{"type":"number"}}}})json";
@@ -74,8 +74,6 @@ namespace Fade
 				out["art"].push_back({ { "base", base }, { "now", now } });
 			}
 			out["hideChargeBar"] = s.hideChargeBar;
-			out["ownLight"] = s.ownLight;
-			out["ownLights"] = OwnLightCount();
 			DevBenchGlue::Reply(a_sink, a_write, out);
 		}
 

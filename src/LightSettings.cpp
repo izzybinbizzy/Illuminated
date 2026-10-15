@@ -86,8 +86,10 @@ namespace Plugin
 			// reach it has under Community Shaders, drawn by the game's own lighting
 			std::uint32_t radius = s.radius, flags = s.flags;
 			float         fade = s.fade;
-			if (!InverseSquare() && (flags & kInverseSquare)) {
-				const auto plain = Plain(s.fade, static_cast<float>(s.radius), IslReach(s.fade, s.falloff, s.fov));
+			const bool    madePlain = !InverseSquare() && (flags & kInverseSquare);
+			if (madePlain) {
+				// an inverse-square row's falloff is its cutoff and its field of view its size (Light Placer's GetSize)
+				const auto plain = LightKit::PlainOf(s.fade, static_cast<float>(s.radius), s.falloff, LightKit::LightPlacerSize(s.fov));
 				radius = static_cast<std::uint32_t>(std::lround(plain.radius));
 				fade = plain.fade;
 				flags &= ~kInverseSquare;
@@ -97,15 +99,19 @@ namespace Plugin
 			copy->data.color.green = static_cast<std::uint8_t>(s.g);
 			copy->data.color.blue = static_cast<std::uint8_t>(s.b);
 			copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(flags);
-			copy->data.fallofExponent = s.falloff;
-			copy->data.fov = s.fov;
+			if (!madePlain) {
+				// made plain, the copy keeps the original's falloff and field of view (CopyLight): the game's own lighting reads
+				// those as the falloff exponent and the spotlight angle, not as Community Shaders' cutoff and size
+				copy->data.fallofExponent = s.falloff;
+				copy->data.fov = s.fov;
+			}
 			copy->data.nearDistance = s.nearDistance;
 			copy->data.flickerIntensityAmplitude = s.flickerIntensity;
 			copy->data.flickerMovementAmplitude = s.flickerMovement;
 			copy->fade = fade;
-			// read back what the copy now holds
+			// read back what the copy now holds (made plain, its field of view stays the original's)
 			if (copy->data.radius != radius || copy->data.flags.underlying() != flags || copy->fade != fade ||
-				copy->data.fov != s.fov || copy->data.color.red != static_cast<std::uint8_t>(s.r)) {
+				(!madePlain && copy->data.fov != s.fov) || copy->data.color.red != static_cast<std::uint8_t>(s.r)) {
 				++failed;
 				SKSE::log::warn("[LIGHT-FAILED] {} | the copy's values did not take", Label(light));
 				continue;

@@ -22,6 +22,7 @@
 // CREDIT: a light is made and registered the way ReLight by Truman does it (github.com/TrumanGIT/ReLight, GPL-3.0-or-later,
 // used with his permission): a master NiPointLight cloned for every use and handed to the shadow scene node.
 
+#include "Fade.h"
 #include "Plugin.h"
 
 namespace Plugin
@@ -42,22 +43,33 @@ namespace Plugin
 			bool                            seen{ false };
 		};
 
-		std::unordered_map<const void*, Kept>        gKept;         // main thread only
-		std::unordered_map<std::string, std::string> gWeaponModel;  // a weapon's model as the configs key it (cache)
-		RE::NiPointer<RE::NiPointLight>              gMaster;
-		std::size_t                                  gMade = 0;
-
-		RE::NiPointLight* CloneMaster()
+		std::unordered_map<const void*, Kept> gKept;  // main thread only
+		// a weapon's / an art object's model as the configs key it, worked out once per form and model (main thread); the
+		// model text rides along, so a form made at the address of a freed one is worked out again, never read as the old one
+		struct ModelKeyOf
 		{
-			if (!gMaster) {
-				const RE::NiPointer<RE::NiPointLight> fresh(RE::NiPointLight::Create());
-				auto*                                 clone = fresh ? netimmerse_cast<RE::NiPointLight*>(fresh->Clone()) : nullptr;
-				if (!clone) {
-					return nullptr;
-				}
-				gMaster.reset(clone);
+			std::string model, key;
+		};
+		std::unordered_map<const RE::TESForm*, ModelKeyOf> gModelKey;
+		std::size_t                                        gMade = 0;
+
+		[[nodiscard]] const std::string& ModelKey(const RE::TESForm* a_form, const char* a_model)
+		{
+			const std::string_view model = a_model ? a_model : "";
+			auto [it, added] = gModelKey.try_emplace(a_form);
+			if (added || it->second.model != model) {
+				it->second.model.assign(model);
+				it->second.key = NormalPath(it->second.model.c_str());
 			}
-			return netimmerse_cast<RE::NiPointLight*>(gMaster->Clone());
+			return it->second.key;
+		}
+
+		// the rows' own sneak test (gen.py's While Sneaking clause): a caster who sneaks with the Sneaking setting off keeps
+		// none of these lights
+		[[nodiscard]] bool SneakHides(const RE::TESObjectREFR* a_ref)
+		{
+			const auto* actor = a_ref ? a_ref->As<RE::Actor>() : nullptr;
+			return actor && actor->IsSneaking() && SettingValue("IlluminatedSneaking", 0) == 0;
 		}
 
 		void Drop(Kept& a_kept, RE::ShadowSceneNode* a_scene)
@@ -85,6 +97,8 @@ namespace Plugin
 				a_kept.light->SetLightAttenuation(radius);
 			}
 			if (InverseSquare()) {
+				// after SetLightAttenuation, which writes the same two words: a light of our own, its words written whole (LightKit.h)
+				LightKit::Isl::SetOwn(a_kept.light.get());
 				LightKit::Isl::SetCutoff(a_kept.light.get(), a_kept.record->data.fallofExponent, 0.01f, 1.0f);
 			} else {
 				data.ambient = { data.diffuse.red * kAmbient, data.diffuse.green * kAmbient, data.diffuse.blue * kAmbient };
@@ -93,7 +107,7 @@ namespace Plugin
 
 		bool Make(Kept& a_kept, RE::NiNode* a_root, const RE::TESObjectLIGH* a_record, RE::ShadowSceneNode* a_scene)
 		{
-			auto* light = CloneMaster();
+			auto* light = LightKit::CloneLight();
 			if (!light) {
 				return false;
 			}
@@ -102,24 +116,11 @@ namespace Plugin
 			a_kept.light.reset(light);
 			a_kept.root.reset(a_root);
 			a_kept.record = a_record;
-			if (InverseSquare()) {
-				LightKit::Isl::SetOn(light);  // the flag Community Shaders reads (LightKit.h)
-			}
 			Follow(a_kept);
 			RE::NiUpdateData update{};
 			light->Update(update);
-			RE::ShadowSceneNode::LIGHT_CREATE_PARAMS params{};  // Dynamic Wards' hand light (DomeLights.cpp Make)
-			params.dynamic = true;
-			params.shadowLight = false;
-			params.portalStrict = (a_record->data.flags.underlying() & (1u << 13)) != 0;  // the row's PortalStrict
-			params.affectLand = true;
-			params.affectWater = true;
-			params.neverFades = true;
-			params.fov = 90.0f;
-			params.falloff = 1.0f;
-			params.nearDistance = 5.0f;
-			params.depthBias = 1.0f;
-			auto* bs = a_scene->AddLight(light, params);
+			const bool portalStrict = (a_record->data.flags.underlying() & (1u << 13)) != 0;  // the row's PortalStrict
+			auto*      bs = LightKit::AddToScene(a_scene, light, 1.0f, portalStrict);
 			if (!bs) {
 				a_root->DetachChild(light);
 				a_kept = {};
@@ -154,38 +155,6 @@ namespace Plugin
 			Follow(kept);
 		}
 
-		// a weapon's model path as the configs key it ("weapons\boundweapons\boundbow.nif")
-		const std::string& WeaponModel(const RE::TESObjectWEAP* a_weapon)
-		{
-			const std::string key = std::format("{:08X}", a_weapon->GetFormID());
-			auto [it, added] = gWeaponModel.try_emplace(key);
-			if (added) {
-				it->second = NormalPath(a_weapon->GetModel() ? a_weapon->GetModel() : "");
-			}
-			return it->second;
-		}
-
-		// the weapon's third-person 3D (the light lights the world from there in first person too)
-		RE::NiAVObject* WeaponPart(RE::Actor* a_actor, const RE::TESObjectWEAP* a_weapon, bool a_left)
-		{
-			const auto& biped = a_actor->GetBiped(false);
-			if (!biped) {
-				return nullptr;
-			}
-			using B = RE::BIPED_OBJECT;
-			if (a_left) {
-				const auto& shield = biped->objects[B::kShield];
-				return shield.item == a_weapon && shield.partClone ? shield.partClone.get() : nullptr;
-			}
-			for (auto slot = static_cast<std::uint32_t>(B::kHandToHandMelee); slot <= static_cast<std::uint32_t>(B::kCrossbow); ++slot) {
-				const auto& obj = biped->objects[slot];
-				if (obj.item == a_weapon && obj.partClone) {
-					return obj.partClone.get();
-				}
-			}
-			return nullptr;
-		}
-
 		// the five flesh shaders in this load order (LightKit::FleshFx::Resolved, found at data load) and the key their config
 		// rows are kept under (Configs.cpp: "formid:" + the editor ID the configs claim) - built on the first frame
 		const std::unordered_map<const RE::TESEffectShader*, std::string>& FleshShaders()
@@ -212,7 +181,7 @@ namespace Plugin
 			if (!root) {
 				return;
 			}
-			if (const auto* actor = ref->As<RE::Actor>(); actor && actor->IsSneaking() && SettingValue("IlluminatedSneaking", 0) == 0) {
+			if (SneakHides(ref.get())) {
 				return;
 			}
 			Keep(a_effect, root, record, a_scene, LightKit::FleshFx::HueOf(a_effect->effectData));
@@ -221,24 +190,6 @@ namespace Plugin
 		// the weapon parts an art light already hangs under (measured on Vanilla: a bound sword's configs light both its
 		// own model and its enchantment art - two lights on one blade; the art's is the one kept)
 		std::unordered_set<const RE::NiAVObject*> gArtUnder;
-
-		// the enchantment on the weapon in this hand: the one made at the table (ExtraEnchantment on the WORN copy - the entry can
-		// hold other copies of the same weapon, CodeRabbit's point on #13), else the weapon record's own
-		RE::EnchantmentItem* HeldEnchantment(RE::Actor* a_actor, const RE::TESObjectWEAP* a_weapon, bool a_left)
-		{
-			if (auto* entry = a_actor->GetEquippedEntryData(a_left); entry && entry->extraLists) {
-				for (auto* list : *entry->extraLists) {
-					if (!list || !(a_left ? list->HasType<RE::ExtraWornLeft>() : list->HasType<RE::ExtraWorn>())) {
-						continue;
-					}
-					if (const auto* xEnch = list->GetByType<RE::ExtraEnchantment>(); xEnch && xEnch->enchantment) {
-						return xEnch->enchantment;
-					}
-					break;  // the worn copy carries no enchantment of its own
-				}
-			}
-			return a_weapon->formEnchanting;
-		}
 
 		// every magic effect's enchantment shader -> the key its config rows are kept under (Configs.cpp: "formid:" + its editor
 		// ID), noted at load (NoteEnchantShaders) - the game keeps no effect shader's editor ID, and ours are forgotten once
@@ -249,9 +200,9 @@ namespace Plugin
 		// the light row of a weapon enchantment's SHADER (the blade's glow - Shock / Fire / Frost Damage and every other
 		// enchantment without art of its own). His word 2026-10-13: "yes make the weapon light fix for vanilla and enb" - with
 		// Light Placer these rows hang on the blade by the shader's form; without it nothing lit them (only art and a weapon's
-		// own model were followed here), so an ordinary enchanted weapon stayed dark on Vanilla and ENB. The effect the game SHOWS
-		// first (the costliest - its shader is the one on the blade, as Enchantments.cpp keeps it), then the first effect whose
-		// shader has a row that holds now
+		// own model were followed here), so an ordinary enchanted weapon stayed dark on Vanilla and ENB. The shader the game
+		// plays on the blade is the costliest effect's (Enchantments.cpp, measured on Chillrend), so that effect's row comes
+		// first, then the first effect whose shader has a row that holds now
 		RE::TESObjectLIGH* ShaderRowLight(const RE::Effect* a_effect)
 		{
 			const auto* shader = a_effect && a_effect->baseEffect ? a_effect->baseEffect->data.enchantShader : nullptr;
@@ -262,7 +213,7 @@ namespace Plugin
 			return it == gEnchShaderKey.end() ? nullptr : RecordLightFor(it->second);
 		}
 
-		RE::TESObjectLIGH* EnchantShaderLight(RE::EnchantmentItem* a_ench)
+		RE::TESObjectLIGH* EnchantShaderLight(const RE::EnchantmentItem* a_ench)
 		{
 			if (!a_ench) {
 				return nullptr;
@@ -285,7 +236,7 @@ namespace Plugin
 				return;
 			}
 			// the weapon rows' own sneak test (as KeepFlesh does for the flesh rows)
-			if (a_actor->IsSneaking() && SettingValue("IlluminatedSneaking", 0) == 0) {
+			if (SneakHides(a_actor)) {
 				return;
 			}
 			for (const bool left : { false, true }) {
@@ -294,15 +245,18 @@ namespace Plugin
 				if (!weapon) {
 					continue;
 				}
-				const auto& model = WeaponModel(weapon);
+				const auto& model = ModelKey(weapon, weapon->GetModel());
 				auto*       record = model.empty() ? nullptr : RecordLightFor(model);
 				if (!record) {
-					record = EnchantShaderLight(HeldEnchantment(a_actor, weapon, left));
+					// the held instance's own (FadeCharge.cpp ReadHand: the WORN copy's - the entry can hold other copies of the
+					// same weapon, CodeRabbit's point on #13 - else the weapon record's)
+					record = EnchantShaderLight(Fade::ReadHand(a_actor, left).ench);
 				}
 				if (!record) {
 					continue;
 				}
-				if (auto* part = WeaponPart(a_actor, weapon, left); part && !gArtUnder.contains(part)) {
+				// the weapon's third-person 3D: the light lights the world from there in first person too
+				if (auto* part = Fade::WeaponPart(a_actor, false, left, weapon); part && !gArtUnder.contains(part)) {
 					Keep(part, part, record, a_scene);
 				}
 			}
@@ -343,8 +297,8 @@ namespace Plugin
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {
 			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
 				auto* art = a_effect ? netimmerse_cast<RE::ModelReferenceEffect*>(a_effect) : nullptr;
-				if (art && !art->finished && art->artObject && art->artObject3D) {
-					const auto model = NormalPath(art->artObject->GetModel() ? art->artObject->GetModel() : "");
+				if (art && !art->finished && art->artObject && art->artObject3D && !SneakHides(art->target.get().get())) {
+					const auto& model = ModelKey(art->artObject, art->artObject->GetModel());
 					if (const auto* record = model.empty() ? nullptr : RecordLightFor(model)) {
 						Keep(art, art->artObject3D.get(), record, scene);
 					}
@@ -385,6 +339,7 @@ namespace Plugin
 			Drop(kept, scene);
 		}
 		gKept.clear();
+		gModelKey.clear();  // keyed by form address: a form made in memory and freed could hand its address to another
 	}
 
 	std::size_t ArtLightCount() { return gKept.size(); }

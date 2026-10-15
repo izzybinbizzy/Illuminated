@@ -78,16 +78,8 @@ namespace Plugin
 			}
 		}
 		for (auto& [name, kv] : markers) {
-			float f = 0.0f;
-			if (name == "illuminated sprays - reduced.txt") {
-				sc.found += "reduced ";
-				if (ParseFloat(kv["fade"], f)) {
-					sc.fade = f;
-				}
-				if (ParseFloat(kv["frostfade"], f)) {
-					sc.frostFade = f;
-				}
-			} else if (name == "illuminated sprays - frost.txt" && ParseRgb(kv["frost"], sc.frost)) {
+			// (the old Reduced marker cannot hold any more: there are no Full / Reduced tiers - his call, the Brightness slider)
+			if (name == "illuminated sprays - frost.txt" && ParseRgb(kv["frost"], sc.frost)) {
 				sc.frostSet = true;
 				sc.found += "frost ";
 			} else if (name == "illuminated sprays - shock.txt" && ParseRgb(kv["shock"], sc.shock)) {

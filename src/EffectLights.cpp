@@ -6,8 +6,9 @@
 // menu's settings keep that model lit. Each one's own light is remembered, so switching an option off gives it back.
 // Without Light Placer (RecordLights.cpp) each is pointed at the record light made for its model instead, and one that
 // had no light gets one.
-// Also RefreshLights, which runs passes 1, 2 and 6 again (and puts the sliders and the record lights' colors onto the
-// lights) whenever a setting changes.
+// Sprays, streams and bolts (flame, cone and beam projectiles) are never touched here: pass 6 lights each by its own light
+// record made bigger and brighter (his stream rule - never take the projectile's own light off).
+// Also RefreshLights, which runs passes 1, 2 and 6 again (and puts the sliders onto the lights) whenever a setting changes.
 
 #include "Plugin.h"
 
@@ -30,8 +31,7 @@ namespace Plugin
 			RE::TESObjectLIGH*  own;
 			std::string         model;
 			std::string         label;
-			bool                always;        // named or a poison spray: dark whatever the settings say
-			int                 element{ 0 };  // the element of the effects that fire it (RecordLights.cpp): its color setting
+			bool                always;  // named or a poison spray: dark whatever the settings say
 		};
 		std::vector<EffectTarget> gEffectTargets;
 		const Coverage*           gEffectCoverage = nullptr;
@@ -49,7 +49,7 @@ namespace Plugin
 		void ApplyEffectRecordRoute(bool a_log, EffectCounts& a_n)
 		{
 			for (auto& t : gEffectTargets) {
-				auto* const        record = ElementLight(RecordLightFor(t.model), t.element);
+				auto* const        record = RecordLightFor(t.model);
 				RE::TESObjectLIGH* want = record;
 				if (!want && !t.always) {
 					want = t.own;
@@ -102,10 +102,12 @@ namespace Plugin
 		} else {
 			ApplyEffectLightPlacerRoute(a_log, n);
 		}
-		SKSE::log::info(
-			"projectile, explosion and hazard lights for the settings as they are: {} taken off, {} pointed at a record light, {} given back, "
-			"{} followed",
-			n.nulled, n.recorded, n.restored, gEffectTargets.size());
+		if (a_log) {
+			SKSE::log::info(
+				"projectile, explosion and hazard lights for the settings as they are: {} taken off, {} pointed at a record light, {} given back, "
+				"{} followed",
+				n.nulled, n.recorded, n.restored, gEffectTargets.size());
+		}
 	}
 
 	// A projectile a Light-archetype effect fires (Magelight) IS the lamp that stays where it lands: it keeps the game's
@@ -187,7 +189,8 @@ namespace Plugin
 					SKSE::log::info("[FX-LIGHT-SPELL] {} {} | {} | a Light spell's lamp keeps its light", a_kind, Label(form), model);
 					continue;
 				}
-				if (!poisonSpray && form->data.types.any(RE::BGSProjectileData::Type::kFlamethrower, RE::BGSProjectileData::Type::kCone)) {
+				using Type = RE::BGSProjectileData::Type;
+				if (!poisonSpray && form->data.types.any(Type::kFlamethrower, Type::kCone, Type::kBeam)) {  // pass 6's
 					++coneKept;
 					continue;
 				}
@@ -206,16 +209,10 @@ namespace Plugin
 				// without Light Placer it is followed too: its model's record light is the first light it ever had
 			}
 			gEffectTargets.push_back({ &form->data.light, form->data.light, model, std::string(a_kind) + " " + Label(form), force || poisonSpray });
-			if (record) {
-				if (const int e = ElementOfForm(form); e > 0) {
-					gEffectTargets.back().element = e;
-					PrepareElementLightsFor(model, e);
-				}
-			}
 			++followed;
 		}
 		SKSE::log::info(
-			"{} lights: {} lit or named seen; {} followed, {} had none of their own, {} cone/flame kept on purpose, "
+			"{} lights: {} lit or named seen; {} followed, {} had none of their own, {} spray / stream / bolt left to pass 6, "
 			"{} poison sprays, {} named, {} Light spell lamps kept",
 			a_kind, scanned, followed, clean, coneKept, poison, forced, lamps);
 	}
@@ -228,20 +225,11 @@ namespace Plugin
 	void RefreshLights()
 	{
 		const auto started = std::chrono::steady_clock::now();
-		ApplyRecordColors();
 		ApplyLightStrength(false);
-		// Pass 6 (stream lights) and pass 2 both write a stream projectile's own light, so their order follows the setting:
-		// off - pass 6 gives its lights back first and pass 2 has the last word over them; on - pass 2 runs first and pass 6
-		// then takes off whatever pass 2 gave back (measured: with one order for both, 102 lights stayed lit)
-		const bool streams = StreamLightsOn();
-		if (!streams) {
-			ApplyStreamLights(false);
-		}
+		// passes 1, 2 and 6 write different forms (pass 2 leaves every spray, stream and bolt to pass 6), so their order is free
 		ApplyCastingLights(false);
 		ApplyEffectLights(false);
-		if (streams) {
-			ApplyStreamLights(false);
-		}
+		ApplyStreamLights(false);
 		SKSE::log::info("lights refreshed for the settings in {:.1f} ms",
 			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
 	}

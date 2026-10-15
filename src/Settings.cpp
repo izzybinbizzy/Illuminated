@@ -32,7 +32,7 @@ namespace Plugin
 		constexpr std::string_view kDetectedSection = "Detected";
 		constexpr std::string_view kDetectedKey = "sPlugins";
 
-		fs::path SettingsFolder() { return fs::current_path() / "Data" / "SKSE" / "Plugins" / std::string(kOurFolder); }
+		fs::path SettingsFolder() { return OurFolder(); }
 		fs::path IniPath() { return SettingsFolder() / (std::string(kOurFolder) + ".ini"); }
 
 		std::string Unescape(std::string_view a_text)

@@ -11,8 +11,8 @@
 //   With Light Placer: Light Placer names a magic effect's light "LP_Light[<config>|<light>](<effect ID>)#<n>" and writes
 //   it in its own wrap of the effect's update; ours runs right after it (LightCopies.cpp's one wrapper), so this effect's
 //   lights - and no other effect's on the same actor - take the hue on the values Light Placer just wrote. That wrap runs on
-//   the game's worker threads, so it never searches the actor's 3D: the node the lights hang on is found on the main thread
-//   once a frame (NoteFleshRoots) and only read there.
+//   the game's worker threads, so it never walks the scene: the effect's own lights are found on the main thread once a
+//   frame (NoteFleshRoots, under the node they hang on) and the wrap only writes their color.
 //   Without Light Placer: ArtLights.cpp hangs the flesh row's light itself and gives it the hue as it follows the record.
 
 #include "Plugin.h"
@@ -21,15 +21,30 @@ namespace Plugin
 {
 	namespace
 	{
-		// where a noted flesh effect's lights hang; the effect's own ID rides along, so an effect freed and another made at the
-		// same address before the next note is never read as the old one
-		struct NotedRoot
+		// a noted flesh effect's own Light Placer lights (held: a light Light Placer lets go of stays valid until the next note);
+		// the effect's own ID rides along, so an effect freed and another made at the same address before the next note is
+		// never read as the old one
+		struct NotedLights
 		{
-			std::uint32_t                 effectID{ 0 };
-			RE::NiPointer<RE::NiAVObject> root;
+			std::uint32_t                                effectID{ 0 };
+			std::vector<RE::NiPointer<RE::NiPointLight>> lights;
 		};
-		std::mutex                                                      gRootLock;
-		std::unordered_map<const RE::ShaderReferenceEffect*, NotedRoot> gRoots;  // main thread writes, guarded
+		std::mutex                                                        gRootLock;
+		std::unordered_map<const RE::ShaderReferenceEffect*, NotedLights> gRoots;  // main thread writes, guarded
+
+		// Light Placer names an effect's light "LP_Light[<config>|<light>](<effect ID>)#<n>"
+		[[nodiscard]] bool LightOfEffect(const RE::NiPointLight* a_light, std::uint32_t a_effectID)
+		{
+			const char*            raw = a_light ? a_light->name.c_str() : nullptr;
+			const std::string_view name = raw ? raw : "";
+			if (!name.starts_with("LP_Light[")) {
+				return false;
+			}
+			std::array<char, 24>   text{};
+			const auto             end = std::format_to_n(text.data(), text.size() - 1, "]({})#", a_effectID).out;
+			const std::string_view mark(text.data(), static_cast<std::size_t>(end - text.data()));
+			return name.find(mark) != std::string_view::npos;
+		}
 
 		// a flesh effect whose lights matched no Light Placer light for a while: logged once per shader (a silent miss would
 		// leave the old color with nothing to say why). Counted per EFFECT - one caster found and another not never reset each
@@ -57,14 +72,21 @@ namespace Plugin
 		if (LightKit::FleshFx::Hues().empty()) {
 			return;  // no flesh spell wears FleshFX's look in this load order: nothing to note, ever
 		}
-		std::unordered_map<const RE::ShaderReferenceEffect*, NotedRoot> roots;
+		std::unordered_map<const RE::ShaderReferenceEffect*, NotedLights> roots;
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {
 			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
 				auto* shader = a_effect ? netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect) : nullptr;
 				if (shader && !shader->finished && LightKit::FleshFx::HueOf(shader->effectData)) {
 					const auto ref = shader->target.get();
 					if (auto* node = FleshBodyNode(ref.get(), shader->GetAttachRoot())) {
-						roots.emplace(shader, NotedRoot{ shader->effectID, RE::NiPointer<RE::NiAVObject>(node) });
+						NotedLights noted{ shader->effectID, {} };
+						RE::BSVisit::TraverseScenegraphLights(node, [&](RE::NiPointLight* a_light) {
+							if (LightOfEffect(a_light, noted.effectID)) {
+								noted.lights.emplace_back(a_light);
+							}
+							return RE::BSVisit::BSVisitControl::kContinue;
+						});
+						roots.emplace(shader, std::move(noted));
 					}
 				}
 				return RE::BSContainer::ForEachResult::kContinue;
@@ -87,30 +109,20 @@ namespace Plugin
 		if (!hue) {
 			return;
 		}
-		RE::NiPointer<RE::NiAVObject> root;
+		std::uint32_t matched = 0;
 		{
 			std::scoped_lock lock{ gRootLock };
-			if (const auto it = gRoots.find(a_effect); it != gRoots.end() && it->second.effectID == a_effect->effectID) {
-				root = it->second.root;
+			const auto       it = gRoots.find(a_effect);
+			if (it == gRoots.end() || it->second.effectID != a_effect->effectID) {
+				return;  // not noted by the main thread yet (a cast this frame): its lights take the hue from the next frame on
 			}
-		}
-		if (!root) {
-			return;  // not noted by the main thread yet (a cast this frame): its lights take the hue from the next frame on
-		}
-		std::array<char, 24>   text{};
-		const auto             end = std::format_to_n(text.data(), text.size() - 1, "]({})#", a_effect->effectID).out;
-		const std::string_view mark(text.data(), static_cast<std::size_t>(end - text.data()));
-		std::uint32_t          matched = 0;
-		RE::BSVisit::TraverseScenegraphLights(root.get(), [&](RE::NiPointLight* a_light) {
-			const char*            raw = a_light ? a_light->name.c_str() : nullptr;
-			const std::string_view name = raw ? raw : "";
-			if (name.starts_with("LP_Light[") && name.find(mark) != std::string_view::npos) {
-				auto& data = a_light->GetLightRuntimeData();
+			// only the lights the main thread found for this effect: their color, on the values Light Placer just wrote
+			for (const auto& light : it->second.lights) {
+				auto& data = light->GetLightRuntimeData();
 				data.diffuse = LightKit::FleshFx::Shown(*hue, data.diffuse);
-				++matched;
 			}
-			return RE::BSVisit::BSVisitControl::kContinue;
-		});
+			matched = static_cast<std::uint32_t>(it->second.lights.size());
+		}
 		std::scoped_lock lock{ gMissLock };
 		auto&            misses = gMisses[a_effect];
 		misses = matched ? 0 : misses + 1;

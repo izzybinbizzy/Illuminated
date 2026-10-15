@@ -10,7 +10,7 @@
 #	define WIN32_LEAN_AND_MEAN
 #endif
 #ifndef NOMINMAX
-#	define NOMINMAX  // the build defines it too (lagen.XMAKE_EDITS)
+#	define NOMINMAX  // the build defines it too (xmake.lua)
 #endif
 #include "Fade.h"
 #include "Plugin.h"
@@ -46,19 +46,17 @@ namespace Plugin
 
 		// HIS MENU: "Default to ENB Light Settings" sits under the Version heading and is "greyed out if enb
 		// is not selected". 🔁 HIS WORD: "found by itself needs to be changed to "Automatic"" and "users to not be able
-		// to manually switch between versions" - the heading shows what was found (Lighting.cpp), there is no pick; an old
-		// settings file's Lighting line is not drawn
-		constexpr std::string_view kOldLightingId = "IlluminatedLighting";
+		// to manually switch between versions" - the heading shows what was found (Lighting.cpp), there is no pick
 		constexpr std::string_view kYieldENBId = "IlluminatedYieldENBLight";
 		constexpr std::string_view kVersionGroup = "Version";  // lagen.py: the first heading on Lights
 
-		bool EnbFound() { return LightingPick() == Lighting::kEnb; }
+		bool EnbFound() { return LightingFound() == Lighting::kEnb; }
 
 		void DrawVersion()
 		{
 			ImGuiMCP::Text("%s", T("Lighting"));
 			ImGuiMCP::SameLine();
-			ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.86f, 0.55f, 1.0f }, T("Automatic - %s"), T(LightingName(LightingPick())));
+			ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.86f, 0.55f, 1.0f }, T("Automatic - %s"), T(LightingName(LightingFound())));
 			ImGuiMCP::SetItemTooltip("%s", T("Illuminated finds your lighting by itself when the game starts: Community Shaders when its inverse "
 											 "square lighting is installed, else ENB when an ENB is in the game folder, else Vanilla. Your presets "
 											 "are kept apart for each one."));
@@ -80,7 +78,7 @@ namespace Plugin
 			const MenuStyle::Page style;
 			const auto&           cov = LastCoverage();
 			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Found"));
-			ImGuiMCP::Text(T("Lighting: %s (inverse square lights: %s)"), T(LightingName(LightingPick())), InverseSquare() ? T("yes") : T("no"));
+			ImGuiMCP::Text(T("Lighting: %s (inverse square lights: %s)"), T(LightingName(LightingFound())), InverseSquare() ? T("yes") : T("no"));
 			ImGuiMCP::Text(T("Route: %s"), RecordRoute() ? T("the game's own light records (Light Placer is not loaded)") : T("Light Placer"));
 			ImGuiMCP::Text(T("CS Light: %s"), gCSLight.empty() ? T("not loaded") : gCSLight.c_str());
 			ImGuiMCP::Text(T("Configs: %zu file(s), %zu lit model(s), %zu shader name(s)"), cov.files, cov.models.size(), cov.shaders.size());
@@ -142,7 +140,10 @@ namespace Plugin
 				if (ImGuiMCP::Combo(T(a_s.label.c_str()), &v, items.data(), static_cast<int>(items.size()))) {
 					SetSetting(a_index, v);
 				}
-				SettingTip(a_s, static_cast<std::size_t>(std::clamp(a_s.value.load(), 0, std::max(0, static_cast<int>(a_s.tips.size()) - 1))));
+				// the choice's own tip when the settings file gives one, else the setting's (the build writes only the first for its
+				// own pick-one settings - Dim in daylight, Hand lights for, Ward look)
+				const auto choice = static_cast<std::size_t>((std::max)(a_s.value.load(), 0));
+				SettingTip(a_s, choice < a_s.tips.size() && !a_s.tips[choice].empty() ? choice : 0);
 			} else {
 				bool on = a_s.value != 0;
 				if (ImGuiMCP::Checkbox(T(a_s.label.c_str()), &on)) {
@@ -172,16 +173,18 @@ namespace Plugin
 		// HIS WORD: "any presets users make need to be version dependant so they can have presets per version if they
 		// switch to say, enb to community shaders mid save." A preset is every setting's value, saved under a name in
 		// Presets.ini beside the settings file, in a section of the lighting it was made on ([Vanilla|My preset]); the menu
-		// shows only the presets of the lighting found now. The file is read and written on the menu's thread, under a lock.
+		// shows only the presets of the lighting found now. The file is read once on the main thread (RegisterMenu) and
+		// written by an SKSE task from a copy - never file work on the menu's thread; the list in memory is under a lock.
 		struct UserPreset
 		{
 			std::string                        name;
 			std::map<std::string, std::string> values;  // a setting's ini key (lower case) -> its value
 		};
-		std::mutex        gPresetLock;
-		std::atomic<bool> gPresetsDirty{ true };  // the file changed (or was never read): read it at the next draw
+		using PresetList = std::vector<std::pair<std::string, UserPreset>>;  // by section "<lighting>|<name>", in file order
+		std::mutex gPresetLock;
+		PresetList gPresets;  // under gPresetLock
 
-		fs::path PresetsPath() { return fs::current_path() / "Data" / "SKSE" / "Plugins" / std::string(kOurFolder) / "Presets.ini"; }
+		fs::path PresetsPath() { return OurFolder() / "Presets.ini"; }
 
 		// every preset in the file, by section "<lighting>|<name>", in file order
 		std::vector<std::pair<std::string, UserPreset>> ReadPresets()
@@ -210,7 +213,7 @@ namespace Plugin
 			return out;
 		}
 
-		void WritePresets(const std::vector<std::pair<std::string, UserPreset>>& a_all)
+		void WritePresets(const PresetList& a_all)
 		{
 			std::ostringstream text;
 			text << "; " << kOurFolder << " - the presets you saved in the menu, one set per lighting. Written by the menu.\n";
@@ -239,19 +242,25 @@ namespace Plugin
 			}
 		}
 
+		// the caller holds gPresetLock: the file is written on the main thread from this copy
+		void WritePresetsSoon()
+		{
+			if (auto* tasks = SKSE::GetTaskInterface()) {
+				tasks->AddTask([all = gPresets]() { WritePresets(all); });
+			}
+		}
+
 		void SavePreset(const std::string& a_name)
 		{
 			std::lock_guard   lock(gPresetLock);
-			const std::string lighting = LightingName(LightingPick());
+			const std::string lighting = LightingName(LightingFound());
 			UserPreset        p{ a_name, {} };
 			for (const auto& s : Settings()) {
 				p.values[Lower(s.ini)] = std::to_string(s.value.load());
 			}
-			auto all = ReadPresets();
-			std::erase_if(all, [&](const auto& e) { return e.first == lighting && Lower(e.second.name) == Lower(a_name); });
-			all.push_back({ lighting, std::move(p) });
-			WritePresets(all);
-			gPresetsDirty = true;
+			std::erase_if(gPresets, [&](const auto& e) { return e.first == lighting && Lower(e.second.name) == Lower(a_name); });
+			gPresets.push_back({ lighting, std::move(p) });
+			WritePresetsSoon();
 			SKSE::log::info("presets: '{}' saved for {}", a_name, lighting);
 		}
 
@@ -273,12 +282,10 @@ namespace Plugin
 		void DeletePreset(const std::string& a_name)
 		{
 			std::lock_guard   lock(gPresetLock);
-			const std::string lighting = LightingName(LightingPick());
-			auto              all = ReadPresets();
+			const std::string lighting = LightingName(LightingFound());
 			// the same comparison as SavePreset (case left out), so a hand-edited name is found by both
-			std::erase_if(all, [&](const auto& e) { return e.first == lighting && Lower(e.second.name) == Lower(a_name); });
-			WritePresets(all);
-			gPresetsDirty = true;
+			std::erase_if(gPresets, [&](const auto& e) { return e.first == lighting && Lower(e.second.name) == Lower(a_name); });
+			WritePresetsSoon();
 		}
 
 		// HIS GO-TO PICK "presets" ("do all of them"): one click sets the sliders and the switches
@@ -329,17 +336,12 @@ namespace Plugin
 			}
 			ImGuiMCP::EndDisabled();
 			ImGuiMCP::SetItemTooltip(T("Saves every setting as it is now under this name, for %s. Each lighting keeps its own presets."),
-				T(LightingName(LightingPick())));
+				T(LightingName(LightingFound())));
 			std::vector<UserPreset> mine;
 			{
-				// the file is read again only after a save or a delete (not every frame the page is drawn)
-				std::lock_guard                                        lock(gPresetLock);
-				static std::vector<std::pair<std::string, UserPreset>> cache;
-				if (gPresetsDirty.exchange(false)) {
-					cache = ReadPresets();
-				}
-				const std::string lighting = LightingName(LightingPick());
-				for (const auto& [l, p] : cache) {
+				std::lock_guard   lock(gPresetLock);
+				const std::string lighting = LightingName(LightingFound());
+				for (const auto& [l, p] : gPresets) {
 					if (l == lighting) {
 						mine.push_back(p);
 					}
@@ -400,9 +402,9 @@ namespace Plugin
 			const MenuStyle::Page style;
 			const auto&           page = gPages[a_page];
 			// HIS MENU: "start the menu with (lightbulb) Presets", and "all of the subtext in lights menu is
-			// not needed" - the status lines that stood here are gone (the Lighting pick shows what is in use; devbench and the
-			// log still say it); CS Light loaded stays one warning line, its how-to in the hover text
-			// 🔁 HIS WORD: the Version heading (the Lighting pick + "Default to ENB Light Settings") "goes before
+			// not needed" - the status lines that stood here are gone (the Version heading shows the lighting found; devbench
+			// and the log still say it); CS Light loaded stays one warning line, its how-to in the hover text
+			// 🔁 HIS WORD: the Version heading (the lighting found + "Default to ENB Light Settings") "goes before
 			// presets as the first thing in the menu" - Presets is drawn when the first heading after Version starts
 			bool       presetsDrawn = a_page != 0;
 			const auto presets = [&] {
@@ -431,8 +433,8 @@ namespace Plugin
 				if (s.page != page) {
 					continue;
 				}
-				if (s.id == kPraedysGems || s.id == kOldLightingId) {
-					continue;  // drawn inside the one soul gem pick; the old Lighting pick is gone (Automatic)
+				if (s.id == kPraedysGems) {
+					continue;  // drawn inside the one soul gem pick
 				}
 				if (s.group != group) {
 					if (s.group != kVersionGroup) {
@@ -470,7 +472,11 @@ namespace Plugin
 
 	void RegisterMenu()
 	{
-		SKSE::log::info("{}", Translation::Load(fs::current_path() / "Data" / "SKSE" / "Plugins" / std::string(kOurFolder) / "Translation.json"));
+		SKSE::log::info("{}", Translation::Load(OurFolder() / "Translation.json"));
+		{
+			std::lock_guard lock(gPresetLock);
+			gPresets = ReadPresets();  // here on the main thread, once: the menu never reads a file on its own thread
+		}
 		if (!SKSEMenuFramework::IsInstalled()) {
 			SKSE::log::warn("SKSE Menu Framework is not installed, so there is no settings page - the settings INI still applies");
 			return;

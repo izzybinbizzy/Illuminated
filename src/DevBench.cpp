@@ -4,7 +4,7 @@
 //
 // DevBench, when it is in the load order (it is optional; nothing here runs without it):
 //   inspect kind=illuminated     every setting's value, and every light copy's fade, radius and cutoff now next to the
-//                                values it was made with; the lighting pick; the record lights (made without Light Placer).
+//                                values it was made with; the lighting found; the record lights (made without Light Placer).
 //   illuminated.control          action = setting (key = a setting id or INI key, value = a whole number: changed exactly
 //                                as the menu does - saved, applied at the next frame; the reply is the value it holds) |
 //                                settings (every setting with its value, range and page) | item (form = a spell or weapon's
@@ -14,6 +14,7 @@
 
 #include "Plugin.h"
 #include "Fade.h"
+#include "FadeFormText.h"
 
 #include "DevBenchGlue.h"
 
@@ -57,8 +58,14 @@ namespace Plugin
 
 		json SettingJson(const Setting& a_s)
 		{
-			return json{ { "id", a_s.id }, { "ini", a_s.ini }, { "value", a_s.value.load() }, { "default", a_s.defaultValue }, { "min", a_s.minValue },
-				{ "max", a_s.maxValue }, { "page", a_s.page }, { "label", a_s.label }, { "restart", a_s.restart } };
+			// a slider's own range; a pick-one setting runs 0 .. its last choice, a switch 0 .. 1
+			const int  top = a_s.isSlider ? a_s.maxValue : a_s.isChoice ? (std::max)(static_cast<int>(a_s.choices.size()) - 1, 0) :
+			                                                              1;
+			const auto kind = a_s.isSlider ? "slider" : a_s.isChoice ? "choice" :
+			                                                           "switch";
+			return json{ { "id", a_s.id }, { "ini", a_s.ini }, { "value", a_s.value.load() }, { "default", a_s.defaultValue },
+				{ "min", a_s.isSlider ? a_s.minValue : 0 }, { "max", top }, { "kind", kind }, { "choices", a_s.choices }, { "page", a_s.page },
+				{ "label", a_s.label }, { "restart", a_s.restart } };
 		}
 
 		json Act(const json& a_args)
@@ -78,12 +85,14 @@ namespace Plugin
 			if (action == "item") {
 				const auto    form = DevBenchGlue::Text(a_args, "form");
 				std::uint32_t id = 0;
-				const auto    digits = form.starts_with("0x") || form.starts_with("0X") ? std::string_view(form).substr(2) : std::string_view(form);
-				if (std::from_chars(digits.data(), digits.data() + digits.size(), id, 16).ec != std::errc{} || !RE::TESForm::LookupByID(id)) {
+				// the whole text must be the number: "0x12junk" would otherwise name form 0x12 (RELight 2.2's CodeRabbit round)
+				if (!FormText::ParseHex(form, id) || !RE::TESForm::LookupByID(id)) {
 					return DevBenchGlue::Refusal("item needs form: a loaded spell's or weapon's form id");
 				}
 				if (!Fade::Items::SetFromText(id, DevBenchGlue::Text(a_args, "choice"))) {
-					return DevBenchGlue::Refusal("item needs choice: auto, off or r,g,b");
+					return DevBenchGlue::Refusal(
+						"item needs a spell, staff or enchanted / bound weapon the Lights by Item list holds, and choice: auto, off, r,g,b "
+						"or off,r,g,b");
 				}
 				return json{ { "ok", true }, { "form", form }, { "choice", DevBenchGlue::Text(a_args, "choice") }, { "note", "applied to the lights at the next frame" } };
 			}

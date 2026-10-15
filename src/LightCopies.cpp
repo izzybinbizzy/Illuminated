@@ -32,7 +32,8 @@
 //   a hazard's update        } (powerof3/LightPlacer, Hooks/Update.cpp) hooks them. In VR these lights keep
 //   a cell's animations      } their made-with strength.
 // Light Placer skips a culled or distant light, so a value it did not rewrite is never scaled twice. Nothing in this
-// part runs while Brightness is 100%.
+// part runs while Brightness is 100%, nor without Light Placer (the record route has no Light Placer light to scale).
+// Every hook's own work runs inside LightKit::Guarded: no exception may leave into the game.
 //
 // The fading module (Fade*.cpp) scales some of the same lights by charge and magicka, in the same three places (the
 // player's update, an effect's update, the cell's animations). Each place has ONE wrapper, here: Brightness first,
@@ -54,7 +55,8 @@ namespace Plugin
 		constexpr float            kLowestCutoff = 0.01f, kHighestCutoff = 1.0f;  // what Light Placer keeps a cutoff within
 		constexpr std::uint32_t    kInverseSquare = LightKit::kRecordInverseSquare;
 
-		std::atomic<bool>  gRefresh{ false };
+		std::atomic<bool>  gRefresh{ false };        // a setting changed: the passes again (RefreshLights)
+		std::atomic<bool>  gDaylightMoved{ false };  // only the daylight moved: the sliders' numbers again, nothing else
 		std::atomic<float> gBrightness{ 1.0f };
 
 		// HIS GO-TO PICKS ("do all of them"): smarter brightness and a light budget
@@ -68,7 +70,8 @@ namespace Plugin
 		// how much dimmer the lights are now (LightKit.h: by the hour outdoors, by the room's own light indoors)
 		float DaylightFactor() { return LightKit::Daylight(SettingValue(kSmartBrightness, 0)); }
 
-		// every two seconds on the main thread: a change worth seeing moves every light the way a Brightness change does
+		// every two seconds on the main thread: a change worth seeing moves every light the way a Brightness change does (only
+		// the strength - the passes are not run again for it)
 		void WatchDaylight(float a_delta)
 		{
 			gDaylightClock += a_delta;
@@ -78,15 +81,17 @@ namespace Plugin
 			gDaylightClock = 0.0f;
 			if (const float now = DaylightFactor(); std::abs(now - gDaylight.load()) >= 0.02f) {
 				gDaylight = now;
-				RequestRefresh();
+				gDaylightMoved = true;
 			}
 		}
 
-		// the light budget: a hand light the Hand lights for choice leaves out is put out after the game wrote it this frame
+		// the light budget: a hand light the Hand lights for choice leaves out is put out after the game wrote it this frame.
+		// HIS ANSWER 2026-10-13: only WITHOUT Light Placer (the record route), as its hover text says - with Light Placer the
+		// game's casting light on a far caster's unpatched spell is left as the game makes it
 		void ApplyHandBudget(RE::ActorMagicCaster* a_caster)
 		{
 			const int budget = gHandBudget.load(std::memory_order_relaxed);
-			if (budget == 0 || !a_caster) {
+			if (budget == 0 || !a_caster || !RecordRoute()) {
 				return;
 			}
 			auto* actor = a_caster->GetCasterAsActor();
@@ -208,9 +213,10 @@ namespace Plugin
 			a_flicker.written = fade;
 		}
 
+		// every use is about Light Placer's own lights: none without it
 		bool Scaling()
 		{
-			return gBrightness.load(std::memory_order_relaxed) != 1.0f;
+			return gBrightness.load(std::memory_order_relaxed) != 1.0f && !RecordRoute();
 		}
 
 		// straight after Light Placer wrote the lights of one reference, or of one cell
@@ -292,11 +298,14 @@ namespace Plugin
 		// once a frame, on the main thread
 		void Frame()
 		{
-			const bool  changed = gRefresh.exchange(false);
+			const bool  settings = gRefresh.exchange(false);
+			const bool  changed = gDaylightMoved.exchange(false) || settings;
 			const float before = gBrightness;
-			if (changed) {
+			if (settings) {
 				RefreshLights();
 				ApplyWardLook();  // the Ward look pick: the next ward raised wears it
+			} else if (changed) {
+				ApplyLightStrength(false, true);  // the daylight moved: the copies at the new Brightness x daylight, no log line
 			}
 			StreamLightsFrame();
 			auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
@@ -331,15 +340,17 @@ namespace Plugin
 			static void thunk(RE::PlayerCharacter* a_this, float a_delta)
 			{
 				func(a_this, a_delta);
-				AdvanceRecordFlicker(a_delta);
-				WatchDaylight(a_delta);
-				Frame();
-				TickArtLights();  // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
-				if (!RecordRoute()) {
-					NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
-				}
-				Fade::UpdateHands(a_delta);
-				TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
+				LightKit::Guarded("player update", [a_delta]() {
+					AdvanceRecordFlicker(a_delta);
+					WatchDaylight(a_delta);
+					Frame();
+					TickArtLights();  // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
+					if (!RecordRoute()) {
+						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
+					}
+					Fade::UpdateHands(a_delta);
+					TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
+				});
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 			static void                                    Install()
@@ -354,10 +365,12 @@ namespace Plugin
 			static void thunk(RE::ActorMagicCaster* a_this, float a_delta)
 			{
 				func(a_this, a_delta);
-				ScaleOwned(a_this->GetCasterAsActor());
-				RecordFlicker(a_this);  // without Light Placer: the hand light's flicker (RecordLights.cpp), before the fading module scales it
-				ApplyHandBudget(a_this);
-				ApplyRecordHand(a_this);
+				LightKit::Guarded("caster update", [a_this]() {
+					ScaleOwned(a_this->GetCasterAsActor());
+					RecordFlicker(a_this);  // without Light Placer: the hand light's flicker (RecordLights.cpp), before the fading module scales it
+					ApplyHandBudget(a_this);
+					ApplyRecordHand(a_this);
+				});
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 			static void                                    Install()
@@ -373,17 +386,19 @@ namespace Plugin
 			static void thunk(T* a_this)
 			{
 				func(a_this);
-				if (Scaling()) {
-					// the owner by the effect's own 3D, not its target handle: this hook runs off the main thread, where making or
-					// reading a handle is not ours to do (the fading module's rule; the re-score's Illuminated issue 2)
-					ScaleOwned(OwnerOf(a_this->Get3D()));
-				}
-				if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
-					if (!RecordRoute()) {
-						FleshLightPlacer(a_this);  // a flesh spell under FleshFX: Light Placer's light just written takes its hue
+				LightKit::Guarded("effect update", [a_this]() {
+					if (Scaling()) {
+						// the owner by the effect's own 3D, not its target handle: this hook runs off the main thread, where making or
+						// reading a handle is not ours to do (the fading module's rule; the re-score's Illuminated issue 2)
+						ScaleOwned(OwnerOf(a_this->Get3D()));
 					}
-				}
-				Fade::AfterReferenceEffect(a_this, std::is_same_v<T, RE::ModelReferenceEffect>);  // an art model, not a shader's actor
+					if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
+						if (!RecordRoute()) {
+							FleshLightPlacer(a_this);  // a flesh spell under FleshFX: Light Placer's light just written takes its hue
+						}
+					}
+					Fade::AfterReferenceEffect(a_this, std::is_same_v<T, RE::ModelReferenceEffect>);  // an art model, not a shader's actor
+				});
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 			static void                                    Install()
@@ -410,7 +425,7 @@ namespace Plugin
 			static bool thunk(RE::Explosion* a_this)
 			{
 				const bool result = func(a_this);
-				ScaleUnder(a_this);
+				LightKit::Guarded("explosion update", [a_this]() { ScaleUnder(a_this); });
 				return result;
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
@@ -421,7 +436,7 @@ namespace Plugin
 			static bool thunk(RE::Hazard* a_this)
 			{
 				const bool result = func(a_this);
-				ScaleUnder(a_this);
+				LightKit::Guarded("hazard update", [a_this]() { ScaleUnder(a_this); });
 				return result;
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
@@ -432,8 +447,10 @@ namespace Plugin
 			static void thunk(RE::TESObjectCELL* a_cell)
 			{
 				func(a_cell);
-				ScaleCell(a_cell);
-				Fade::ReapplyAll();  // this frame's fading numbers again, without advancing any timer
+				LightKit::Guarded("cell animations", [a_cell]() {
+					ScaleCell(a_cell);
+					Fade::ReapplyAll();  // this frame's fading numbers again for every hand's lights, without advancing any timer
+				});
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 		};
@@ -447,7 +464,7 @@ namespace Plugin
 			if (REL::Module::IsVR()) {
 				return;
 			}
-			// the trampoline is made once, in main.cpp's SKSE::Init (room for these three and the fading module's three)
+			// the trampoline is made once, in main.cpp's SKSE::Init (room for these three and the fading module's two)
 			WrapCall<ExplosionUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42664, 43836), 0x11 }, "explosion update");
 			WrapCall<HazardUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42791, 43959), REL::VariantOffset(0x11, 0x1F, 0x11) }, "hazard update");
 			WrapCall<CellAnimations>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(18458, 18889), 0x52 }, "cell animations");
@@ -481,8 +498,8 @@ namespace Plugin
 			                                                                                                0.0f;
 			if (!InverseSquare() && c.startCutoff > 0.0f) {
 				// ENB and Vanilla (Lighting.cpp): the reach it has under Community Shaders, drawn plain; Reach moves the radius
-				const float size = base->data.fov >= 50.0f ? 1.414f : std::clamp(base->data.fov, 0.01f, 50.0f);  // Light Placer's GetSize
-				const auto  plain = Plain(c.startFade, static_cast<float>(c.startRadius), IslReach(c.startFade, c.startCutoff, size));
+				const auto plain = LightKit::PlainOf(c.startFade, static_cast<float>(c.startRadius), c.startCutoff,
+					LightKit::LightPlacerSize(base->data.fov));
 				c.startFade = plain.fade;
 				c.startRadius = static_cast<std::uint32_t>(std::lround(plain.radius));
 				c.startCutoff = 0.0f;
@@ -494,7 +511,7 @@ namespace Plugin
 			++made;
 		}
 		SKSE::log::info("light copies: {} made ({} flicker, {} drawn plain for {}), {} whose light is not in this load order, {} failed", made,
-			flickers, plained, LightingName(LightingPick()), missing, failed);
+			flickers, plained, LightingName(LightingFound()), missing, failed);
 		InstallHooks();
 		ApplyLightStrength(true);
 	}
@@ -502,6 +519,11 @@ namespace Plugin
 	void RequestRefresh()
 	{
 		gRefresh = true;
+	}
+
+	float BrightnessNow()
+	{
+		return gBrightness.load(std::memory_order_relaxed);
 	}
 
 	void NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after)
@@ -516,7 +538,13 @@ namespace Plugin
 		}
 	}
 
-	void ApplyLightStrength(bool a_log)
+	// The fading module reports each reach it writes, as it reports each fade (the shared FadeLights.cpp, from RELight - Spell
+	// Addon's 2026-10-14 audit). RELight - Spell Addon's Reach slider rescales a light's reach every frame and needs the report
+	// so the two never compound; here Reach moves the light records' radius once (ApplyLightStrength), never a light in the
+	// scene, so there is nothing to note
+	void NoteReachWrite(const RE::NiPointLight*, float, float) {}
+
+	void ApplyLightStrength(bool a_log, bool a_quiet)
 	{
 		const int brightness = SettingValue(kBrightness, 100);
 		const int reach = SettingValue(kReach, 100);
@@ -543,8 +571,10 @@ namespace Plugin
 			}
 			++set;
 		}
-		SKSE::log::info("light strength: brightness {}% x daylight {:.2f}, reach {}%, hand lights for {}, on {} light copies", brightness, daylight, reach,
-			gHandBudget.load(), set);
+		if (!a_quiet) {
+			SKSE::log::info("light strength: brightness {}% x daylight {:.2f}, reach {}%, hand lights for {}, on {} light copies", brightness, daylight,
+				reach, gHandBudget.load(), set);
+		}
 		if (a_log) {
 			for (const auto& c : LightCopies()) {
 				if (c.form) {
