@@ -115,17 +115,14 @@ namespace Fade::Items
 
 		[[nodiscard]] RE::FormID FormOfKey(std::string_view a_key)
 		{
-			const auto bar = a_key.find('|');
-			if (bar == std::string_view::npos) {
-				return 0;
-			}
-			const auto    file = std::string(a_key.substr(0, bar));
-			std::uint32_t local = 0;
-			if (!FormText::ParseHex(a_key.substr(bar + 1), local)) {  // the whole text is the number: "0x12junk" names nothing
+			// FormText::Parse: the plugin and the id both trimmed, an empty plugin refused, the whole id text the number
+			// ("0x12junk" names nothing) - the rule files' own reader
+			const auto spec = FormText::Parse(a_key);
+			if (spec.kind != FormText::Spec::Kind::kPluginAndID || a_key.find('|') == std::string_view::npos) {
 				return 0;
 			}
 			auto*       dh = RE::TESDataHandler::GetSingleton();
-			const auto* form = dh ? dh->LookupForm(local, file) : nullptr;
+			const auto* form = dh ? dh->LookupForm(spec.id, spec.plugin) : nullptr;
 			return form ? form->GetFormID() : 0;
 		}
 

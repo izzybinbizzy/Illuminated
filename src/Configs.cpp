@@ -7,6 +7,7 @@
 // every light row - the copy it names, its color, its flicker - until the game's own light records are made from them.
 
 #include "Fade.h"
+#include "FadeFormText.h"
 #include "Plugin.h"
 
 namespace Plugin
@@ -24,18 +25,17 @@ namespace Plugin
 		// order, or nothing (not that form of claim, or its plugin is not loaded)
 		[[nodiscard]] std::optional<RE::FormID> FormOfToken(std::string_view a_text)
 		{
-			const auto tilde = a_text.find('~');
-			if (tilde == std::string_view::npos || tilde < 3 || !(a_text.starts_with("0x") || a_text.starts_with("0X"))) {
+			// FormText::Parse (the fading module's reader): both halves trimmed, the whole id text the number
+			const auto text = FormText::Trim(a_text);
+			if (text.find('~') == std::string_view::npos || !(text.starts_with("0x") || text.starts_with("0X"))) {
 				return std::nullopt;
 			}
-			const auto    hex = a_text.substr(2, tilde - 2);
-			std::uint32_t local = 0;
-			const auto    r = std::from_chars(hex.data(), hex.data() + hex.size(), local, 16);
-			if (r.ec != std::errc{} || r.ptr != hex.data() + hex.size()) {
+			const auto spec = FormText::Parse(text);
+			if (spec.kind != FormText::Spec::Kind::kPluginAndID) {
 				return std::nullopt;
 			}
 			auto*      dh = RE::TESDataHandler::GetSingleton();
-			const auto id = dh ? dh->LookupFormID(local, a_text.substr(tilde + 1)) : 0;
+			const auto id = dh ? dh->LookupFormID(spec.id, spec.plugin) : 0;
 			return id ? std::optional<RE::FormID>(id) : std::nullopt;
 		}
 
