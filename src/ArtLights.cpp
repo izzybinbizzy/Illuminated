@@ -332,6 +332,7 @@ namespace Plugin
 			Drop(kept, scene);
 		}
 		gKept.clear();
+		gModelKey.clear();  // keyed by form address: a form made in memory and freed could hand its address to another
 	}
 
 	std::size_t ArtLightCount() { return gKept.size(); }

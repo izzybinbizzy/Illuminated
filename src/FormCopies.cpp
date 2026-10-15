@@ -11,6 +11,9 @@ namespace Plugin
 	// ------------------------------------------------------------------ making copies in memory
 	void CopyLightInto(RE::TESObjectLIGH* a_out, const RE::TESObjectLIGH* a_src)
 	{
+		if (!a_out || !a_src) {
+			return;
+		}
 		a_out->data = a_src->data;
 		a_out->fade = a_src->fade;
 		a_out->emittanceColor = a_src->emittanceColor;

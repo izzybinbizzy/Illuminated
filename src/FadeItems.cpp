@@ -229,6 +229,8 @@ namespace Fade::Items
 			}
 			if (auto* tasks = SKSE::GetTaskInterface()) {
 				tasks->AddTask([c = std::move(copy)]() { Save(c); });
+			} else {
+				gDirty.store(true, std::memory_order_release);  // no task to write it: kept for the next try, never written under the lock
 			}
 		}
 
