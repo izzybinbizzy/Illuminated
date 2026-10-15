@@ -8,18 +8,19 @@
 //     (never bigger): this download carries VAER's own 36 swirl meshes with only their emissive multiplier raised,
 //     under meshes\Illuminated\VAER\L3s\ so they replace nothing on disk. Each of VAER's art objects that names one
 //     of those meshes is pointed at our copy - a copy that is not on disk is left alone.
-// c. VAER'S OWN EFFECTS PUT BACK (ReLight's fix ported). A plugin loaded after
+//  b. VAER'S OWN EFFECTS PUT BACK (ReLight's fix ported). A plugin loaded after
 //     VAEReborn.esp that edits the same vanilla effect (Thaumaturgy, Artificer, ...) carries the effect's old art, so VAER's
 //     swirl is lost - 21 of VAER's 46 in his game, measured. Each gets VAER's Enchant Art and Enchant Shader back
 //     (gen.VAER_VANILLA_FORMS, read off VAEReborn.esp). And two of VAER's shaders (Stendarr's Hammer, Dawnfang's Bloodthirst)
 //     name their fill texture "....dds.dds", a file that does not exist, so they draw nothing: such a name is pointed at
 //     the real file.
-//  b. THAUMATURGY'S OWN COPIES. Thaumaturgy points the Fear, Paralyze, Turn Undead, Banish, Silent Moons and second
+//  c. THAUMATURGY'S OWN COPIES. Thaumaturgy points the Fear, Paralyze, Turn Undead, Banish, Silent Moons and second
 //     Absorb enchantments at new magic effects of its own, and VAER only dresses the vanilla ones, so those weapons
 //     had no swirl. Each copy is given the enchant art and enchant shader VAER made for the vanilla effect. Only
 //     when Thaumaturgy.esp is loaded too.
 //
-// Read when the game loads: changing the setting takes effect the next time the game starts.
+// Read when the game loads: changing the setting takes effect the next time the game starts. (The 54 light rows of
+// `Weapons - VAER Reborn.json` carry the same setting in their conditions and follow it at once - only this pass waits.)
 // The two tables below are gen.VAER_SWIRL_FORMS and gen.VAER_VANILLA_FORMS (RELight - Spell Addon carries the same rows),
 // kept true by `lagen.py latables` (preflight): a change goes into gen.py, then `latables --write`.
 
