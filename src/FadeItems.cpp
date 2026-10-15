@@ -221,17 +221,17 @@ namespace Fade::Items
 			if (!gDirty.load(std::memory_order_acquire) || (!a_now && NowMs() - gChangedAt.load(std::memory_order_relaxed) < kSaveQuietMs)) {
 				return;
 			}
+			auto* tasks = SKSE::GetTaskInterface();
+			if (!tasks) {
+				return;  // no task to write it with: kept dirty for the next try, never written under the lock
+			}
 			gDirty.store(false, std::memory_order_relaxed);
 			std::unordered_map<RE::FormID, Choice> copy;
 			{
 				std::lock_guard lock(gLock);
 				copy = gChoices;
 			}
-			if (auto* tasks = SKSE::GetTaskInterface()) {
-				tasks->AddTask([c = std::move(copy)]() { Save(c); });
-			} else {
-				gDirty.store(true, std::memory_order_release);  // no task to write it: kept for the next try, never written under the lock
-			}
+			tasks->AddTask([c = std::move(copy)]() { Save(c); });
 		}
 
 		// ------------------------------------------------------------------ applying, main thread

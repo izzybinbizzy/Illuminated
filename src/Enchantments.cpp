@@ -97,7 +97,11 @@ namespace Plugin
 					continue;
 				}
 				auto* original = eff->baseEffect;
-				if (!original || original->data.archetype == RE::EffectArchetypes::ArchetypeID::kScript) {
+				if (!original) {
+					SKSE::log::warn("[ENCH-SKIPPED] {} | effect {} | no base effect", Label(a_ench), i);
+					continue;
+				}
+				if (original->data.archetype == RE::EffectArchetypes::ArchetypeID::kScript) {
 					continue;  // a copy made in memory carries no script: the enchantment would stop doing what it does
 				}
 				auto* quiet = QuietCopyOf(original);

@@ -44,17 +44,24 @@ namespace Plugin
 		};
 
 		std::unordered_map<const void*, Kept> gKept;  // main thread only
-		// a weapon's / an art object's model as the configs key it, worked out once per form (main thread)
-		std::unordered_map<const RE::TESForm*, std::string> gModelKey;
-		std::size_t                                         gMade = 0;
+		// a weapon's / an art object's model as the configs key it, worked out once per form and model (main thread); the
+		// model text rides along, so a form made at the address of a freed one is worked out again, never read as the old one
+		struct ModelKeyOf
+		{
+			std::string model, key;
+		};
+		std::unordered_map<const RE::TESForm*, ModelKeyOf> gModelKey;
+		std::size_t                                        gMade = 0;
 
 		[[nodiscard]] const std::string& ModelKey(const RE::TESForm* a_form, const char* a_model)
 		{
+			const std::string_view model = a_model ? a_model : "";
 			auto [it, added] = gModelKey.try_emplace(a_form);
-			if (added) {
-				it->second = NormalPath(a_model ? a_model : "");
+			if (added || it->second.model != model) {
+				it->second.model.assign(model);
+				it->second.key = NormalPath(it->second.model.c_str());
 			}
-			return it->second;
+			return it->second.key;
 		}
 
 		// the rows' own sneak test (gen.py's While Sneaking clause): a caster who sneaks with the Sneaking setting off keeps
