@@ -130,17 +130,17 @@ namespace Plugin
 	// StreamLights.cpp: pass 6 - each spray, stream and bolt lit by its own light record made bigger and brighter (his stream
 	// rule), and a ward dome's light when Dynamic Wards is not here
 	void               StreamLights();
-	[[nodiscard]] bool StreamLightsOn();                                                               // StreamLights.cpp: the setting
-	void               ApplyStreamLights(bool a_log);                                                  // StreamLights.cpp: the setting, on or off
-	void               StreamLightsFrame();                                                            // StreamLights.cpp: once a frame, what a loader thread left to do
-	void               ApplyLightStrength(bool a_log, bool a_quiet = false);                           // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn); a_quiet: a daylight step, no log line
-	void               RequestRefresh();                                                               // LightCopies.cpp: RefreshLights at the next frame, on the main thread
-	void               NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the fading module wrote it (never scaled twice)
+	[[nodiscard]] bool StreamLightsOn();                                                                // StreamLights.cpp: the setting
+	void               ApplyStreamLights(bool a_log);                                                   // StreamLights.cpp: the setting, on or off
+	void               StreamLightsFrame();                                                             // StreamLights.cpp: once a frame, what a loader thread left to do
+	void               ApplyLightStrength(bool a_log, bool a_quiet = false);                            // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn); a_quiet: a daylight step, no log line
+	void               RequestRefresh();                                                                // LightCopies.cpp: RefreshLights at the next frame, on the main thread
+	void               NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after);   // LightCopies.cpp: the fading module wrote it (never scaled twice)
 	void               NoteReachWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the same for the reach (nothing to do here)
-	void               RegisterMenu();                                                                 // Menu.cpp
-	void               RegisterMenuTail();                                                             // Menu.cpp: the last page, after the fading module's pages
-	void               OfferToDevBench();                                                              // DevBench.cpp: the settings and the light copies, for a test bench
-	void               RefreshLights();                                                                // EffectLights.cpp: the sliders and passes 1, 2 and 6 again, for the settings as they are now
+	void               RegisterMenu();                                                                  // Menu.cpp
+	void               RegisterMenuTail();                                                              // Menu.cpp: the last page, after the fading module's pages
+	void               OfferToDevBench();                                                               // DevBench.cpp: the settings and the light copies, for a test bench
+	void               RefreshLights();                                                                 // EffectLights.cpp: the sliders and passes 1, 2 and 6 again, for the settings as they are now
 
 	// ------------------------------------------------------------------ Configs.cpp: each config light, for the game's own light records
 	struct ConfigLight

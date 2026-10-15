@@ -20,6 +20,7 @@
 // and local id, so they survive a load order change); only an item of the list (the catalog) can be given a choice.
 
 #include "Fade.h"
+#include "FadeFormText.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #	define WIN32_LEAN_AND_MEAN
@@ -119,10 +120,8 @@ namespace Fade::Items
 				return 0;
 			}
 			const auto    file = std::string(a_key.substr(0, bar));
-			const auto    hex = a_key.substr(bar + 1);
 			std::uint32_t local = 0;
-			const auto    digits = hex.starts_with("0x") || hex.starts_with("0X") ? hex.substr(2) : hex;
-			if (std::from_chars(digits.data(), digits.data() + digits.size(), local, 16).ec != std::errc{}) {
+			if (!FormText::ParseHex(a_key.substr(bar + 1), local)) {  // the whole text is the number: "0x12junk" names nothing
 				return 0;
 			}
 			auto*       dh = RE::TESDataHandler::GetSingleton();
