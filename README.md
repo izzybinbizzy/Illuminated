@@ -20,7 +20,7 @@ SKSE Menu Framework > Illuminated. Every setting is live. Values the menu does n
 `Illuminated - Advanced Settings.ini`.
 
 ## Requires
-SKSE and Address Library for SKSE Plugins; SKSE Menu Framework for the menu.
+SKSE, Address Library for SKSE Plugins and SKSE Menu Framework (the settings page and the HUD).
 
 ## Third-party files
 `src/DevBenchAPI.h` and `src/DevBenchAPI.cpp` are devbench's own interface files, MIT licensed by
