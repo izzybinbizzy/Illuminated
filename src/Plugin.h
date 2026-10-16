@@ -22,9 +22,10 @@ namespace Plugin
 	using LightKit::Relaxed;  // a value one thread writes and another reads (LightKit.h)
 
 	// the mod's own values in the advanced settings file (his rule, Fade::Tuning; registered in main.cpp)
-	inline std::atomic<float> gNearby{ 2800.0f };       // [Lights] NearbyDistance: Hand lights for - Everyone nearby
-	inline std::atomic<float> gGroundLightsOn{ 1.0f };  // [Vanilla and ENB] GroundLights
-	inline std::atomic<float> gArtLightsOn{ 1.0f };     // [Vanilla and ENB] ArtLights
+	inline std::atomic<float> gNearby{ 2800.0f };          // [Lights] NearbyDistance: Hand lights for - Everyone nearby
+	inline std::atomic<float> gGroundLightsOn{ 1.0f };     // [Vanilla and ENB] GroundLights
+	inline std::atomic<float> gGroundLightVRHand{ 0.0f };  // [Vanilla and ENB] GroundLightAtVRHand - VR only (his answer 2026-10-16)
+	inline std::atomic<float> gArtLightsOn{ 1.0f };        // [Vanilla and ENB] ArtLights
 
 	// ------------------------------------------------------------------ Text.cpp: small text helpers
 	using LightKit::Lower;  // LightMath.h: the one lower-casing helper
@@ -250,13 +251,11 @@ namespace Plugin
 	// ------------------------------------------------------------------ FormCopies.cpp: making copies in memory
 	using LightKit::NewForm;  // a form made in memory by the game's own factory (LightKit.h)
 
-	[[nodiscard]] RE::TESObjectLIGH*   CopyLight(const RE::TESObjectLIGH* a_src);
-	void                               CopyLightInto(RE::TESObjectLIGH* a_out, const RE::TESObjectLIGH* a_src);  // the whole light: look, sound, flare, model
-	[[nodiscard]] RE::TESEffectShader* CopyShader(const RE::TESEffectShader* a_src);
-	[[nodiscard]] RE::EffectSetting*   CopyEffect(RE::EffectSetting* a_src);
+	[[nodiscard]] RE::TESObjectLIGH* CopyLight(const RE::TESObjectLIGH* a_src);
+	void                             CopyLightInto(RE::TESObjectLIGH* a_out, const RE::TESObjectLIGH* a_src);  // the whole light: look, sound, flare, model
 
 	// ------------------------------------------------------------------ the passes (main.cpp runs them in its own order:
-	// 0, 7, the wards, 3, 1, 2, 4, 6, 5)
+	// 0, 7, the wards, 3, 1, 2, 4, 6 - pass 5 retired 2026-10-16)
 	void LightSettings();                       // LightSettings.cpp
 	void CastingLights(const Coverage& a_cov);  // CastingLights.cpp
 	template <class T>
@@ -269,12 +268,4 @@ namespace Plugin
 	void               Wards();                                                       // Wards.cpp: one dome per ward, 360 Ward's sphere in the vanilla blue
 	[[nodiscard]] bool DynamicWardsLoaded();                                          // Wards.cpp: every ward is Dynamic Wards' then (this mod and pass 6 step down)
 	void               ApplyWardLook();                                               // Wards.cpp: the Ward look pick onto the dome art (main thread)
-
-	// ------------------------------------------------------------------ Enchantments.cpp
-	void               DoubledEnchantments(const Coverage& a_cov);
-	[[nodiscard]] bool AnyLitShaders();
-	void               WatchCraftingMenu();
-	void               ForgetCreatedEnchantments();
-	void               UseOriginals(std::string_view a_why);
-	void               UseQuiet(std::string_view a_why);
 }

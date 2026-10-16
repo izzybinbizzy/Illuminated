@@ -16,8 +16,9 @@
 //   3. the Dragonborn poison rune gets the casting art its lit hand needs (before pass 1, which then follows it);
 //   4. with the Spray Lights setting on, each spray projectile gets a private copy of its own
 //      light, stretched to cover the spray and colored from the settings' markers;
-//   5. an enchantment carrying two or more lit shaders keeps the light of the one the game shows (the costliest) only -
-//      the ones plugins define and the ones made at the enchanting table, never letting a save hold a copy;
+//   5. (retired 2026-10-16 on his yes: it swapped every lit enchantment shader but the one the game shows for an unlit copy,
+//      and the E2 test showed nothing changes without it - Chillrend, the Nightingale Blade and Dawnbreaker kept one blade
+//      light with it on or off, because the game plays only the costliest effect's shader anyway);
 //   6. a spray, stream or bolt is lit by its own light record made bigger and brighter (his stream rule).
 // Every choice is a setting in the menu (SKSE Menu Framework - the only menu this mod has); the few values the menu does
 // not show are in the one advanced settings file (Fade::Tuning, registered below).
@@ -36,7 +37,7 @@
 //   DevBench.cpp       DevBench's inspect and control (optional)       Lighting.cpp   Community Shaders, ENB or Vanilla
 //   Configs.cpp        what the Light Placer configs light (ConfigText.h reads them)    FormCopies.cpp copies of forms
 //   LightSettings.cpp  pass 0      CastingLights.cpp  pass 1      EffectLights.cpp  pass 2 (and RefreshLights)
-//   PoisonRune.cpp     pass 3      SprayLights.cpp    pass 4      Enchantments.cpp  pass 5
+//   PoisonRune.cpp     pass 3      SprayLights.cpp    pass 4
 //   StreamLights.cpp   pass 6      VaerSwirls.cpp     pass 7      Wards.cpp         one dome per ward
 //   SprayMarkers.cpp   the spray settings                         LightCopies.cpp   the sliders and the update hooks
 //   RecordLights.cpp   the game's own light records, lit without Light Placer
@@ -62,6 +63,12 @@ namespace
 		// the advanced settings file's own values (his rule) - read with the fading module's, in Fade::OnDataLoaded
 		Fade::Tuning::Register("Lights", "NearbyDistance", 2800.0f, 300.0f, 30000.0f, "Hand lights for - Everyone nearby: how far from you, in game units", gNearby);
 		Fade::Tuning::Register("Vanilla and ENB", "GroundLights", 1.0f, 0.0f, 1.0f, "1: a hand light lights the ground too (its twin, made with land lighting on); 0: off", gGroundLightsOn);
+		if (REL::Module::IsVR()) {
+			// his answer 2026-10-16 ("make it optional for vr users only"): in VR the ground light hangs at the body's hand, as it
+			// always did; this VR-only value hangs it at the VR hand instead. Only the VR build's file carries the line
+			Fade::Tuning::Register("Vanilla and ENB", "GroundLightAtVRHand", 0.0f, 0.0f, 1.0f,
+				"VR only - 1: a hand's ground light hangs at your VR hand; 0: at the body's hand (the default)", gGroundLightVRHand);
+		}
 		Fade::Tuning::Register("Vanilla and ENB", "ArtLights", 1.0f, 0.0f, 1.0f, "1: bound weapons and lit art and weapons get their light without Light Placer; 0: off", gArtLightsOn);
 		LoadSettings();  // first: Light Placer reads the settings' globals in its conditions
 		ReadLighting();  // before pass 0: on ENB and Vanilla its lights are made plain
@@ -83,7 +90,7 @@ namespace
 		}
 		if (cov.files == 0) {
 			SKSE::log::warn(
-				"no Illuminated configs were found under Data\\LightPlacer: passes 1 to 5 skipped (pass 0, VAER, the wards and "
+				"no Illuminated configs were found under Data\\LightPlacer: passes 1 to 4 skipped (pass 0, VAER, the wards and "
 				"pass 6 still run)");
 			StreamLights();  // pass 6: a spray's or bolt's own light raised, and the ward dome's two hooks
 			RecordTablesReady();
@@ -97,13 +104,7 @@ namespace
 		EffectLights<RE::BGSHazard>(cov, "hazard");
 		ApplyEffectLights(true);
 		SprayLights();
-		StreamLights();  // pass 6, after pass 4 (a spray's own light is its stretched copy by now); it sets the sliders on every copy
-		if (!record) {   // pass 5 is about Light Placer's lit shaders: there are none without it
-			DoubledEnchantments(cov);
-		}
-		if (AnyLitShaders()) {
-			WatchCraftingMenu();
-		}
+		StreamLights();               // pass 6, after pass 4 (a spray's own light is its stretched copy by now); it sets the sliders on every copy
 		RecordTablesReady();          // last: the hooks installed earlier may read the record tables from here on
 		Fade::ForgetPassEditorIDs();  // the passes have run: only the fading module's three kept types stay
 		SKSE::log::info("done in {:.1f} ms",
@@ -140,38 +141,20 @@ namespace
 		case SKSE::MessagingInterface::kDataLoaded:
 			OnDataLoaded();
 			break;
-		case SKSE::MessagingInterface::kSaveGame:
-			// the save is written inside the call this message comes before; the copies return on the next frame
-			// the originals go in whatever happens: a save must never hold a copy made in memory
-			if (AnyLitShaders()) {
-				UseOriginals("saving");
-				if (auto* tasks = SKSE::GetTaskInterface()) {
-					tasks->AddTask([]() { UseQuiet("save written"); });
-				} else {
-					UseQuiet("save written");
-				}
-			}
-			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
 			DropArtLights();  // the art and weapons they hang on are the old game's
 			DropGroundLights();
 			Fade::OnGameLoading();
-			// the enchantments made during play are about to be replaced by the save's; never touch them again
-			ForgetCreatedEnchantments();
 			break;
 		case SKSE::MessagingInterface::kPostLoadGame:
 		case SKSE::MessagingInterface::kNewGame:
 			// a save holds the plugin's globals as they were when it was made; the settings file is the truth
 			ApplyGlobals();
 			if (a_msg->type == SKSE::MessagingInterface::kNewGame) {
-				// no kPreLoadGame comes before a new game: the last game's lights and crafted enchantments go here
+				// no kPreLoadGame comes before a new game: the last game's lights go here
 				DropArtLights();
 				DropGroundLights();
-				ForgetCreatedEnchantments();
 				Fade::OnGameLoading();
-			}
-			if (AnyLitShaders()) {
-				UseQuiet("game loaded");
 			}
 			break;
 		default:

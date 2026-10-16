@@ -2,7 +2,7 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Makes in-memory copies of lights, effect shaders and magic effects.
+// Makes in-memory copies of lights (the effect-shader and magic-effect copies went with pass 5, 2026-10-16).
 
 #include "Plugin.h"
 
@@ -32,28 +32,4 @@ namespace Plugin
 		return out;
 	}
 
-	RE::TESEffectShader* CopyShader(const RE::TESEffectShader* a_src)
-	{
-		auto* out = a_src ? NewForm<RE::TESEffectShader>() : nullptr;
-		if (!out) {
-			return nullptr;
-		}
-		out->data = a_src->data;
-		out->fillTexture.textureName = a_src->fillTexture.textureName;
-		out->particleShaderTexture.textureName = a_src->particleShaderTexture.textureName;
-		out->holesTexture.textureName = a_src->holesTexture.textureName;
-		out->membranePaletteTexture.textureName = a_src->membranePaletteTexture.textureName;
-		out->particlePaletteTexture.textureName = a_src->particlePaletteTexture.textureName;
-		return out;
-	}
-
-	RE::EffectSetting* CopyEffect(RE::EffectSetting* a_src)
-	{
-		auto* out = a_src ? NewForm<RE::EffectSetting>() : nullptr;
-		if (!out) {
-			return nullptr;
-		}
-		out->Copy(a_src);
-		return out;
-	}
 }
