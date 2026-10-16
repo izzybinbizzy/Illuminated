@@ -168,6 +168,11 @@ namespace Plugin
 			if (!a_magic || std::string_view(a_magic->name.c_str()).find("MagicNode") == std::string_view::npos) {
 				return a_magic;
 			}
+			// VR, with the advanced file's GroundLightAtVRHand on (his answer 2026-10-16, "make it optional for vr users only"): the
+			// player's twin stays at the VR hand's own magic node
+			if (REL::Module::IsVR() && a_actor->IsPlayerRef() && gGroundLightVRHand.load(std::memory_order_relaxed) >= 0.5f) {
+				return a_magic;
+			}
 			auto* body = a_actor->Get3D(false);
 			if (!body) {
 				return a_magic;

@@ -15,13 +15,14 @@ The plugin of Illuminated - Spell & Weapon Light NG; it ships with the mod and i
 - Fading, Dynamic Lighting, dim in daylight, a light budget for big fights, Lights by Item, presets, Brightness and
   Reach, the HUD (reticle and charge gems), VAER Reborn's swirls kept, and wards when Dynamic Wards is not installed.
 
-## Settings
-SKSE Menu Framework > Illuminated. Every setting is live. Values the menu does not show are in
-`SKSE\Plugins\Illuminated\Illuminated - Advanced Settings.ini`. The charge gems' pre-rendered art is `HUD/*.dds`,
-installed to `SKSE\Plugins\Illuminated\HUD\` (without it the plugin draws a plain gem).
-
 ## Requires
 SKSE, Address Library for SKSE Plugins and SKSE Menu Framework (the settings page and the HUD).
+
+## Settings
+SKSE Menu Framework > Illuminated; every menu setting is live. Values the menu does not show are in
+`Data\SKSE\Plugins\Illuminated\Illuminated - Advanced Settings.ini`, read when the game starts. The charge gems'
+pre-rendered art is `HUD/*.dds`, installed to `Data\SKSE\Plugins\Illuminated\HUD\` (without it the plugin draws a plain
+gem).
 
 ## Third-party files
 `src/DevBenchAPI.h` and `src/DevBenchAPI.cpp` are devbench's own interface files, MIT licensed by

@@ -201,7 +201,7 @@ namespace Plugin
 		// enchantment without art of its own). His word 2026-10-13: "yes make the weapon light fix for vanilla and enb" - with
 		// Light Placer these rows hang on the blade by the shader's form; without it nothing lit them (only art and a weapon's
 		// own model were followed here), so an ordinary enchanted weapon stayed dark on Vanilla and ENB. The shader the game
-		// plays on the blade is the costliest effect's (Enchantments.cpp, measured on Chillrend), so that effect's row comes
+		// plays on the blade is the costliest effect's (measured on Chillrend, 2026-10-13 and the E2 test 2026-10-16), so that effect's row comes
 		// first, then the first effect whose shader has a row that holds now
 		RE::TESObjectLIGH* ShaderRowLight(const RE::Effect* a_effect)
 		{
