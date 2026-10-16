@@ -6,7 +6,7 @@ The plugin of Illuminated - Spell & Weapon Light NG; it ships with the mod and i
 
 ## What it does
 - Lights spells, enchanted weapons, staves, projectiles, explosions and hazards in each spell's own color. The lighting
-  (Community Shaders, ENB or Vanilla) is found by itself - nothing to pick.
+  (Community Shaders, ENB or Vanilla) is detected automatically - nothing to pick.
 - **With Light Placer** (Community Shaders): Light Placer hangs the lights on the effect models; the plugin takes the
   game's own magic lights off where the mod provides one, so nothing is lit twice.
 - **Without Light Placer**: lights through the game's own light records, with a ground light at the caster's feet.
@@ -17,7 +17,8 @@ The plugin of Illuminated - Spell & Weapon Light NG; it ships with the mod and i
 
 ## Settings
 SKSE Menu Framework > Illuminated. Every setting is live. Values the menu does not show are in
-`Illuminated - Advanced Settings.ini`.
+`SKSE\Plugins\Illuminated\Illuminated - Advanced Settings.ini`. The charge gems' pre-rendered art is `HUD/*.dds`,
+installed to `SKSE\Plugins\Illuminated\HUD\` (without it the plugin draws a plain gem).
 
 ## Requires
 SKSE, Address Library for SKSE Plugins and SKSE Menu Framework (the settings page and the HUD).
