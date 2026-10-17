@@ -33,7 +33,8 @@
 //   a cell's animations      } their made-with strength.
 // Light Placer skips a culled or distant light, so a value it did not rewrite is never scaled twice. Nothing in this
 // part runs while Brightness is 100%, nor without Light Placer (the record route has no Light Placer light to scale).
-// The one exception: the hazard's update also places a hazard's own light WITHOUT Light Placer (PlaceHazardLight) - the
+// The one exception: the hazard's update also places a hazard's own light on the record route (Vanilla / ENB, or no Light
+// Placer - RecordLights.cpp DecideRecordRoute; PlaceHazardLight) - the
 // game never places a light hung on a model's root (measured, the burning-ground fires); in VR that wrap is not made, so
 // there those fires keep the game's unplaced light.
 // Every hook's own work runs inside LightKit::Guarded: no exception may leave into the game.
@@ -605,8 +606,8 @@ namespace Plugin
 			constexpr std::string_view kFlickerLost = "its flickering lights keep their made-with strength";
 			WrapCall<ExplosionUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42664, 43836), 0x11 }, "explosion update", kFlickerLost);
 			WrapCall<HazardUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42791, 43959), REL::VariantOffset(0x11, 0x1F, 0x11) }, "hazard update",
-				"its flickering lights keep their made-with strength, and without Light Placer a hazard light hung on its model's root (the "
-				"burning-ground fires) stays where the game left it - lighting nothing");
+				"its flickering lights keep their made-with strength, and on the record route (Vanilla / ENB, or no Light Placer) a hazard "
+				"light hung on its model's root (the burning-ground fires) stays where the game left it - lighting nothing");
 			WrapCall<CellAnimations>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(18458, 18889), 0x52 }, "cell animations", kFlickerLost);
 		}
 	}
