@@ -28,6 +28,12 @@ namespace Plugin
 		// take no lock. The lock keeps two writers (the menu, DevBench on the main thread) from writing the file at once.
 		std::recursive_mutex gSettingsLock;
 
+		// the route global (his answer 2026-10-13, Q7 - RecordLights.cpp DecideRecordRoute): every Light Placer row waits on it
+		// first (lagen.py route_switch). Not a setting: no settings file names it, the menu never shows it, nothing saves it
+		constexpr const char* kRouteGlobal = "IlluminatedLightPlacerRoute";
+		RE::TESGlobal*        gRoute = nullptr;
+		float                 gRouteValue = 0.0f;
+
 		constexpr std::string_view kSettingsSection = "Settings";
 		constexpr std::string_view kDetectedSection = "Detected";
 		constexpr std::string_view kDetectedKey = "sPlugins";
@@ -308,6 +314,29 @@ namespace Plugin
 				s.global->value = static_cast<float>(s.value);
 			}
 		}
+		if (gRoute) {
+			gRoute->value = gRouteValue;  // a save holds the globals as they were when it was made: the route found now wins
+		}
+	}
+
+	void SetLightPlacerRoute(bool a_lightPlacerDraws)
+	{
+		std::lock_guard l{ gSettingsLock };
+		if (!gRoute) {
+			// made in the data-load work, before Light Placer reads its configs' conditions (the settings' globals are too)
+			gRoute = MakeGlobal(kRouteGlobal);
+			if (!gRoute) {
+				SKSE::log::warn("[SETTING-FAILED] {} | could not make the route global; Light Placer reads it as 0 and draws none of "
+								"Illuminated's lights",
+					kRouteGlobal);
+			}
+		}
+		gRouteValue = a_lightPlacerDraws ? 1.0f : 0.0f;
+		if (gRoute) {
+			gRoute->value = gRouteValue;
+		}
+		SKSE::log::info("[SETTING] {} = {} (Light Placer {} Illuminated's lights)", kRouteGlobal, a_lightPlacerDraws ? 1 : 0,
+			a_lightPlacerDraws ? "draws" : "draws none of");
 	}
 
 	void SaveSettings()
