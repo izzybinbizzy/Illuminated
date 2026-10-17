@@ -70,7 +70,7 @@ namespace Plugin
 		// written once at data load, read on the main thread after it
 		bool                                                  gOn = false;
 		const char*                                           gWhy = "not decided yet";  // why the route is what it is (DecideRecordRoute)
-		std::unordered_map<std::string, std::vector<Choice>>  gChoices;  // model -> its record lights, strongest first
+		std::unordered_map<std::string, std::vector<Choice>>  gChoices;                  // model -> its record lights, strongest first
 		std::size_t                                           gMade = 0, gRows = 0, gNotOurs = 0, gMissing = 0, gFailed = 0;
 		double                                                gMs = 0.0;
 		std::vector<std::pair<RE::TESObjectLIGH*, RE::Color>> gMadeColors;     // every record light and the color it was made in
@@ -166,7 +166,11 @@ namespace Plugin
 		gWhy = !lightPlacer ? "Light Placer is not loaded" :
 		       !shaders     ? "the lighting is not Community Shaders" :
 		                      "Community Shaders with Light Placer";
-		SetLightPlacerRoute(!gOn);
+		// every Light Placer row waits on the route global: without it Light Placer draws none of ours, so this route lights them
+		if (!SetLightPlacerRoute(!gOn) && !gOn) {
+			gOn = true;
+			gWhy = "the route global could not be made";
+		}
 		KeepConfigLights(gOn);
 		if (gOn) {
 			SKSE::log::info("record lights: {} ({}), so the configs light the game's own light records{}", gWhy,

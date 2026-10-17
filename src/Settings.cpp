@@ -287,6 +287,15 @@ namespace Plugin
 				SKSE::log::warn("[SETTING-FAILED] {} | could not make its global; lights that read it stay at 0", s.id);
 			}
 		}
+		// the route global (his answer Q7): made here with the settings' globals, before Light Placer reads its configs'
+		// conditions; DecideRecordRoute sets its value once the lighting is known (0 until then)
+		if (!gRoute) {
+			gRoute = MakeGlobal(kRouteGlobal);
+			if (!gRoute) {
+				SKSE::log::warn("[SETTING-FAILED] {} | could not make the route global; Illuminated lights the game's own records instead",
+					kRouteGlobal);
+			}
+		}
 		// the load order is fixed after data load: the menu (render thread) reads this instead of the data handler
 		gAvailable.assign(gSettings.size(), 1);
 		for (std::size_t i = 0; i < gSettings.size(); ++i) {
@@ -319,24 +328,17 @@ namespace Plugin
 		}
 	}
 
-	void SetLightPlacerRoute(bool a_lightPlacerDraws)
+	bool SetLightPlacerRoute(bool a_lightPlacerDraws)
 	{
 		std::lock_guard l{ gSettingsLock };
-		if (!gRoute) {
-			// made in the data-load work, before Light Placer reads its configs' conditions (the settings' globals are too)
-			gRoute = MakeGlobal(kRouteGlobal);
-			if (!gRoute) {
-				SKSE::log::warn("[SETTING-FAILED] {} | could not make the route global; Light Placer reads it as 0 and draws none of "
-								"Illuminated's lights",
-					kRouteGlobal);
-			}
-		}
-		gRouteValue = a_lightPlacerDraws ? 1.0f : 0.0f;
+		// without the global Light Placer reads 0 and draws none of our lights: the caller then takes the record route
+		gRouteValue = a_lightPlacerDraws && gRoute ? 1.0f : 0.0f;
 		if (gRoute) {
 			gRoute->value = gRouteValue;
 		}
-		SKSE::log::info("[SETTING] {} = {} (Light Placer {} Illuminated's lights)", kRouteGlobal, a_lightPlacerDraws ? 1 : 0,
-			a_lightPlacerDraws ? "draws" : "draws none of");
+		SKSE::log::info("[SETTING] {} = {} (Light Placer {} Illuminated's lights)", kRouteGlobal, gRouteValue > 0.5f ? 1 : 0,
+			gRouteValue > 0.5f ? "draws" : "draws none of");
+		return gRoute != nullptr;
 	}
 
 	void SaveSettings()

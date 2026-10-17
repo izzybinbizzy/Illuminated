@@ -116,7 +116,7 @@ namespace ConfigText
 				int v = 0;
 				if (ParseInt(*(fn + 4), v)) {
 					auto global = Lower(*(fn + 1));
-					if (global == kRouteGlobal && v == 1) {
+					if (global == kRouteGlobal) {  // whatever its value: the plugin reads a row only where it is meant to hold
 						runHolds = true;
 					} else {
 						run.push_back({ std::move(global), v });

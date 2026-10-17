@@ -80,9 +80,7 @@ namespace Plugin
 			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Found"));
 			ImGuiMCP::Text(T("Lighting: %s (inverse square lights: %s)"), T(LightingName(LightingFound())), InverseSquare() ? T("yes") : T("no"));
 			// his answer 2026-10-13 (Q7): Vanilla and ENB always take the game's own records, Light Placer or not
-			ImGuiMCP::Text(T("Route: %s"), !RecordRoute()                          ? T("Light Placer") :
-			                               LightingFound() != Lighting::kShaders ? T("the game's own light records (Vanilla and ENB always light this way)") :
-			                                                                       T("the game's own light records (Light Placer is not loaded)"));
+			ImGuiMCP::Text(T("Route: %s (%s)"), RecordRoute() ? T("the game's own light records") : T("Light Placer"), RecordRouteWhy());
 			ImGuiMCP::Text(T("CS Light: %s"), gCSLight.empty() ? T("not loaded") : gCSLight.c_str());
 			ImGuiMCP::Text(T("Configs: %zu file(s), %zu lit model(s), %zu shader name(s)"), cov.files, cov.models.size(), cov.shaders.size());
 			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Made"));

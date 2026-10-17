@@ -111,16 +111,21 @@ namespace Plugin
 		if (DynamicWardsLoaded()) {
 			return;
 		}
-		auto* dh = RE::TESDataHandler::GetSingleton();
-		auto* dome = dh ? dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm") : nullptr;
-		if (!dome) {
-			return;
-		}
 		const int look = std::clamp(SettingValue(kWardLook, 0), 0, 1);
 		if (look == gLookApplied) {
 			return;
 		}
 		gLookApplied = look;
+		// the worn wards follow the look (his answer 2026-10-13): their own looping dome, which they wear without 360 Ward - set
+		// first, so a missing vanilla dome art form below never leaves it without a model
+		if (gWornDome) {
+			gWornDome->SetModel(look == 1 ? kClearWornDome : kBlueWornDome);
+		}
+		auto* dh = RE::TESDataHandler::GetSingleton();
+		auto* dome = dh ? dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm") : nullptr;
+		if (!dome) {
+			return;
+		}
 		// loaded, not merely present: LookupModByName also finds a plugin that is installed but not enabled
 		if (PluginLoaded(k360Plugin)) {
 			dome->SetModel(look == 1 ? kClearSphere : kBlueSphere);
@@ -132,10 +137,6 @@ namespace Plugin
 		} else {
 			dome->SetModel(look == 1 ? kClearDome : kBlueDome);
 			SKSE::log::info("wards: the dome {} ({})", look == 1 ? "transparent" : "in our vanilla blue", look == 1 ? kClearDome : kBlueDome);
-		}
-		// the worn wards follow the look (his answer 2026-10-13): their own looping dome, which they wear without 360 Ward
-		if (gWornDome) {
-			gWornDome->SetModel(look == 1 ? kClearWornDome : kBlueWornDome);
 		}
 	}
 
