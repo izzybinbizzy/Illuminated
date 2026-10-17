@@ -90,8 +90,9 @@ namespace ConfigText
 	};
 
 	// THE ROUTE (his answer 2026-10-13, Q7): every Light Placer row waits first on this global == 1 (lagen.py route_switch), so
-	// Light Placer draws a row only on Community Shaders. The plugin reads a row only for its own work, where the row is meant to
-	// hold - so a run that holds the route clause is true here, as if the clause were not written.
+	// Light Placer draws a row only on Community Shaders. The plugin reads a row only for its own work, the route where Light
+	// Placer draws none of them: a route clause standing alone is the gate and is read as if it were not written, and inside an
+	// OR run it is the one item that cannot hold here, so the run's other items decide (CodeRabbit on Illuminated #20).
 	inline constexpr std::string_view kRouteGlobal = "illuminatedlightplacerroute";
 
 	// Only GetGlobalValue items are kept. A run of OR items is one test, as the game reads it; a test that holds anything
@@ -101,7 +102,6 @@ namespace ConfigText
 		std::vector<std::vector<Clause>> out;
 		std::vector<Clause>              run;
 		bool                             runHasOther = false;
-		bool                             runHolds = false;  // the run holds the route clause: always true for the plugin
 		for (const auto& raw : a_conditions) {
 			const auto words = Split(raw, ' ');
 			if (words.empty()) {
@@ -115,10 +115,8 @@ namespace ConfigText
 			if (fn != words.end() && std::distance(fn, words.end()) >= 5 && *(fn + 2) == "NONE" && *(fn + 3) == "==") {
 				int v = 0;
 				if (ParseInt(*(fn + 4), v)) {
-					auto global = Lower(*(fn + 1));
-					if (global == kRouteGlobal) {  // whatever its value: the plugin reads a row only where it is meant to hold
-						runHolds = true;
-					} else {
+					// a route clause is left out: alone, its run is empty and so no test (the gate); in an OR run the other items decide
+					if (auto global = Lower(*(fn + 1)); global != kRouteGlobal) {
 						run.push_back({ std::move(global), v });
 					}
 				} else {
@@ -128,15 +126,14 @@ namespace ConfigText
 				runHasOther = true;
 			}
 			if (!isOr) {
-				if (!runHasOther && !runHolds && !run.empty()) {
+				if (!runHasOther && !run.empty()) {
 					out.push_back(run);
 				}
 				run.clear();
 				runHasOther = false;
-				runHolds = false;
 			}
 		}
-		if (!runHasOther && !runHolds && !run.empty()) {
+		if (!runHasOther && !run.empty()) {
 			out.push_back(run);
 		}
 		return out;
