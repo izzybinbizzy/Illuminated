@@ -28,6 +28,12 @@ namespace Plugin
 		// take no lock. The lock keeps two writers (the menu, DevBench on the main thread) from writing the file at once.
 		std::recursive_mutex gSettingsLock;
 
+		// the route global (his answer 2026-10-13, Q7 - RecordLights.cpp DecideRecordRoute): every Light Placer row waits on it
+		// first (lagen.py route_switch). Not a setting: no settings file names it, the menu never shows it, nothing saves it
+		constexpr const char* kRouteGlobal = "IlluminatedLightPlacerRoute";
+		RE::TESGlobal*        gRoute = nullptr;
+		float                 gRouteValue = 0.0f;
+
 		constexpr std::string_view kSettingsSection = "Settings";
 		constexpr std::string_view kDetectedSection = "Detected";
 		constexpr std::string_view kDetectedKey = "sPlugins";
@@ -281,6 +287,15 @@ namespace Plugin
 				SKSE::log::warn("[SETTING-FAILED] {} | could not make its global; lights that read it stay at 0", s.id);
 			}
 		}
+		// the route global (his answer Q7): made here with the settings' globals, before Light Placer reads its configs'
+		// conditions; DecideRecordRoute sets its value once the lighting is known (0 until then)
+		if (!gRoute) {
+			gRoute = MakeGlobal(kRouteGlobal);
+			if (!gRoute) {
+				SKSE::log::warn("[SETTING-FAILED] {} | could not make the route global; Illuminated lights the game's own records instead",
+					kRouteGlobal);
+			}
+		}
 		// the load order is fixed after data load: the menu (render thread) reads this instead of the data handler
 		gAvailable.assign(gSettings.size(), 1);
 		for (std::size_t i = 0; i < gSettings.size(); ++i) {
@@ -308,6 +323,22 @@ namespace Plugin
 				s.global->value = static_cast<float>(s.value);
 			}
 		}
+		if (gRoute) {
+			gRoute->value = gRouteValue;  // a save holds the globals as they were when it was made: the route found now wins
+		}
+	}
+
+	bool SetLightPlacerRoute(bool a_lightPlacerDraws)
+	{
+		std::lock_guard l{ gSettingsLock };
+		// without the global Light Placer reads 0 and draws none of our lights: the caller then takes the record route
+		gRouteValue = a_lightPlacerDraws && gRoute ? 1.0f : 0.0f;
+		if (gRoute) {
+			gRoute->value = gRouteValue;
+		}
+		SKSE::log::info("[SETTING] {} = {} (Light Placer {} Illuminated's lights)", kRouteGlobal, gRouteValue > 0.5f ? 1 : 0,
+			gRouteValue > 0.5f ? "draws" : "draws none of");
+		return gRoute != nullptr;
 	}
 
 	void SaveSettings()

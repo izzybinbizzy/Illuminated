@@ -19,7 +19,8 @@
 // preset for wards, no slider just pure transparent with outline."): the setting IlluminatedWardLook - 0 the vanilla ward's own
 // blue (`Glow Wards\Vanilla\`: the sphere and flash retinted to gradwardcolor's hue; the old `Blue\` sphere was Dynamic Wards'
 // deeper Adept Blue), 1 Transparent (`Glow Wards\Transparent\`: no fill, the rim glow as the outline; without 360 Ward our
-// vanilla-blue dome with its bright layer turned into a rim). Applied at data load and on every settings refresh
+// vanilla-blue dome with its bright layer turned into a rim). The worn wards (Spellbreaker, Crusader, Reman) follow it too
+// (his answer 2026-10-13): their looping dome has a Transparent copy. Applied at data load and on every settings refresh
 // (ApplyWardLook): an art form's model is read when a ward is raised, so it shows on the next ward.
 
 #include "Plugin.h"
@@ -37,6 +38,8 @@ namespace Plugin
 		constexpr const char*      kBlueFlash = "Magic\\Glow Wards\\Vanilla\\wardshieldhitfx.nif";
 		constexpr const char*      kClearSphere = "Magic\\Glow Wards\\Transparent\\wardbodyfx360.nif";
 		constexpr const char*      kClearDome = "Magic\\Glow Wards\\Transparent\\wardbodyfx.nif";
+		constexpr const char*      kBlueWornDome = "Magic\\Glow Wards\\Blue\\wardbodyfxworn.nif";
+		constexpr const char*      kClearWornDome = "Magic\\Glow Wards\\Transparent\\wardbodyfxworn.nif";
 		constexpr std::string_view kWardLook = "IlluminatedWardLook";  // 0 vanilla blue, 1 transparent
 		int                        gLookApplied = -1;                  // the look last put on the forms (-1 none yet)
 		// his call: the dome (without 360 Ward) and the hand (always) wear OUR vanilla-blue copies (their own textures, so no
@@ -108,16 +111,21 @@ namespace Plugin
 		if (DynamicWardsLoaded()) {
 			return;
 		}
-		auto* dh = RE::TESDataHandler::GetSingleton();
-		auto* dome = dh ? dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm") : nullptr;
-		if (!dome) {
-			return;
-		}
 		const int look = std::clamp(SettingValue(kWardLook, 0), 0, 1);
 		if (look == gLookApplied) {
 			return;
 		}
 		gLookApplied = look;
+		// the worn wards follow the look (his answer 2026-10-13): their own looping dome, which they wear without 360 Ward - set
+		// first, so a missing vanilla dome art form below never leaves it without a model
+		if (gWornDome) {
+			gWornDome->SetModel(look == 1 ? kClearWornDome : kBlueWornDome);
+		}
+		auto* dh = RE::TESDataHandler::GetSingleton();
+		auto* dome = dh ? dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm") : nullptr;
+		if (!dome) {
+			return;
+		}
 		// loaded, not merely present: LookupModByName also finds a plugin that is installed but not enabled
 		if (PluginLoaded(k360Plugin)) {
 			dome->SetModel(look == 1 ? kClearSphere : kBlueSphere);
@@ -182,14 +190,12 @@ namespace Plugin
 		}
 		SKSE::log::info("wards: {} effect(s) wear the ward art beside a ward's rank and show no second dome", extras.size());
 
-		// the sphere / dome: the ward look
-		gLookApplied = -1;
-		ApplyWardLook();
 		if (auto* hand = dh->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm")) {
 			hand->SetModel(kBlueHand);
 			SKSE::log::info("wards: the hand wears our vanilla blue ({})", kBlueHand);
 		}
-		// the worn wards: their own looping hand always, their own looping dome unless 360 Ward's sphere is the dome
+		// the worn wards: their own looping hand always, their own looping dome unless 360 Ward's sphere is the dome (the
+		// dome's model is the ward look's, set by ApplyWardLook below)
 		if (!gWornDome) {
 			gWornDome = NewForm<RE::BGSArtObject>();
 		}
@@ -197,7 +203,6 @@ namespace Plugin
 			gWornHand = NewForm<RE::BGSArtObject>();
 		}
 		if (gWornDome && gWornHand) {
-			gWornDome->SetModel("Magic\\Glow Wards\\Blue\\wardbodyfxworn.nif");
 			gWornHand->SetModel("Magic\\Glow Wards\\Blue\\wardinhandfxworn.nif");
 			const bool  has360 = PluginLoaded(k360Plugin);
 			auto*       dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm");
@@ -211,5 +216,9 @@ namespace Plugin
 			}
 			SKSE::log::info("wards: {} worn ward(s) (Spellbreaker, Crusader, Reman) wear the looping copies", worn);
 		}
+
+		// the sphere / dome and the worn dome: the ward look
+		gLookApplied = -1;
+		ApplyWardLook();
 	}
 }

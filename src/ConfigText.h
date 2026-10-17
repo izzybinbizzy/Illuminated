@@ -89,6 +89,12 @@ namespace ConfigText
 		int         value{ 0 };
 	};
 
+	// THE ROUTE (his answer 2026-10-13, Q7): every Light Placer row waits first on this global == 1 (lagen.py route_switch), so
+	// Light Placer draws a row only on Community Shaders. The plugin reads a row only for its own work, the route where Light
+	// Placer draws none of them: a route clause standing alone is the gate and is read as if it were not written, and inside an
+	// OR run it is the one item that cannot hold here, so the run's other items decide (CodeRabbit on Illuminated #20).
+	inline constexpr std::string_view kRouteGlobal = "illuminatedlightplacerroute";
+
 	// Only GetGlobalValue items are kept. A run of OR items is one test, as the game reads it; a test that holds anything
 	// else (IsSneaking OR a setting) cannot be decided from the settings, so it is left out: it may be true.
 	[[nodiscard]] inline std::vector<std::vector<Clause>> ParseConditions(const std::vector<std::string>& a_conditions)
@@ -109,7 +115,10 @@ namespace ConfigText
 			if (fn != words.end() && std::distance(fn, words.end()) >= 5 && *(fn + 2) == "NONE" && *(fn + 3) == "==") {
 				int v = 0;
 				if (ParseInt(*(fn + 4), v)) {
-					run.push_back({ Lower(*(fn + 1)), v });
+					// a route clause is left out: alone, its run is empty and so no test (the gate); in an OR run the other items decide
+					if (auto global = Lower(*(fn + 1)); global != kRouteGlobal) {
+						run.push_back({ std::move(global), v });
+					}
 				} else {
 					runHasOther = true;
 				}

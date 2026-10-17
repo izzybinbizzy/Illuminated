@@ -115,6 +115,7 @@ namespace Plugin
 	[[nodiscard]] bool                            ConditionsHold(const std::vector<std::vector<Clause>>& a_tests);
 	void                                          LoadSettings();
 	void                                          ApplyGlobals();
+	[[nodiscard]] bool                            SetLightPlacerRoute(bool a_lightPlacerDraws);  // the route global every Light Placer row waits on (his answer Q7); false = it could not be made
 	void                                          SaveSettings();
 	void                                          SetSetting(std::size_t a_index, int a_value);
 	[[nodiscard]] std::vector<Setting>&           Settings();
@@ -166,8 +167,9 @@ namespace Plugin
 	[[nodiscard]] const ConfigLight* StreamRowFor(const std::string& a_model);
 
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
-	void                             DecideRecordRoute();  // before ReadCoverage
+	void                             DecideRecordRoute();  // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer
 	[[nodiscard]] bool               RecordRoute();
+	[[nodiscard]] const char*        RecordRouteWhy();                                                       // the reason, for the log and DevBench
 	void                             MakeRecordLights();                                                     // after MakeLightCopies and ReadCoverage, before pass 1
 	void                             ApplyRecordColors();                                                    // the record lights' colors for the lighting found (once)
 	void                             RecordFlicker(RE::ActorMagicCaster* a_caster);                          // after a caster's update: its hand light's flicker

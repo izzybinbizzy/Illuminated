@@ -2,7 +2,8 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// The game's own light records, lit by Illuminated: the route when Light Placer is not loaded. HIS CALL:
+// The game's own light records, lit by Illuminated: the route on Vanilla and ENB, and on Community Shaders when Light Placer
+// is not loaded (DecideRecordRoute). HIS CALL:
 // "this is a vanilla lighting mod that will add never before seen vanilla light to spells and then optionally have
 // enb/lightplacer versions. vanilla is the main focus though."
 //
@@ -68,7 +69,8 @@ namespace Plugin
 
 		// written once at data load, read on the main thread after it
 		bool                                                  gOn = false;
-		std::unordered_map<std::string, std::vector<Choice>>  gChoices;  // model -> its record lights, strongest first
+		const char*                                           gWhy = "not decided yet";  // why the route is what it is (DecideRecordRoute)
+		std::unordered_map<std::string, std::vector<Choice>>  gChoices;                  // model -> its record lights, strongest first
 		std::size_t                                           gMade = 0, gRows = 0, gNotOurs = 0, gMissing = 0, gFailed = 0;
 		double                                                gMs = 0.0;
 		std::vector<std::pair<RE::TESObjectLIGH*, RE::Color>> gMadeColors;     // every record light and the color it was made in
@@ -150,20 +152,42 @@ namespace Plugin
 		}
 	}
 
+	// HIS ANSWER 2026-10-13 (the cloud audit's Q7, "yes to all your picks"): on Vanilla and ENB Illuminated always lights
+	// its own way, even when Light Placer is installed for another mod - Light Placer is the Community Shaders route only.
+	// One download serves all three lightings and Light Placer reads every file under Data\LightPlacer when it loads, so our
+	// configs stay where they are and every light row in them waits first on one more global, IlluminatedLightPlacerRoute
+	// (lagen.py route_switch): 1 only here, on Community Shaders with Light Placer loaded; 0 everywhere else, so on Vanilla
+	// and ENB Light Placer draws none of our lights and this route does the work.
 	void DecideRecordRoute()
 	{
-		gOn = REX::W32::GetModuleHandleA("po3_LightPlacer.dll") == nullptr;
+		const bool lightPlacer = REX::W32::GetModuleHandleA("po3_LightPlacer.dll") != nullptr;
+		const bool shaders = LightingFound() == Lighting::kShaders;
+		gOn = !lightPlacer || !shaders;
+		gWhy = !lightPlacer ? "Light Placer is not loaded" :
+		       !shaders     ? "the lighting is not Community Shaders" :
+		                      "Community Shaders with Light Placer";
+		// every Light Placer row waits on the route global: without it Light Placer draws none of ours, so this route lights them
+		if (!SetLightPlacerRoute(!gOn) && !gOn) {
+			gOn = true;
+			gWhy = "the route global could not be made";
+		}
 		KeepConfigLights(gOn);
 		if (gOn) {
-			SKSE::log::info("record lights: Light Placer is not loaded, so the configs light the game's own light records");
+			SKSE::log::info("record lights: {} ({}), so the configs light the game's own light records{}", gWhy,
+				LightingName(LightingFound()), lightPlacer ? " - Light Placer, loaded for other mods, draws none of Illuminated's lights" : "");
 		} else {
-			SKSE::log::info("record lights: not used - Light Placer is loaded and lights the configs");
+			SKSE::log::info("record lights: not used - {}: Light Placer lights the configs", gWhy);
 		}
 	}
 
 	bool RecordRoute()
 	{
 		return gOn;
+	}
+
+	const char* RecordRouteWhy()
+	{
+		return gWhy;
 	}
 
 	void MakeRecordLights()
@@ -453,7 +477,7 @@ namespace Plugin
 	std::string RecordReport()
 	{
 		return std::format(
-			R"({{"on":{},"lights":{},"flicker":{},"pale":{},"models":{},"rows":{},"notOurs":{},"missing":{},"failed":{},"ms":{:.1f}}})", gOn,
-			gMade, gFlickerOf.size(), gPale, gChoices.size(), gRows, gNotOurs, gMissing, gFailed, gMs);
+			R"({{"on":{},"why":"{}","lights":{},"flicker":{},"pale":{},"models":{},"rows":{},"notOurs":{},"missing":{},"failed":{},"ms":{:.1f}}})", gOn,
+			gWhy, gMade, gFlickerOf.size(), gPale, gChoices.size(), gRows, gNotOurs, gMissing, gFailed, gMs);
 	}
 }

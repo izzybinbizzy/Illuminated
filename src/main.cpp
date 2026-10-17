@@ -25,8 +25,8 @@
 // Passes 1, 2 and 6 follow the settings live; pass 4 reads them when the game loads. The
 // Brightness and Reach sliders set the fade, radius and cutoff of the light copies LightCopies.cpp makes;
 // a light that is already lit follows at the next frame.
-// Without Light Placer, passes 1 and 2 give the game's own light records Illuminated's lights instead of taking
-// theirs off (RecordLights.cpp).
+// On Vanilla and ENB, and without Light Placer, passes 1 and 2 give the game's own light records Illuminated's lights instead
+// of taking theirs off (RecordLights.cpp - his answer 2026-10-13: Light Placer is the Community Shaders route only).
 //
 // THE FILES, AND WHAT EACH ONE IS FOR
 //   main.cpp           this file - the passes in order, and the SKSE messages
@@ -69,7 +69,7 @@ namespace
 			Fade::Tuning::Register("Vanilla and ENB", "GroundLightAtVRHand", 0.0f, 0.0f, 1.0f,
 				"VR only - 1: a hand's ground light hangs at your VR hand; 0: at the body's hand (the default)", gGroundLightVRHand);
 		}
-		Fade::Tuning::Register("Vanilla and ENB", "ArtLights", 1.0f, 0.0f, 1.0f, "1: bound weapons and lit art and weapons get their light without Light Placer; 0: off", gArtLightsOn);
+		Fade::Tuning::Register("Vanilla and ENB", "ArtLights", 1.0f, 0.0f, 1.0f, "1: bound weapons and lit art and weapons get their light on Vanilla and ENB (and without Light Placer); 0: off", gArtLightsOn);
 		LoadSettings();  // first: Light Placer reads the settings' globals in its conditions
 		ReadLighting();  // before pass 0: on ENB and Vanilla its lights are made plain
 		RegisterMenu();
@@ -79,7 +79,7 @@ namespace
 		MakeLightCopies();                   // after pass 0 (the copies take its flags), before Light Placer reads its configs
 		VaerSwirls();                        // pass 7: VAER Reborn's swirls - the settings are loaded by now (HIS CALL)
 		Wards();                             // before pass 1: an effect it silences must not be followed by the casting-light pass
-		DecideRecordRoute();                 // no Light Placer: the configs light the game's own light records instead (RecordLights.cpp)
+		DecideRecordRoute();                 // Vanilla / ENB, or no Light Placer: the configs light the game's own light records (RecordLights.cpp)
 		const bool  record = RecordRoute();  // the route, decided once for the whole load
 		const auto& cov = ReadCoverage();
 		SKSE::log::info("configs: {} file(s), {} lit model(s), {} shader name(s)", cov.files, cov.models.size(), cov.shaders.size());
