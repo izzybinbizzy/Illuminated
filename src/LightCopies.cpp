@@ -33,6 +33,10 @@
 //   a cell's animations      } their made-with strength.
 // Light Placer skips a culled or distant light, so a value it did not rewrite is never scaled twice. Nothing in this
 // part runs while Brightness is 100%, nor without Light Placer (the record route has no Light Placer light to scale).
+// The one exception: the hazard's update also places a hazard's own light on the record route (Vanilla / ENB, or no Light
+// Placer - RecordLights.cpp DecideRecordRoute; PlaceHazardLight) - the
+// game never places a light hung on a model's root (measured, the burning-ground fires); in VR that wrap is not made, so
+// there those fires keep the game's unplaced light.
 // Every hook's own work runs inside LightKit::Guarded: no exception may leave into the game.
 //
 // The fading module (Fade*.cpp) scales some of the same lights by charge and magicka, in the same three places (the
@@ -335,6 +339,9 @@ namespace Plugin
 		// All installed at data load, long after Light Placer installed its own at plugin load, so each wraps Light
 		// Placer's: ours runs after it, on the values it just wrote. The fading module's work in the same places is
 		// called from here, after Brightness (the header has why).
+#ifdef FADE_DEBUG_PAGE
+		void CheckHazardLights();  // the testing DLL's hazard probe, below
+#endif
 		struct PlayerUpdate
 		{
 			static void thunk(RE::PlayerCharacter* a_this, float a_delta)
@@ -350,6 +357,9 @@ namespace Plugin
 					}
 					Fade::UpdateHands(a_delta);
 					TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
+#ifdef FADE_DEBUG_PAGE
+					CheckHazardLights();
+#endif
 				});
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
@@ -410,11 +420,10 @@ namespace Plugin
 
 		// a 5-byte call inside a game function, wrapped where it stands; left alone if the call is not there
 		template <class Thunk>
-		void WrapCall(REL::Relocation<std::uintptr_t> a_site, std::string_view a_what)
+		void WrapCall(REL::Relocation<std::uintptr_t> a_site, std::string_view a_what, std::string_view a_lost)
 		{
 			if (!LightKit::IsCallAt(a_site.address())) {
-				SKSE::log::warn("{}: the expected call is not there (another plugin rewrote it?); its flickering lights keep their made-with strength",
-					a_what);
+				SKSE::log::warn("{}: the expected call is not there (another plugin rewrote it?); {}", a_what, a_lost);
 				return;
 			}
 			Thunk::func = SKSE::GetTrampoline().write_call<5>(a_site.address(), Thunk::thunk);
@@ -431,12 +440,141 @@ namespace Plugin
 			static inline REL::Relocation<decltype(thunk)> func;
 		};
 
+#ifdef FADE_DEBUG_PAGE
+		// TESTING DLL ONLY (2026-10-17, his "fire hazards are not working" sweep): once per hazard reference, the light record
+		// its hazard form carries and the light the game made from it (or that it made none) - so a bug report's log names
+		// which hazard went dark and why
+		// and, once the light is made, a second look 90 frames later on the main thread (CheckHazardLights): is the light in the
+		// scene's light lists (what the renderer draws), does its parent chain reach the hazard's own 3D, where it sits - so the
+		// "made but lights nothing" case (the burning-ground fires) shows which of those fails
+		struct HazardWatch
+		{
+			RE::NiPointer<RE::NiLight> light;
+			std::uint32_t              ref{ 0 };
+			std::string                model;
+			int                        frames{ 0 };
+		};
+		std::mutex               gHazardWatchLock;
+		std::vector<HazardWatch> gHazardWatch;
+
+		void LogHazardLight(RE::Hazard* a_hazard)
+		{
+			static std::mutex                        lock;
+			static std::unordered_set<std::uint32_t> seen, seenNone;
+			const auto*                              base = a_hazard->GetBaseObject();
+			const auto*                              form = base ? base->As<RE::BGSHazard>() : nullptr;
+			auto*                                    made = a_hazard->GetHazardRuntimeData().light.get();
+			{
+				std::lock_guard l{ lock };
+				if (!form || seen.size() + seenNone.size() > 4000 || seen.contains(a_hazard->GetFormID())) {
+					return;
+				}
+				if (made) {
+					seen.insert(a_hazard->GetFormID());
+				} else if (!seenNone.insert(a_hazard->GetFormID()).second) {
+					return;  // "none made" is logged once; the made light, when it comes, once more
+				}
+			}
+			const auto* record = form->data.light;
+			auto*       point = made ? netimmerse_cast<RE::NiPointLight*>(made) : nullptr;
+			if (made) {
+				std::lock_guard l{ gHazardWatchLock };
+				gHazardWatch.push_back({ RE::NiPointer<RE::NiLight>(made), a_hazard->GetFormID(), form->GetModel() ? form->GetModel() : "" });
+			}
+			std::string got = "NO LIGHT MADE";
+			if (point) {
+				const auto& d = point->GetLightRuntimeData();
+				got = std::format("made: radius {:.0f} fade {:.2f} rgb {:.2f},{:.2f},{:.2f} parent '{}' culled {}", d.radius.x, d.fade,
+					d.diffuse.red, d.diffuse.green, d.diffuse.blue, point->parent ? point->parent->name.c_str() : "(none)",
+					point->GetAppCulled());
+			}
+			SKSE::log::info("[HAZARD-LIGHT] {:08X} (form {:08X}) model '{}' | record {:08X} rgb {},{},{} radius {} fade {:.2f} flags {:#x} | {}",
+				a_hazard->GetFormID(), form->GetFormID(), form->GetModel() ? form->GetModel() : "", record ? record->GetFormID() : 0u,
+				record ? record->data.color.red : 0, record ? record->data.color.green : 0, record ? record->data.color.blue : 0,
+				record ? record->data.radius : 0u, record ? record->fade : 0.0f, record ? record->data.flags.underlying() : 0u, got);
+		}
+
+		// on the main thread, once a frame
+		void CheckHazardLights()
+		{
+			std::vector<HazardWatch> due;
+			{
+				std::lock_guard l{ gHazardWatchLock };
+				for (auto it = gHazardWatch.begin(); it != gHazardWatch.end();) {
+					if (++it->frames >= 90) {
+						due.push_back(std::move(*it));
+						it = gHazardWatch.erase(it);
+					} else {
+						++it;
+					}
+				}
+			}
+			if (due.empty()) {
+				return;
+			}
+			auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+			for (const auto& w : due) {
+				auto* light = w.light.get();
+				bool  active = false, queued = false;
+				if (scene) {
+					const auto& rt = scene->GetRuntimeData();
+					for (const auto& bs : rt.activeLights) {
+						active = active || (bs && bs->light.get() == light);
+					}
+					for (const auto& bs : rt.lightQueueAdd) {
+						queued = queued || (bs && bs->light.get() == light);
+					}
+				}
+				std::string chain;
+				bool        reaches = false, hidden = false;
+				auto*       ref = RE::TESForm::LookupByID<RE::TESObjectREFR>(w.ref);
+				auto*       root = ref ? ref->Get3D() : nullptr;
+				for (RE::NiAVObject* o = light; o; o = o->parent) {
+					chain += std::format("{}{}{} > ", o->name.c_str(), o->GetAppCulled() ? "(culled)" : "", o->GetUserData() ? "(ref)" : "");
+					hidden = hidden || o->GetAppCulled();
+					reaches = reaches || o == root;
+				}
+				const auto& d = light->GetLightRuntimeData();
+				const auto& p = light->world.translate;
+				const auto  rp = ref ? ref->GetPosition() : RE::NiPoint3{};
+				SKSE::log::info("[HAZARD-LIGHT-90] {:08X} '{}' | refcount {} | in scene: active {} queued {} | reaches the ref's 3D {} | culled on the "
+				                "way {} | fade {:.2f} radius {:.0f} | light at {:.0f},{:.0f},{:.0f} ref at {:.0f},{:.0f},{:.0f} | {}",
+					w.ref, w.model, light->GetRefCount(), active, queued, reaches, hidden, d.fade, d.radius.x, p.x, p.y, p.z, rp.x, rp.y, rp.z,
+					chain);
+			}
+		}
+#endif
+
+		// Without Light Placer a hazard's light is the game's own, made from the record light pass 2 gave it (EffectLights.cpp).
+		// MEASURED 2026-10-17 (his report "a lot of people saying fire hazards are not working", the testing DLL's [HAZARD-LIGHT-90]
+		// lines on a Vanilla copy): on a model with no AttachLight node (the burning-ground fires, Effects\FXFire01New.nif /
+		// 02New, and the copies mods make of them) the game hangs the light on the model's root and never works out where it is -
+		// 90 frames on it was in the scene's light list, under the fire, at the world's origin (0,0,0), lighting nothing; on the
+		// fire walls (an AttachLight node) it sat on the wall. So each update the light is put where its parent is.
+		void PlaceHazardLight(RE::Hazard* a_hazard)
+		{
+			if (!RecordRoute()) {
+				return;
+			}
+			auto* light = a_hazard->GetHazardRuntimeData().light.get();
+			auto* parent = light ? light->parent : nullptr;
+			if (parent) {
+				light->world = parent->world * light->local;
+			}
+		}
+
 		struct HazardUpdate
 		{
 			static bool thunk(RE::Hazard* a_this)
 			{
 				const bool result = func(a_this);
-				LightKit::Guarded("hazard update", [a_this]() { ScaleUnder(a_this); });
+				LightKit::Guarded("hazard update", [a_this]() {
+					PlaceHazardLight(a_this);
+					ScaleUnder(a_this);
+#ifdef FADE_DEBUG_PAGE
+					LogHazardLight(a_this);
+#endif
+				});
 				return result;
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
@@ -465,9 +603,12 @@ namespace Plugin
 				return;
 			}
 			// the trampoline is made once, in main.cpp's SKSE::Init (room for these three and the fading module's two)
-			WrapCall<ExplosionUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42664, 43836), 0x11 }, "explosion update");
-			WrapCall<HazardUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42791, 43959), REL::VariantOffset(0x11, 0x1F, 0x11) }, "hazard update");
-			WrapCall<CellAnimations>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(18458, 18889), 0x52 }, "cell animations");
+			constexpr std::string_view kFlickerLost = "its flickering lights keep their made-with strength";
+			WrapCall<ExplosionUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42664, 43836), 0x11 }, "explosion update", kFlickerLost);
+			WrapCall<HazardUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42791, 43959), REL::VariantOffset(0x11, 0x1F, 0x11) }, "hazard update",
+				"its flickering lights keep their made-with strength, and on the record route (Vanilla / ENB, or no Light Placer) a hazard "
+				"light hung on its model's root (the burning-ground fires) stays where the game left it - lighting nothing");
+			WrapCall<CellAnimations>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(18458, 18889), 0x52 }, "cell animations", kFlickerLost);
 		}
 	}
 
