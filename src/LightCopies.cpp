@@ -537,8 +537,9 @@ namespace Plugin
 				const auto& d = light->GetLightRuntimeData();
 				const auto& p = light->world.translate;
 				const auto  rp = ref ? ref->GetPosition() : RE::NiPoint3{};
-				SKSE::log::info("[HAZARD-LIGHT-90] {:08X} '{}' | refcount {} | in scene: active {} queued {} | reaches the ref's 3D {} | culled on the "
-				                "way {} | fade {:.2f} radius {:.0f} | light at {:.0f},{:.0f},{:.0f} ref at {:.0f},{:.0f},{:.0f} | {}",
+				SKSE::log::info(
+					"[HAZARD-LIGHT-90] {:08X} '{}' | refcount {} | in scene: active {} queued {} | reaches the ref's 3D {} | culled on the "
+					"way {} | fade {:.2f} radius {:.0f} | light at {:.0f},{:.0f},{:.0f} ref at {:.0f},{:.0f},{:.0f} | {}",
 					w.ref, w.model, light->GetRefCount(), active, queued, reaches, hidden, d.fade, d.radius.x, p.x, p.y, p.z, rp.x, rp.y, rp.z,
 					chain);
 			}
