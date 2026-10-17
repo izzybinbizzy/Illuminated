@@ -33,6 +33,9 @@
 //   a cell's animations      } their made-with strength.
 // Light Placer skips a culled or distant light, so a value it did not rewrite is never scaled twice. Nothing in this
 // part runs while Brightness is 100%, nor without Light Placer (the record route has no Light Placer light to scale).
+// The one exception: the hazard's update also places a hazard's own light WITHOUT Light Placer (PlaceHazardLight) - the
+// game never places a light hung on a model's root (measured, the burning-ground fires); in VR that wrap is not made, so
+// there those fires keep the game's unplaced light.
 // Every hook's own work runs inside LightKit::Guarded: no exception may leave into the game.
 //
 // The fading module (Fade*.cpp) scales some of the same lights by charge and magicka, in the same three places (the
@@ -416,11 +419,10 @@ namespace Plugin
 
 		// a 5-byte call inside a game function, wrapped where it stands; left alone if the call is not there
 		template <class Thunk>
-		void WrapCall(REL::Relocation<std::uintptr_t> a_site, std::string_view a_what)
+		void WrapCall(REL::Relocation<std::uintptr_t> a_site, std::string_view a_what, std::string_view a_lost)
 		{
 			if (!LightKit::IsCallAt(a_site.address())) {
-				SKSE::log::warn("{}: the expected call is not there (another plugin rewrote it?); its flickering lights keep their made-with strength",
-					a_what);
+				SKSE::log::warn("{}: the expected call is not there (another plugin rewrote it?); {}", a_what, a_lost);
 				return;
 			}
 			Thunk::func = SKSE::GetTrampoline().write_call<5>(a_site.address(), Thunk::thunk);
@@ -463,7 +465,7 @@ namespace Plugin
 			auto*                                    made = a_hazard->GetHazardRuntimeData().light.get();
 			{
 				std::lock_guard l{ lock };
-				if (!form || seen.size() > 2000 || seen.contains(a_hazard->GetFormID())) {
+				if (!form || seen.size() + seenNone.size() > 4000 || seen.contains(a_hazard->GetFormID())) {
 					return;
 				}
 				if (made) {
@@ -600,9 +602,12 @@ namespace Plugin
 				return;
 			}
 			// the trampoline is made once, in main.cpp's SKSE::Init (room for these three and the fading module's two)
-			WrapCall<ExplosionUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42664, 43836), 0x11 }, "explosion update");
-			WrapCall<HazardUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42791, 43959), REL::VariantOffset(0x11, 0x1F, 0x11) }, "hazard update");
-			WrapCall<CellAnimations>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(18458, 18889), 0x52 }, "cell animations");
+			constexpr std::string_view kFlickerLost = "its flickering lights keep their made-with strength";
+			WrapCall<ExplosionUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42664, 43836), 0x11 }, "explosion update", kFlickerLost);
+			WrapCall<HazardUpdate>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(42791, 43959), REL::VariantOffset(0x11, 0x1F, 0x11) }, "hazard update",
+				"its flickering lights keep their made-with strength, and without Light Placer a hazard light hung on its model's root (the "
+				"burning-ground fires) stays where the game left it - lighting nothing");
+			WrapCall<CellAnimations>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(18458, 18889), 0x52 }, "cell animations", kFlickerLost);
 		}
 	}
 
