@@ -306,11 +306,12 @@ namespace Plugin
 		// numbering (ConfigText.h) - are shown / hidden here the way Light Placer's next test will (SwapTwins); only what is drawn:
 		// Light Placer's own verdict (the ambient red's top byte) is never written. Light Placer rewrites a light only when its
 		// verdict changes, so a light shown here whose other conditions turned false first (she sneaked) would stay shown; after
-		// kHandBack seconds of game time every light touched here is given Light Placer's own verdict back (HandBack) - a no-op
-		// where its test agreed. A place whose two kinds do not come in equal numbers, or a pair hidden for another reason, is left
+		// kHandBack seconds of game time (and once more a second later) every light touched here is given Light Placer's own
+		// verdict back (HandBack) - a no-op where its test agreed. A place whose two kinds do not come in equal numbers, or a pair hidden for another reason, is left
 		// to Light Placer's test.
 		constexpr std::string_view                   kDynamicLighting = "IlluminatedDynamicLighting";
-		constexpr float                              kHandBack = 1.5f;   // Light Placer tests each light once a second of its own update time
+		constexpr float                              kHandBack = 1.5f;  // Light Placer tests each light once a second of its own update time
+		constexpr float                              kHandBackAgain = 1.0f;
 		int                                          gDynamicSeen = -1;  // the value the scene's lights were last swapped for; main thread only
 		std::vector<RE::NiPointer<RE::NiPointLight>> gSwapped;           // shown or hidden ahead of Light Placer, held until handed back
 		float                                        gSwapClock = 0.0f;
@@ -320,25 +321,41 @@ namespace Plugin
 			return std::bit_cast<std::uint32_t>(a_light.GetLightRuntimeData().ambient.red);
 		}
 
-		// every light touched by the last swap drawn as Light Placer holds it (hidden while any of its hide bits is set)
-		void HandBack()
+		// every light touched by the last swap drawn as Light Placer holds it (hidden while any of its hide bits is set). Light
+		// Placer culls a light on its worker threads (bits, then the drawn state) while this runs on the main thread, so one
+		// read here can meet the bits from just before its write: the lights are handed back a second time a second later
+		// (kHandBackAgain), and only then let go
+		void HandBack(bool a_letGo)
 		{
 			for (const auto& light : gSwapped) {
-				light->SetAppCulled((HideBits(*light) & ConfigText::kHidden) != 0);
+				if (const bool hidden = (HideBits(*light) & ConfigText::kHidden) != 0; light->GetAppCulled() != hidden) {
+					light->SetAppCulled(hidden);
+				}
 			}
-			gSwapped.clear();
+			if (a_letGo) {
+				gSwapped.clear();
+			}
 		}
 
 		// the player's update, on the main thread: the game's own time, so a paused game (a menu) waits too
 		void TickSwapped(float a_delta)
 		{
-			if (!gSwapped.empty() && (gSwapClock += a_delta) >= kHandBack) {
-				HandBack();
+			if (gSwapped.empty()) {
+				return;
+			}
+			const float before = gSwapClock;
+			gSwapClock += a_delta;
+			if (before < kHandBack && gSwapClock >= kHandBack) {
+				HandBack(false);
+			} else if (gSwapClock >= kHandBack + kHandBackAgain) {
+				HandBack(true);
 			}
 		}
 
-		// where a light hangs, the same numbers for both twins: a node Light Placer made sits at the row's point (its point + offset
-		// - the same floats for both) under the model's node; a light hung straight on a node sits at that node
+		// where a light hangs, the same numbers for both twins: a light Light Placer counts as static (no position / rotation
+		// controller, no offset - a Dynamic Lighting row has only color / fade controllers) at a zero point hangs straight on the
+		// model's node; any other gets a node of its own at the row's point (point + offset - the same floats for both twins) under
+		// the model's node (its LightData.cpp GetOrCreateNode)
 		[[nodiscard]] std::string PlaceOf(const RE::NiPointLight& a_light)
 		{
 			const auto* parent = a_light.parent;
@@ -357,7 +374,7 @@ namespace Plugin
 			if (before < 0 || before == now || RecordRoute() || !scene) {
 				return;
 			}
-			HandBack();                                                                 // a switch back within the window: the last one's lights as Light Placer holds them first
+			HandBack(true);                                                             // a switch back within the window: the last one's lights as Light Placer holds them first
 			using Numbered = std::vector<std::pair<std::uint32_t, RE::NiPointLight*>>;  // Light Placer's number, the light
 			struct Place
 			{
