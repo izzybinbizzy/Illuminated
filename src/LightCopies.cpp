@@ -380,6 +380,7 @@ namespace Plugin
 					RecordFlicker(a_this);  // without Light Placer: the hand light's flicker (RecordLights.cpp), before the fading module scales it
 					ApplyHandBudget(a_this);
 					ApplyRecordHand(a_this);
+					Fade::AfterCaster();  // last: Lights by Item over Light Placer's animation of the casting lights
 				});
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
