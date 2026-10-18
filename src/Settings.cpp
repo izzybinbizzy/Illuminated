@@ -33,7 +33,7 @@ namespace Plugin
 		constexpr const char* kRouteGlobal = "IlluminatedLightPlacerRoute";
 		RE::TESGlobal*        gRoute = nullptr;
 		float                 gRouteValue = 0.0f;
-		// his Performance switch (2026-10-17): "a toggle to turn off lights completely for the entire mod" - Light Placer then
+		// his Performance switch: "a toggle to turn off lights completely for the entire mod" - Light Placer then
 		// draws none of ours (the route global held at 0) and every pass treats every config as unlit (Coverage::ModelLit)
 		constexpr std::string_view kLightsOff = "IlluminatedLightsOff";
 

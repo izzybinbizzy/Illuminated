@@ -76,7 +76,7 @@ namespace Plugin
 		void ApplyEffectLightPlacerRoute(bool a_log, EffectCounts& a_n)
 		{
 			for (auto& t : gEffectTargets) {
-				const bool lit = t.always || (gEffectCoverage && gEffectCoverage->ModelLit(t.model));
+				const bool lit = (t.always && !LightsOff()) || (gEffectCoverage && gEffectCoverage->ModelLit(t.model));  // all off: its own light back too
 				if (lit && *t.slot) {
 					*t.slot = nullptr;
 					++a_n.nulled;

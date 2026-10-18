@@ -102,6 +102,10 @@ namespace Plugin
 		float              startFade{ 0.0f };
 		std::uint32_t      startRadius{ 0 };
 		float              startCutoff{ 0.0f };  // 0: not an inverse-square light, its falloff is left alone
+		// pass 0's copy of a game magic light (LightSettings.cpp): the game's own light, and the look the copy was made with -
+		// with every Illuminated light off the copy wears the game's own look, and its made look again after
+		const RE::TESObjectLIGH* original{ nullptr };
+		RE::OBJ_LIGH             madeData{};
 	};
 
 	struct SprayMarker

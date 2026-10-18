@@ -334,10 +334,11 @@ namespace Plugin
 				name[0] = '\0';
 			}
 			ImGuiMCP::EndDisabled();
-			char saveTip[256]{};
-			std::snprintf(saveTip, sizeof(saveTip), T("Saves every setting as it is now under this name, for %s. Each lighting keeps its own presets."),
-				T(LightingName(LightingFound())));
-			MenuStyle::Tip(saveTip);
+			const char* const saveFmt = T("Saves every setting as it is now under this name, for %s. Each lighting keeps its own presets.");
+			const char* const lightingName = T(LightingName(LightingFound()));
+			std::string       saveTip(static_cast<std::size_t>((std::max)(std::snprintf(nullptr, 0, saveFmt, lightingName), 0)) + 1, '\0');
+			std::snprintf(saveTip.data(), saveTip.size(), saveFmt, lightingName);
+			MenuStyle::Tip(saveTip.c_str());
 			std::vector<UserPreset> mine;
 			{
 				std::lock_guard   lock(gPresetLock);
