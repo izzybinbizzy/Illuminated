@@ -8,6 +8,9 @@
 //
 //   Trim, ParseInt, ParseFloat, Split   text helpers; a number is read only when the WHOLE field is one ("12abc" is not 12)
 //   Clause, ParseConditions             the GetGlobalValue items of a light's conditions, as tests of OR-runs
+//   DynamicRow, TwinOf, ConfigName,
+//   LightPlacerKey, LightPlacerIndex,
+//   TwinKey, SwapTwins                  the Dynamic Lighting switch at once (LightCopies.cpp SwapDynamicTwins)
 //   Json, Reader, Number                the configs' JSON reader (never throws, depth capped)
 //   ReadFadeController                  a fadeController's keys: flicker or flash, its mean fade
 
@@ -15,12 +18,15 @@
 
 #include "LightMath.h"
 
+#include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <limits>
+#include <optional>
 #include <system_error>
 #include <type_traits>
 #include <utility>
@@ -137,6 +143,108 @@ namespace ConfigText
 			out.push_back(run);
 		}
 		return out;
+	}
+
+	// ------------------------------------------------------------------ the Dynamic Lighting twins
+	// Every Light Placer row that waits on Dynamic Lighting has exactly one steady twin (lagen.py: the same claim, place and other
+	// conditions - only the light, its controllers and that clause differ; 821 pairs in 1.3), and where several twins share one
+	// place (Destruction's hand lights: one pair per hand rule) the k-th steady row and the k-th dynamic row of a config, in file
+	// order, are each other's twins (lagen twin_fails keeps it so; 1,433 places in 1.3). Light Placer numbers a model's lights in
+	// that order ("...]#<n>", its Manager.cpp ProcessCollectedLights), names a light "LP_Light[<config>|<light record's editor
+	// ID>]..." and keeps its verdict on the light's conditions in the top byte of its ambient red (its LightData.cpp CullLight: 1
+	// conditions, 2 game, 4 script; hidden while any is set) - the plugin only reads that byte, never writes it.
+	inline constexpr std::string_view kDynamicGlobal = "illuminateddynamiclighting";
+	inline constexpr std::uint8_t     kRowDynamic = 1, kRowSteady = 2, kRowNeither = 4;
+
+	// the kind of row a light's tests make it: Dynamic Lighting on, its steady twin (off), or neither
+	[[nodiscard]] inline std::uint8_t DynamicRow(const std::vector<std::vector<Clause>>& a_tests)
+	{
+		for (const auto& run : a_tests) {
+			if (run.size() == 1 && run.front().global == kDynamicGlobal) {
+				return run.front().value != 0 ? kRowDynamic : kRowSteady;
+			}
+		}
+		return kRowNeither;
+	}
+
+	enum class Twin : std::uint8_t
+	{
+		kNeither,
+		kDynamic,
+		kSteady
+	};
+
+	// a "<config>|<light>" by the kinds of rows that name it: named only by Dynamic Lighting rows, the dynamic one; named by a
+	// steady twin, the steady one - even when a row of neither kind shares it (the pairing by place tells those apart)
+	[[nodiscard]] constexpr Twin TwinOf(std::uint8_t a_rows)
+	{
+		if (a_rows == kRowDynamic) {
+			return Twin::kDynamic;
+		}
+		return (a_rows & kRowSteady) && !(a_rows & kRowDynamic) ? Twin::kSteady : Twin::kNeither;
+	}
+
+	// a config as Light Placer names it in its lights: its path under Data\LightPlacer without the extension (its Manager.cpp
+	// ReadConfigs) - written here with '/' (TwinKey compares the two sides the same way)
+	[[nodiscard]] inline std::string ConfigName(const std::filesystem::path& a_file, const std::filesystem::path& a_lightPlacerDir)
+	{
+		auto rel = a_file.lexically_relative(a_lightPlacerDir);
+		rel.replace_extension();
+		const auto text = rel.generic_u8string();
+		return std::string(text.begin(), text.end());
+	}
+
+	// a "<config>|<light>" as both sides compare it: lower case, '/' between folders (Light Placer writes its own Windows path,
+	// '\'; the configs are read as generic paths, '/')
+	[[nodiscard]] inline std::string TwinKey(std::string_view a_configAndLight)
+	{
+		auto out = Lower(a_configAndLight);
+		std::ranges::replace(out, '\\', '/');
+		return out;
+	}
+
+	// "LP_Light[<config>|<light>]..." -> its "<config>|<light>"; empty for any other light
+	[[nodiscard]] constexpr std::string_view LightPlacerKey(std::string_view a_name)
+	{
+		constexpr std::string_view head = "LP_Light[";
+		if (!a_name.starts_with(head)) {
+			return {};
+		}
+		const auto bar = a_name.find('|', head.size());
+		const auto end = bar == std::string_view::npos ? bar : a_name.find(']', bar);
+		return end == std::string_view::npos ? std::string_view{} : a_name.substr(head.size(), end - head.size());
+	}
+
+	// "...]#<n>" -> n, the light's number in Light Placer's order; nothing when the name does not end in one
+	[[nodiscard]] inline std::optional<std::uint32_t> LightPlacerIndex(std::string_view a_name)
+	{
+		const auto    hash = a_name.rfind('#');
+		std::uint32_t n = 0;
+		if (hash == std::string_view::npos || hash + 1 >= a_name.size()) {
+			return std::nullopt;
+		}
+		const auto r = std::from_chars(a_name.data() + hash + 1, a_name.data() + a_name.size(), n);
+		return r.ec == std::errc() && r.ptr == a_name.data() + a_name.size() ? std::optional<std::uint32_t>(n) : std::nullopt;
+	}
+
+	inline constexpr std::uint32_t kHideConditions = 1u << 24, kHideOther = 6u << 24, kHidden = 0xFFu << 24;
+
+	struct TwinBits
+	{
+		std::uint32_t dynamic{ 0 };
+		std::uint32_t steady{ 0 };
+	};
+
+	// the pair's hide bits once the setting says a_on, as Light Placer's next test will make them: the light it wants shows if either
+	// showed, the other hides; nothing when either is hidden for another reason (left to Light Placer's own test)
+	[[nodiscard]] constexpr std::optional<TwinBits> SwapTwins(TwinBits a_now, bool a_on)
+	{
+		if ((a_now.dynamic | a_now.steady) & kHideOther) {
+			return std::nullopt;
+		}
+		const bool shown = !(a_now.dynamic & kHideConditions) || !(a_now.steady & kHideConditions);
+		const auto hide = [](std::uint32_t a_bits, bool a_hide) { return a_hide ? a_bits | kHideConditions : a_bits & ~kHideConditions; };
+		return TwinBits{ hide(a_now.dynamic, !(a_on && shown)), hide(a_now.steady, !(!a_on && shown)) };
 	}
 
 	// ------------------------------------------------------------------ a small JSON reader for the configs

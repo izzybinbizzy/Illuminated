@@ -51,6 +51,9 @@ namespace Plugin
 		// the beam rows Light Placer never sees (lagen move_beams, his rule "RELIGHT'S METHOD"): model -> its rows, read for their
 		// color by pass 6, which raises the beam's own light instead of hanging lights along it
 		std::unordered_map<std::string, std::vector<ConfigLight>> gStreamRows;
+		// our configs' "<config>|<light>" as Light Placer names a light (ConfigText.h TwinKey) -> the kinds of rows that name it
+		// (DynamicRow), so the Dynamic Lighting switch can swap each twin pair at once (LightCopies.cpp)
+		std::unordered_map<std::string, std::uint8_t> gTwinRows;
 
 		[[nodiscard]] ConfigLight ReadConfigLight(const Json& a_light, std::vector<std::vector<Clause>> a_test)
 		{
@@ -84,8 +87,10 @@ namespace Plugin
 		using Clock = std::chrono::steady_clock;
 		double gReadMs = 0.0, gParseMs = 0.0;  // the load's two costs, logged by ReadCoverage (the speed pass)
 
-		// a_stream: a file of the Streams folder - its rows go to gStreamRows only, never into what Light Placer's configs cover
-		void ReadConfig(const fs::path& a_file, Coverage& a_cov, bool a_stream = false)
+		// a_stream: a file of the Streams folder - its rows go to gStreamRows only, never into what Light Placer's configs cover.
+		// a_name: one of our configs as Light Placer names its lights (ConfigText.h ConfigName; empty for any other file) - its rows
+		// go into gTwinRows too
+		void ReadConfig(const fs::path& a_file, Coverage& a_cov, bool a_stream = false, const std::string& a_name = {})
 		{
 			const auto    t0 = Clock::now();
 			std::ifstream in(a_file, std::ios::binary | std::ios::ate);
@@ -137,6 +142,11 @@ namespace Plugin
 							}
 						}
 						tests.push_back(ParseConditions(conds));
+						if (const auto* data = a_name.empty() ? nullptr : light.Get("data")) {
+							if (const auto* l = data->Get("light"); l && l->kind == Json::Kind::kString) {
+								gTwinRows[ConfigText::TwinKey(a_name + '|' + l->text)] |= ConfigText::DynamicRow(tests.back());
+							}
+						}
 						if (gKeepLights || a_stream) {
 							rows.push_back(ReadConfigLight(light, tests.back()));
 						}
@@ -231,8 +241,10 @@ namespace Plugin
 	{
 		gCoverage = Coverage{};
 		DropConfigLights();
+		decltype(gTwinRows){}.swap(gTwinRows);
 		gReadMs = gParseMs = 0.0;
 		const auto started = Clock::now();
+		const auto root = fs::current_path() / "Data" / "LightPlacer";
 		for (const auto folder : { kOurFolder, kCSFolder }) {
 			std::error_code ec;
 			const auto      dir = LightPlacerDir(folder);
@@ -245,7 +257,7 @@ namespace Plugin
 				!ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
 				std::error_code one;  // one unreadable entry is skipped, the walk goes on
 				if (it->is_regular_file(one) && Lower(Fade::PathText(it->path().extension())) == ".json") {
-					ReadConfig(it->path(), gCoverage);
+					ReadConfig(it->path(), gCoverage, false, folder == kOurFolder ? ConfigText::ConfigName(it->path(), root) : std::string{});
 				}
 			}
 		}
@@ -265,10 +277,11 @@ namespace Plugin
 			}
 		}
 		const double total = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+		const auto   dynamic = std::ranges::count_if(gTwinRows, [](const auto& a_kv) { return ConfigText::TwinOf(a_kv.second) == ConfigText::Twin::kDynamic; });
 		SKSE::log::info(
 			"configs: read in {:.1f} ms - files {:.1f} ms, parsing {:.1f} ms, finding them {:.1f} ms; {} beam model(s) lit by "
-			"their own light (the Streams folder)",
-			total, gReadMs, gParseMs, total - gReadMs - gParseMs, gStreamRows.size());
+			"their own light (the Streams folder); {} Dynamic Lighting light(s) with a steady twin",
+			total, gReadMs, gParseMs, total - gReadMs - gParseMs, gStreamRows.size(), dynamic);
 		return gCoverage;
 	}
 
@@ -284,5 +297,11 @@ namespace Plugin
 			}
 		}
 		return nullptr;
+	}
+
+	ConfigText::Twin DynamicTwinOf(const std::string& a_configAndLight)
+	{
+		const auto it = gTwinRows.find(a_configAndLight);
+		return it == gTwinRows.end() ? ConfigText::Twin::kNeither : ConfigText::TwinOf(it->second);
 	}
 }
