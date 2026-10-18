@@ -51,7 +51,7 @@ namespace Plugin
 			for (auto& t : gEffectTargets) {
 				auto* const        record = RecordLightFor(t.model);
 				RE::TESObjectLIGH* want = record;
-				if (!want && !t.always) {
+				if (!want && (!t.always || LightsOff())) {  // all lights off: an always-dark form gets its own light back too
 					want = t.own;
 				}
 				if (*t.slot == want) {

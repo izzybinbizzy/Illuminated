@@ -463,7 +463,7 @@ namespace Plugin
 	RE::TESObjectLIGH* RecordLightFor(const std::string& a_model)
 	{
 		const auto it = gChoices.find(a_model);
-		if (it == gChoices.end()) {
+		if (it == gChoices.end() || LightsOff()) {  // all lights off: no record light of ours, the form keeps its own (CodeRabbit, #24)
 			return nullptr;
 		}
 		for (const auto& c : it->second) {
