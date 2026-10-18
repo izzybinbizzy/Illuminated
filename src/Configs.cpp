@@ -51,8 +51,8 @@ namespace Plugin
 		// the beam rows Light Placer never sees (lagen move_beams, his rule "RELIGHT'S METHOD"): model -> its rows, read for their
 		// color by pass 6, which raises the beam's own light instead of hanging lights along it
 		std::unordered_map<std::string, std::vector<ConfigLight>> gStreamRows;
-		// our configs' "<config>|<light>", lower case, as Light Placer names a light -> the kinds of rows that name it
-		// (ConfigText.h DynamicRow), so the Dynamic Lighting switch can swap each twin pair at once (LightCopies.cpp)
+		// our configs' "<config>|<light>" as Light Placer names a light (ConfigText.h TwinKey) -> the kinds of rows that name it
+		// (DynamicRow), so the Dynamic Lighting switch can swap each twin pair at once (LightCopies.cpp)
 		std::unordered_map<std::string, std::uint8_t> gTwinRows;
 
 		[[nodiscard]] ConfigLight ReadConfigLight(const Json& a_light, std::vector<std::vector<Clause>> a_test)
@@ -88,8 +88,8 @@ namespace Plugin
 		double gReadMs = 0.0, gParseMs = 0.0;  // the load's two costs, logged by ReadCoverage (the speed pass)
 
 		// a_stream: a file of the Streams folder - its rows go to gStreamRows only, never into what Light Placer's configs cover.
-		// a_name: one of our configs as Light Placer names its lights (lower case; empty for any other file) - its rows go into
-		// gTwinRows too
+		// a_name: one of our configs as Light Placer names its lights (ConfigText.h ConfigName; empty for any other file) - its rows
+		// go into gTwinRows too
 		void ReadConfig(const fs::path& a_file, Coverage& a_cov, bool a_stream = false, const std::string& a_name = {})
 		{
 			const auto    t0 = Clock::now();
@@ -144,7 +144,7 @@ namespace Plugin
 						tests.push_back(ParseConditions(conds));
 						if (const auto* data = a_name.empty() ? nullptr : light.Get("data")) {
 							if (const auto* l = data->Get("light"); l && l->kind == Json::Kind::kString) {
-								gTwinRows[a_name + '|' + Lower(l->text)] |= ConfigText::DynamicRow(tests.back());
+								gTwinRows[ConfigText::TwinKey(a_name + '|' + l->text)] |= ConfigText::DynamicRow(tests.back());
 							}
 						}
 						if (gKeepLights || a_stream) {
@@ -257,15 +257,7 @@ namespace Plugin
 				!ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
 				std::error_code one;  // one unreadable entry is skipped, the walk goes on
 				if (it->is_regular_file(one) && Lower(Fade::PathText(it->path().extension())) == ".json") {
-					// how Light Placer names the lights of one of our configs: its path under Data\LightPlacer without the
-					// extension (its Manager.cpp ReadConfigs)
-					std::string name;
-					if (folder == kOurFolder) {
-						auto rel = it->path().lexically_relative(root);
-						rel.replace_extension();
-						name = Lower(Fade::PathText(rel));
-					}
-					ReadConfig(it->path(), gCoverage, false, name);
+					ReadConfig(it->path(), gCoverage, false, folder == kOurFolder ? ConfigText::ConfigName(it->path(), root) : std::string{});
 				}
 			}
 		}

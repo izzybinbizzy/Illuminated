@@ -302,21 +302,50 @@ namespace Plugin
 		// THE DYNAMIC LIGHTING SWITCH AT ONCE - his report 2026-10-17: "it also takes an entire second to switch from dynamic to
 		// static". Light Placer tests a light's conditions once a second (its PlacedLights.cpp, UpdateTimer(a_delta, 1.0f)), so the
 		// switch showed up to a second late. On the frame the setting moves, each Dynamic Lighting light in the scene and its
-		// steady twin hanging at the same place are swapped here the way Light Placer's next test will swap them (ConfigText.h
-		// SwapTwins). A pair that is not one of each at one place, or is hidden for another reason, is left to that test.
-		constexpr std::string_view kDynamicLighting = "IlluminatedDynamicLighting";
-		int                        gDynamicSeen = -1;  // the value the scene's lights were last swapped for; main thread only
+		// steady twin - the light of the same config hanging at the same place, the k-th of each kind there by Light Placer's own
+		// numbering (ConfigText.h) - are shown / hidden here the way Light Placer's next test will (SwapTwins); only what is drawn:
+		// Light Placer's own verdict (the ambient red's top byte) is never written. Light Placer rewrites a light only when its
+		// verdict changes, so a light shown here whose other conditions turned false first (she sneaked) would stay shown; after
+		// kHandBack seconds of game time every light touched here is given Light Placer's own verdict back (HandBack) - a no-op
+		// where its test agreed. A place whose two kinds do not come in equal numbers, or a pair hidden for another reason, is left
+		// to Light Placer's test.
+		constexpr std::string_view                   kDynamicLighting = "IlluminatedDynamicLighting";
+		constexpr float                              kHandBack = 1.5f;   // Light Placer tests each light once a second of its own update time
+		int                                          gDynamicSeen = -1;  // the value the scene's lights were last swapped for; main thread only
+		std::vector<RE::NiPointer<RE::NiPointLight>> gSwapped;           // shown or hidden ahead of Light Placer, held until handed back
+		float                                        gSwapClock = 0.0f;
 
 		[[nodiscard]] std::uint32_t HideBits(RE::NiPointLight& a_light)
 		{
 			return std::bit_cast<std::uint32_t>(a_light.GetLightRuntimeData().ambient.red);
 		}
 
-		// as Light Placer's own CullLight writes it: the bits, and hidden while any is set
-		void SetHideBits(RE::NiPointLight& a_light, std::uint32_t a_bits)
+		// every light touched by the last swap drawn as Light Placer holds it (hidden while any of its hide bits is set)
+		void HandBack()
 		{
-			a_light.GetLightRuntimeData().ambient.red = std::bit_cast<float>(a_bits);
-			a_light.SetAppCulled((a_bits & ConfigText::kHidden) != 0);
+			for (const auto& light : gSwapped) {
+				light->SetAppCulled((HideBits(*light) & ConfigText::kHidden) != 0);
+			}
+			gSwapped.clear();
+		}
+
+		// the player's update, on the main thread: the game's own time, so a paused game (a menu) waits too
+		void TickSwapped(float a_delta)
+		{
+			if (!gSwapped.empty() && (gSwapClock += a_delta) >= kHandBack) {
+				HandBack();
+			}
+		}
+
+		// where a light hangs, the same numbers for both twins: a node Light Placer made sits at the row's point (its point + offset
+		// - the same floats for both) under the model's node; a light hung straight on a node sits at that node
+		[[nodiscard]] std::string PlaceOf(const RE::NiPointLight& a_light)
+		{
+			const auto* parent = a_light.parent;
+			const bool  made = std::string_view(parent->name.c_str()).starts_with("LP_Node[");
+			const auto  at = made ? parent->local.translate : RE::NiPoint3{};
+			return std::format("{}|{}|{}|{}", static_cast<const void*>(made ? parent->parent : parent), std::bit_cast<std::uint32_t>(at.x),
+				std::bit_cast<std::uint32_t>(at.y), std::bit_cast<std::uint32_t>(at.z));
 		}
 
 		// on the main thread, on the frame a setting changed
@@ -328,60 +357,74 @@ namespace Plugin
 			if (before < 0 || before == now || RecordRoute() || !scene) {
 				return;
 			}
-			struct Pair
+			HandBack();                                                                 // a switch back within the window: the last one's lights as Light Placer holds them first
+			using Numbered = std::vector<std::pair<std::uint32_t, RE::NiPointLight*>>;  // Light Placer's number, the light
+			struct Place
 			{
-				RE::NiPointLight* dynamic{ nullptr };
-				RE::NiPointLight* steady{ nullptr };
-				int               dynamics{ 0 };
-				int               steadies{ 0 };
+				Numbered dynamic;
+				Numbered steady;
 			};
-			std::unordered_map<std::string, Pair> pairs;  // by config and place
-			std::unordered_set<RE::NiPointLight*> seen;   // a light both lit and queued is counted once
-			const auto                            look = [&](const auto& a_list) {
+			std::unordered_map<std::string, Place> places;  // by config and place
+			std::unordered_set<RE::NiPointLight*>  seen;    // a light both lit and queued is counted once
+			std::size_t                            left = 0;
+			const auto                             look = [&](const auto& a_list) {
 				for (const auto& bsLight : a_list) {
 					auto*      light = bsLight ? netimmerse_cast<RE::NiPointLight*>(bsLight->light.get()) : nullptr;
-					const auto key = light && light->parent ? ConfigText::LightPlacerKey(light->name.c_str()) : std::string_view{};
-					if (key.empty() || !seen.insert(light).second) {
+					const auto name = light && light->parent ? ConfigText::LightPlacerKey(light->name.c_str()) : std::string_view{};
+					if (name.empty() || !seen.insert(light).second) {
 						continue;
 					}
-					const auto low = Lower(key);
-					const auto twin = DynamicTwinOf(low);
+					const auto key = ConfigText::TwinKey(name);
+					const auto twin = DynamicTwinOf(key);
+					const auto number = ConfigText::LightPlacerIndex(light->name.c_str());
 					if (twin == ConfigText::Twin::kNeither) {
 						continue;
 					}
-					// twins hang at one place: the node Light Placer made for each, or the model's own node (the light's own
-					// spot moves with its record's flicker)
-					const auto& at = light->parent->world.translate;
-					auto&       p = pairs[std::format("{}|{}|{}|{}", std::string_view(low).substr(0, low.find('|')), std::lround(at.x),
-						std::lround(at.y), std::lround(at.z))];
-					if (twin == ConfigText::Twin::kDynamic) {
-						p.dynamic = light;
-						++p.dynamics;
-					} else {
-						p.steady = light;
-						++p.steadies;
+					if (!number) {
+						left += twin == ConfigText::Twin::kDynamic ? 1 : 0;
+						continue;
 					}
+					auto& p = places[std::string(std::string_view(key).substr(0, key.find('|'))) + '|' + PlaceOf(*light)];
+					(twin == ConfigText::Twin::kDynamic ? p.dynamic : p.steady).emplace_back(*number, light);
 				}
 			};
 			const auto& lists = scene->GetRuntimeData();
 			look(lists.activeLights);
 			look(lists.lightQueueAdd);
 			const bool  on = now != 0;
-			std::size_t swapped = 0, left = 0;
-			for (const auto& p : pairs | std::views::values) {
-				const auto next = p.dynamics == 1 && p.steadies == 1 ?
-				                      ConfigText::SwapTwins({ HideBits(*p.dynamic), HideBits(*p.steady) }, on) :
-				                      std::nullopt;
-				if (!next) {
-					left += p.dynamics > 0 ? 1 : 0;
+			std::size_t swapped = 0;
+			const auto  draw = [](RE::NiPointLight& a_light, std::uint32_t a_bits) {
+				const bool hidden = (a_bits & ConfigText::kHidden) != 0;
+				if (a_light.GetAppCulled() != hidden) {
+					a_light.SetAppCulled(hidden);
+					gSwapped.emplace_back(&a_light);
+				}
+			};
+			for (auto& p : places | std::views::values) {
+				if (p.dynamic.size() != p.steady.size()) {
+					left += p.dynamic.size();
 					continue;
 				}
-				SetHideBits(*p.dynamic, next->dynamic);
-				SetHideBits(*p.steady, next->steady);
-				++swapped;
+				std::ranges::sort(p.dynamic);
+				std::ranges::sort(p.steady);
+				for (std::size_t k = 0; k < p.dynamic.size(); ++k) {
+					auto&      dynamic = *p.dynamic[k].second;
+					auto&      steady = *p.steady[k].second;
+					const auto next = ConfigText::SwapTwins({ HideBits(dynamic), HideBits(steady) }, on);
+					if (!next) {
+						++left;
+						continue;
+					}
+					draw(dynamic, next->dynamic);
+					draw(steady, next->steady);
+					++swapped;
+				}
 			}
-			SKSE::log::info("[DYNAMIC-SWITCH] Dynamic Lighting {}: {} light pair(s) swapped at once, {} dynamic light(s) left to Light Placer's next test",
-				on ? "on" : "off", swapped, left);
+			gSwapClock = 0.0f;
+			SKSE::log::info(
+				"[DYNAMIC-SWITCH] Dynamic Lighting {}: {} light pair(s) at once ({} light(s) drawn ahead of Light Placer), {} "
+				"dynamic light(s) left to its next test",
+				on ? "on" : "off", swapped, gSwapped.size(), left);
 		}
 
 		// once a frame, on the main thread
@@ -437,7 +480,8 @@ namespace Plugin
 					AdvanceRecordFlicker(a_delta);
 					WatchDaylight(a_delta);
 					Frame();
-					TickArtLights();  // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
+					TickSwapped(a_delta);  // the Dynamic Lighting swap's lights back to Light Placer's own verdict
+					TickArtLights();       // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
 					if (!RecordRoute()) {
 						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
 					}

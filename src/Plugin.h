@@ -170,8 +170,8 @@ namespace Plugin
 	void                                DropConfigLights();  // once the record lights are made
 	// a beam's row out of the Streams folder whose settings hold now (lagen move_beams), or nullptr - pass 6's color for it
 	[[nodiscard]] const ConfigLight* StreamRowFor(const std::string& a_model);
-	// which Dynamic Lighting twin a Light Placer light's lower-case "<config>|<light>" is (ConfigText.h TwinOf), for LightCopies.cpp
-	// to swap each pair at once when the setting moves
+	// which Dynamic Lighting twin a Light Placer light's "<config>|<light>" is (made by ConfigText.h TwinKey; TwinOf), for
+	// LightCopies.cpp to swap each pair at once when the setting moves
 	[[nodiscard]] ConfigText::Twin DynamicTwinOf(const std::string& a_configAndLight);
 
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
