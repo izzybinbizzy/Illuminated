@@ -284,7 +284,7 @@ namespace Plugin
 			return;
 		}
 		auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
-		if (!scene || gArtLightsOn.load(std::memory_order_relaxed) < 0.5f) {  // switched off in the advanced settings file
+		if (!scene || gArtLightsOn.load(std::memory_order_relaxed) < 0.5f || LightsOff()) {  // switched off (advanced settings file, or all lights off)
 			for (auto& [key, kept] : gKept) {
 				Drop(kept, scene);  // with a scene, each light leaves its lists too (CodeRabbit, Illuminated #6)
 			}

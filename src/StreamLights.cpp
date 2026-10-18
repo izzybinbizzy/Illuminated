@@ -175,7 +175,7 @@ namespace Plugin
 		// every ward belongs to Dynamic Wards: when that mod is here, this pass does not light a ward
 		bool WardLightsOn()
 		{
-			return SettingValue(kWardSetting, 0) != 0 && !DynamicWardsLoaded();
+			return SettingValue(kWardSetting, 0) != 0 && !DynamicWardsLoaded() && !LightsOff();
 		}
 
 		float Percent(std::string_view a_id)
@@ -420,7 +420,7 @@ namespace Plugin
 
 	bool StreamLightsOn()
 	{
-		return SettingValue(kStreamSetting, 1) != 0;  // the setting ships on (lagen.py)
+		return SettingValue(kStreamSetting, 1) != 0 && !LightsOff();  // the setting ships on (lagen.py)
 	}
 
 	// ------------------------------------------------------------------ wards: one light where the dome sits

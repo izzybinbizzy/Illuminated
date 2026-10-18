@@ -263,7 +263,7 @@ namespace Plugin
 			return;
 		}
 		auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
-		if (!scene || gGroundLightsOn.load(std::memory_order_relaxed) < 0.5f) {  // switched off in the advanced settings file
+		if (!scene || gGroundLightsOn.load(std::memory_order_relaxed) < 0.5f || LightsOff()) {  // switched off (advanced settings file, or all lights off)
 			// no scene to light, or switched off: let every twin go and give each source light back (with a scene, each twin
 			// leaves its lists too - CodeRabbit, RELight #8)
 			DropAll(scene);

@@ -131,7 +131,9 @@ namespace Plugin
 				.form = copy,
 				.startFade = fade,
 				.startRadius = radius,
-				.startCutoff = (flags & kInverseSquare) ? s.falloff : 0.0f });
+				.startCutoff = (flags & kInverseSquare) ? s.falloff : 0.0f,
+				.original = light,
+				.madeData = copy->data });
 			++made;
 			SKSE::log::info("[LIGHT-OURS] {} | radius {} | color {},{},{} | flags {:X} | size {} | fade {}", Label(light), radius,
 				s.r, s.g, s.b, flags, s.fov, fade);

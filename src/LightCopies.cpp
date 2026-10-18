@@ -699,10 +699,19 @@ namespace Plugin
 		const float scale = static_cast<float>(brightness) / 100.0f * daylight;
 		const float stretch = static_cast<float>(reach) / 100.0f;
 		gBrightness = scale;
+		const bool  off = LightsOff();
 		std::size_t set = 0;
 		for (auto& c : LightCopies()) {
 			if (!c.form) {
 				continue;
+			}
+			if (c.original) {
+				// pass 0's copy of a game magic light: with every Illuminated light off it wears the game's own look
+				c.form->data = off ? c.original->data : c.madeData;
+				if (off) {
+					c.form->fade = c.original->fade;
+					continue;
+				}
 			}
 			c.form->fade = c.flicker ? c.startFade : c.startFade * scale;  // a flicker's Brightness is applied as it is written
 			c.form->data.radius = static_cast<std::uint32_t>(std::lround(static_cast<double>(c.startRadius) * reach / 100.0));

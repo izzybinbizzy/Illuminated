@@ -102,6 +102,10 @@ namespace Plugin
 		float              startFade{ 0.0f };
 		std::uint32_t      startRadius{ 0 };
 		float              startCutoff{ 0.0f };  // 0: not an inverse-square light, its falloff is left alone
+		// pass 0's copy of a game magic light (LightSettings.cpp): the game's own light, and the look the copy was made with -
+		// with every Illuminated light off the copy wears the game's own look, and its made look again after
+		const RE::TESObjectLIGH* original{ nullptr };
+		RE::OBJ_LIGH             madeData{};
 	};
 
 	struct SprayMarker
@@ -125,6 +129,7 @@ namespace Plugin
 	[[nodiscard]] bool                            SettingAvailable(const Setting& a_setting);
 	[[nodiscard]] int                             AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
 	[[nodiscard]] int                             SettingValue(std::string_view a_id, int a_fallback);
+	[[nodiscard]] bool                            LightsOff();  // Performance > all of Illuminated's lights off (his switch)
 	[[nodiscard]] bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
 	void                                          MakeLightCopies();  // LightCopies.cpp

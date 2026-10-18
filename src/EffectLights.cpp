@@ -51,7 +51,7 @@ namespace Plugin
 			for (auto& t : gEffectTargets) {
 				auto* const        record = RecordLightFor(t.model);
 				RE::TESObjectLIGH* want = record;
-				if (!want && !t.always) {
+				if (!want && (!t.always || LightsOff())) {  // all lights off: an always-dark form gets its own light back too
 					want = t.own;
 				}
 				if (*t.slot == want) {
@@ -76,7 +76,7 @@ namespace Plugin
 		void ApplyEffectLightPlacerRoute(bool a_log, EffectCounts& a_n)
 		{
 			for (auto& t : gEffectTargets) {
-				const bool lit = t.always || (gEffectCoverage && gEffectCoverage->ModelLit(t.model));
+				const bool lit = (t.always && !LightsOff()) || (gEffectCoverage && gEffectCoverage->ModelLit(t.model));  // all off: its own light back too
 				if (lit && *t.slot) {
 					*t.slot = nullptr;
 					++a_n.nulled;
