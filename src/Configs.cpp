@@ -199,7 +199,7 @@ namespace Plugin
 	bool Coverage::ModelLit(const std::string& a_model) const
 	{
 		const auto it = modelTests.find(a_model);
-		if (it == modelTests.end()) {
+		if (it == modelTests.end() || LightsOff()) {
 			return false;
 		}
 		return std::any_of(it->second.begin(), it->second.end(), [](const auto& a_entry) {

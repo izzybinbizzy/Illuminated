@@ -33,6 +33,11 @@ namespace Plugin
 		constexpr const char* kRouteGlobal = "IlluminatedLightPlacerRoute";
 		RE::TESGlobal*        gRoute = nullptr;
 		float                 gRouteValue = 0.0f;
+		// his Performance switch (2026-10-17): "a toggle to turn off lights completely for the entire mod" - Light Placer then
+		// draws none of ours (the route global held at 0) and every pass treats every config as unlit (Coverage::ModelLit)
+		constexpr std::string_view kLightsOff = "IlluminatedLightsOff";
+
+		[[nodiscard]] float RouteNow() { return LightsOff() ? 0.0f : gRouteValue; }
 
 		constexpr std::string_view kSettingsSection = "Settings";
 		constexpr std::string_view kDetectedSection = "Detected";
@@ -324,7 +329,7 @@ namespace Plugin
 			}
 		}
 		if (gRoute) {
-			gRoute->value = gRouteValue;  // a save holds the globals as they were when it was made: the route found now wins
+			gRoute->value = RouteNow();  // a save holds the globals as they were when it was made: the route found now wins
 		}
 	}
 
@@ -334,7 +339,7 @@ namespace Plugin
 		// without the global Light Placer reads 0 and draws none of our lights: the caller then takes the record route
 		gRouteValue = a_lightPlacerDraws && gRoute ? 1.0f : 0.0f;
 		if (gRoute) {
-			gRoute->value = gRouteValue;
+			gRoute->value = RouteNow();
 		}
 		SKSE::log::info("[SETTING] {} = {} (Light Placer {} Illuminated's lights)", kRouteGlobal, gRouteValue > 0.5f ? 1 : 0,
 			gRouteValue > 0.5f ? "draws" : "draws none of");
@@ -460,6 +465,11 @@ namespace Plugin
 		std::ranges::transform(a_id, low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		const auto it = gIndex.find(std::string_view(low.data(), a_id.size()));
 		return it == gIndex.end() ? a_fallback : gSettings[it->second].value.load();
+	}
+
+	bool LightsOff()
+	{
+		return SettingValue(kLightsOff, 0) != 0;
 	}
 
 	bool RegisterEditorID(RE::TESForm* a_form, const std::string& a_id)

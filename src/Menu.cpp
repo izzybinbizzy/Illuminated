@@ -57,9 +57,7 @@ namespace Plugin
 			ImGuiMCP::Text("%s", T("Lighting"));
 			ImGuiMCP::SameLine();
 			ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.86f, 0.55f, 1.0f }, T("Automatic - %s"), T(LightingName(LightingFound())));
-			ImGuiMCP::SetItemTooltip("%s", T("Illuminated finds your lighting by itself when the game starts: Community Shaders when its inverse "
-											 "square lighting is installed, else ENB when an ENB is in the game folder, else Vanilla. Your presets "
-											 "are kept apart for each one."));
+			MenuStyle::Tip(T("Found by itself when the game starts: Community Shaders, ENB or Vanilla. Each keeps its own presets."));
 		}
 
 #ifdef FADE_DEBUG_PAGE
@@ -98,9 +96,9 @@ namespace Plugin
 		{
 			const char* tip = a_tip < a_s.tips.size() && !a_s.tips[a_tip].empty() ? T(a_s.tips[a_tip].c_str()) : "";
 			if (a_s.restart) {
-				ImGuiMCP::SetItemTooltip("%s%s%s", tip, *tip ? "\n" : "", T("(takes effect the next time the game starts)"));
+				MenuStyle::Tip(std::format("{}{}{}", tip, *tip ? "\n" : "", T("(takes effect the next time the game starts)")).c_str());
 			} else if (*tip) {
-				ImGuiMCP::SetItemTooltip("%s", tip);
+				MenuStyle::Tip(tip);
 			}
 		}
 
@@ -322,7 +320,7 @@ namespace Plugin
 						SetById("IlluminatedStreamLights", p.streams);
 					}
 				}
-				ImGuiMCP::SetItemTooltip("%s", p.tip);
+				MenuStyle::Tip(p.tip);
 			}
 			// the player's own presets, for the lighting found now
 			static char name[48]{};
@@ -336,8 +334,10 @@ namespace Plugin
 				name[0] = '\0';
 			}
 			ImGuiMCP::EndDisabled();
-			ImGuiMCP::SetItemTooltip(T("Saves every setting as it is now under this name, for %s. Each lighting keeps its own presets."),
+			char saveTip[256]{};
+			std::snprintf(saveTip, sizeof(saveTip), T("Saves every setting as it is now under this name, for %s. Each lighting keeps its own presets."),
 				T(LightingName(LightingFound())));
+			MenuStyle::Tip(saveTip);
 			std::vector<UserPreset> mine;
 			{
 				std::lock_guard   lock(gPresetLock);
@@ -353,7 +353,7 @@ namespace Plugin
 				if (ImGuiMCP::Button(mine[i].name.c_str())) {
 					LoadPreset(mine[i]);
 				}
-				ImGuiMCP::SetItemTooltip("%s", T("Load this preset."));
+				MenuStyle::Tip(T("Load this preset."));
 				ImGuiMCP::SameLine();
 				if (ImGuiMCP::SmallButton(T("Delete"))) {
 					DeletePreset(mine[i].name);
@@ -389,9 +389,9 @@ namespace Plugin
 					SetSetting(praedy, v == 2 ? 1 : 0);
 				}
 			}
-			ImGuiMCP::SetItemTooltip("%s", T("Which soul gems glow. Vanilla uses one mesh for a full gem and an empty one, so empty gems "
-											 "stay dark. Praedy's: Praedy's Soul Gems, meshes and all (delete Soulgems.json from the "
-											 "Subtle Soul Gems mod folder if you have it)."));
+			MenuStyle::Tip(T(
+				"Which soul gems glow. Vanilla: full gems only (empty ones share their mesh and stay dark). Praedy's: Praedy's "
+				"Soul Gems too (delete Soulgems.json from Subtle Soul Gems if you have it)."));
 			ImGuiMCP::PopID();
 		}
 
@@ -416,9 +416,10 @@ namespace Plugin
 				DrawPresets();
 				if (!gCSLight.empty()) {
 					ImGuiMCP::TextColored(kWarn, T("%s is loaded."), gCSLight.c_str());
-					ImGuiMCP::SetItemTooltip("%s", T("Illuminated does not need CS Light. If you keep CS Light for its world lights, untick its "
-													 "Magic FX, Mysticsm, Bound Weapons, Praedy Staves, Regular soulgems, Spiders, Misc Effects "
-													 "and Dwarven Spiders options in its own installer, or those lights glow twice."));
+					MenuStyle::Tip(T(
+						"Illuminated does not need CS Light. Keeping it for its world lights? Untick its Magic FX, Mysticsm, "
+						"Bound Weapons, Praedy Staves, Regular soulgems, Spiders, Misc Effects and Dwarven Spiders options, "
+						"or those lights glow twice."));
 				}
 			};
 			std::string group;

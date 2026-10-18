@@ -103,7 +103,7 @@ namespace Plugin
 		CastingCounts n;
 		// the route and the settings every target reads, once for the pass
 		const bool record = RecordRoute();
-		const bool autoOn = SettingValue(kAutoSetting, 1) != 0;
+		const bool autoOn = SettingValue(kAutoSetting, 1) != 0 && !LightsOff();
 		const bool yield = record && YieldToENBLight();
 		for (auto& t : gCastingTargets) {
 			if (record) {
