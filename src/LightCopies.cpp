@@ -299,6 +299,91 @@ namespace Plugin
 			}
 		}
 
+		// THE DYNAMIC LIGHTING SWITCH AT ONCE - his report 2026-10-17: "it also takes an entire second to switch from dynamic to
+		// static". Light Placer tests a light's conditions once a second (its PlacedLights.cpp, UpdateTimer(a_delta, 1.0f)), so the
+		// switch showed up to a second late. On the frame the setting moves, each Dynamic Lighting light in the scene and its
+		// steady twin hanging at the same place are swapped here the way Light Placer's next test will swap them (ConfigText.h
+		// SwapTwins). A pair that is not one of each at one place, or is hidden for another reason, is left to that test.
+		constexpr std::string_view kDynamicLighting = "IlluminatedDynamicLighting";
+		int                        gDynamicSeen = -1;  // the value the scene's lights were last swapped for; main thread only
+
+		[[nodiscard]] std::uint32_t HideBits(RE::NiPointLight& a_light)
+		{
+			return std::bit_cast<std::uint32_t>(a_light.GetLightRuntimeData().ambient.red);
+		}
+
+		// as Light Placer's own CullLight writes it: the bits, and hidden while any is set
+		void SetHideBits(RE::NiPointLight& a_light, std::uint32_t a_bits)
+		{
+			a_light.GetLightRuntimeData().ambient.red = std::bit_cast<float>(a_bits);
+			a_light.SetAppCulled((a_bits & ConfigText::kHidden) != 0);
+		}
+
+		// on the main thread, on the frame a setting changed
+		void SwapDynamicTwins()
+		{
+			const int now = SettingValue(kDynamicLighting, 1);
+			const int before = std::exchange(gDynamicSeen, now);
+			auto*     scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+			if (before < 0 || before == now || RecordRoute() || !scene) {
+				return;
+			}
+			struct Pair
+			{
+				RE::NiPointLight* dynamic{ nullptr };
+				RE::NiPointLight* steady{ nullptr };
+				int               dynamics{ 0 };
+				int               steadies{ 0 };
+			};
+			std::unordered_map<std::string, Pair> pairs;  // by config and place
+			std::unordered_set<RE::NiPointLight*> seen;   // a light both lit and queued is counted once
+			const auto                            look = [&](const auto& a_list) {
+				for (const auto& bsLight : a_list) {
+					auto*      light = bsLight ? netimmerse_cast<RE::NiPointLight*>(bsLight->light.get()) : nullptr;
+					const auto key = light && light->parent ? ConfigText::LightPlacerKey(light->name.c_str()) : std::string_view{};
+					if (key.empty() || !seen.insert(light).second) {
+						continue;
+					}
+					const auto low = Lower(key);
+					const auto twin = DynamicTwinOf(low);
+					if (twin == ConfigText::Twin::kNeither) {
+						continue;
+					}
+					// twins hang at one place: the node Light Placer made for each, or the model's own node (the light's own
+					// spot moves with its record's flicker)
+					const auto& at = light->parent->world.translate;
+					auto&       p = pairs[std::format("{}|{}|{}|{}", std::string_view(low).substr(0, low.find('|')), std::lround(at.x),
+						std::lround(at.y), std::lround(at.z))];
+					if (twin == ConfigText::Twin::kDynamic) {
+						p.dynamic = light;
+						++p.dynamics;
+					} else {
+						p.steady = light;
+						++p.steadies;
+					}
+				}
+			};
+			const auto& lists = scene->GetRuntimeData();
+			look(lists.activeLights);
+			look(lists.lightQueueAdd);
+			const bool  on = now != 0;
+			std::size_t swapped = 0, left = 0;
+			for (const auto& p : pairs | std::views::values) {
+				const auto next = p.dynamics == 1 && p.steadies == 1 ?
+				                      ConfigText::SwapTwins({ HideBits(*p.dynamic), HideBits(*p.steady) }, on) :
+				                      std::nullopt;
+				if (!next) {
+					left += p.dynamics > 0 ? 1 : 0;
+					continue;
+				}
+				SetHideBits(*p.dynamic, next->dynamic);
+				SetHideBits(*p.steady, next->steady);
+				++swapped;
+			}
+			SKSE::log::info("[DYNAMIC-SWITCH] Dynamic Lighting {}: {} light pair(s) swapped at once, {} dynamic light(s) left to Light Placer's next test",
+				on ? "on" : "off", swapped, left);
+		}
+
 		// once a frame, on the main thread
 		void Frame()
 		{
@@ -307,7 +392,8 @@ namespace Plugin
 			const float before = gBrightness;
 			if (settings) {
 				RefreshLights();
-				ApplyWardLook();  // the Ward look pick: the next ward raised wears it
+				ApplyWardLook();     // the Ward look pick: the next ward raised wears it
+				SwapDynamicTwins();  // the Dynamic Lighting switch shows now, not at Light Placer's next test
 			} else if (changed) {
 				ApplyLightStrength(false, true);  // the daylight moved: the copies at the new Brightness x daylight, no log line
 			}
@@ -655,6 +741,7 @@ namespace Plugin
 		}
 		SKSE::log::info("light copies: {} made ({} flicker, {} drawn plain for {}), {} whose light is not in this load order, {} failed", made,
 			flickers, plained, LightingName(LightingFound()), missing, failed);
+		gDynamicSeen = SettingValue(kDynamicLighting, 1);  // the scene's lights start as the settings file has it
 		InstallHooks();
 		ApplyLightStrength(true);
 	}
