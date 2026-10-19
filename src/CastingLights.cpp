@@ -160,12 +160,14 @@ namespace Plugin
 				const auto model = NormalPath(effect->data.castingArt->GetModel() ? effect->data.castingArt->GetModel() : "");
 				// an unpatched Light-archetype spell gets no automatic light: a mod may keep its orb's light in that slot, and a hand
 				// light in the orb's color would be new (Candlelight / Magelight are covered - CastingLights below follows them).
-				// A ward's hand (any art named wardinhandfx - the game's, Dynamic Wards' per rank, ours) is the wards' own: Dynamic
-				// Wards dresses every ward when it is installed, Wards.cpp when it is not (measured 2026-10-19 on a Vanilla copy:
-				// 32 ward effects on Dynamic Wards' art took its uncolored meshes' orange / red - it recolors them in game)
+				// A ward (its effect raises Ward Power) and any spell on a ward's hand art (named wardinhandfx - the game's, Dynamic
+				// Wards' per rank, ours) are the wards' own: Dynamic Wards dresses every ward when it is installed, Wards.cpp when it is
+				// not (measured 2026-10-19 on a Vanilla copy: 32 ward effects on Dynamic Wards' art took its uncolored meshes' orange /
+				// red - it recolors them in game)
 				if (model.empty() || a_cov.models.contains(model) || effect->data.castingType == RE::MagicSystem::CastingType::kConstantEffect ||
 					effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight || SkippedPrefix(EditorID(effect)) ||
-					CounterEffectCount(effect) > kMaxCounterEffects || model.contains("wardinhandfx")) {
+					CounterEffectCount(effect) > kMaxCounterEffects || effect->data.primaryAV == RE::ActorValue::kWardPower ||
+					model.contains("wardinhandfx")) {
 					continue;
 				}
 				std::optional<RE::Color> color;
