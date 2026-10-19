@@ -13,10 +13,12 @@ The plugin of Illuminated - Spell & Weapon Light NG; it ships with the mod and i
 - **Sprays, streams and bolts**: each projectile wears a raised copy of its own light record, the way
   [ReLight](https://github.com/TrumanGIT/ReLight) by Truman lights them (GPL-3.0-or-later, used with permission).
 - Fading, Dynamic Lighting, dim in daylight, a light budget for big fights, Lights by Item, presets, Brightness and
-  Reach, the HUD (reticle and charge gems), VAER Reborn's swirls kept, and wards when Dynamic Wards is not installed.
+  Reach, the charge gems, VAER Reborn's swirls kept, and wards when Dynamic Wards is not installed.
+- **Reticle bars through Reticle Arcs** - with Reticle Arcs installed, each hand's spell light, a bound weapon's time and
+  an enchanted weapon's charge are offered to it as add-on bars (its published interface only); no reticle of its own.
 
 ## Requires
-SKSE, Address Library for SKSE Plugins and SKSE Menu Framework (the settings page and the HUD).
+SKSE, Address Library for SKSE Plugins and SKSE Menu Framework (the settings page and the HUD). Reticle Arcs is optional.
 
 ## Settings
 SKSE Menu Framework > Illuminated; every menu setting is live. Values the menu does not show are in
@@ -31,3 +33,6 @@ their author (see `src/DevBenchAPI.LICENSE.txt`) and copied unchanged. devbench 
 `src/SKSEMenuFramework.h` is SKSE Menu Framework's own header by Thiago Kaique, copied unchanged from
 [SKSE-Menu-Framework-3-Example](https://github.com/QTR-Modding/SKSE-Menu-Framework-3-Example), MIT licensed
 (see `src/SKSEMenuFramework.LICENSE.txt`).
+
+`src/ReticleArcsAPI.h` is Reticle Arcs' add-on interface by Chiktabba, MIT licensed (the notice at its top), copied
+unchanged. Reticle Arcs is not required.

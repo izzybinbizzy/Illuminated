@@ -8,9 +8,11 @@
 // its light, and an effect that had no casting light gets one.
 // AUTOMATIC LIGHTS (his go-to pick, "do all of them"), without Light Placer: a spell whose casting
 // art no config lights - another mod's spell Illuminated has no patch for - gets a light of ours too, behind the setting
-// "Spells without a patch": in the color of its own casting light when it has one, else in its element's color (the
-// color most of the tuned spells of that element wear: fire, frost, shock), at the middle strength and reach of the tuned
-// hand lights. A spell with neither keeps what it has: no color is guessed.
+// "Spells without a patch", at the middle strength and reach of the tuned hand lights. Its color, in his order of 2026-10-18
+// ("i want it for all spells ... the fact that we provide a way for them to change and save their colors should suffice"):
+// its own casting light's, else the light of the projectile it fires, else its art's (the emissive colors of the art's
+// effect shaders, read once at load), else the color most of the tuned spells of its resistance group wear (every group).
+// A spell with none of them keeps what it has: no color is guessed.
 
 #include "Plugin.h"
 
@@ -126,22 +128,22 @@ namespace Plugin
 			if (!RecordRoute()) {
 				return;
 			}
-			// what the tuned spells wear now: the hand lights in the middle of which an automatic light sits, and the color most
-			// of the tuned spells of each element wear
+			// what the tuned spells wear in the data (each art's first row, whatever the settings at load - a switch or "all lights
+			// off" then changes no group's color; CodeRabbit, RELight #27): the hand lights in the middle of which an automatic
+			// light sits, and the color most of the tuned spells of each group wear
 			std::vector<const RE::TESObjectLIGH*>                          tuned;
 			std::map<RE::ActorValue, std::map<std::uint32_t, std::size_t>> byElement;
 			const auto                                                     pack = [](const RE::Color& c) { return (static_cast<std::uint32_t>(c.red) << 16) | (static_cast<std::uint32_t>(c.green) << 8) | c.blue; };
 			for (const auto& t : gCastingTargets) {
-				if (auto* record = RecordLightFor(t.model)) {
+				if (auto* record = RecordLightOfData(t.model)) {
 					tuned.push_back(record);
 					++byElement[t.effect->data.resistVariable][pack(record->data.color)];
 				}
 			}
-			// HIS ANSWER 2026-10-13: a matched color ONLY for fire, frost and shock - a spell resisted by magic, poison or
-			// disease resistance is no element (a modded Calm is not "magic-colored"), so it keeps the game's own light
-			const auto elementColor = [&](RE::ActorValue a_av) -> std::optional<RE::Color> {
-				using AV = RE::ActorValue;
-				if (a_av != AV::kResistFire && a_av != AV::kResistFrost && a_av != AV::kResistShock) {
+			// HIS RULING 2026-10-18 (it reverses his 2026-10-13 "fire, frost and shock only"): every resistance group's color; a
+			// spell no resistance applies to (healing, wards, utility) is in no group and keeps the game's own light
+			const auto groupColor = [&](RE::ActorValue a_av) -> std::optional<RE::Color> {
+				if (a_av == RE::ActorValue::kNone) {
 					return std::nullopt;
 				}
 				const auto it = byElement.find(a_av);
@@ -151,27 +153,48 @@ namespace Plugin
 				const auto best = std::ranges::max_element(it->second, {}, [](const auto& kv) { return kv.second; })->first;
 				return RE::Color(static_cast<std::uint8_t>(best >> 16), static_cast<std::uint8_t>(best >> 8), static_cast<std::uint8_t>(best), 0);
 			};
-			std::size_t own = 0, element = 0, noColor = 0;
+			std::size_t own = 0, projectile = 0, art = 0, group = 0, noColor = 0, dark = 0;
 			for (auto* effect : LightKit::FormsOf<RE::EffectSetting>()) {
 				if (!effect || !effect->data.castingArt) {
 					continue;
 				}
 				const auto model = NormalPath(effect->data.castingArt->GetModel() ? effect->data.castingArt->GetModel() : "");
 				// an unpatched Light-archetype spell gets no automatic light: a mod may keep its orb's light in that slot, and a hand
-				// light in the orb's color would be new (Candlelight / Magelight are covered - CastingLights below follows them)
+				// light in the orb's color would be new (Candlelight / Magelight are covered - CastingLights below follows them).
+				// A ward (its effect raises Ward Power) and any spell on a ward's hand art (named wardinhandfx - the game's, Dynamic
+				// Wards' per rank, ours) are the wards' own: Dynamic Wards dresses every ward when it is installed, Wards.cpp when it is
+				// not (measured 2026-10-19 on a Vanilla copy: 32 ward effects on Dynamic Wards' art took its uncolored meshes' orange /
+				// red - it recolors them in game)
 				if (model.empty() || a_cov.models.contains(model) || effect->data.castingType == RE::MagicSystem::CastingType::kConstantEffect ||
 					effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight || SkippedPrefix(EditorID(effect)) ||
-					CounterEffectCount(effect) > kMaxCounterEffects) {
+					CounterEffectCount(effect) > kMaxCounterEffects || effect->data.primaryAV == RE::ActorValue::kWardPower ||
+					model.contains("wardinhandfx")) {
 					continue;
 				}
 				std::optional<RE::Color> color;
+				std::string_view         from;
+				const auto*              shot = effect->data.projectileBase ? effect->data.projectileBase->data.light : nullptr;
 				if (const auto* l = effect->data.light) {
 					color = l->data.color;
+					from = "its own light";
 					++own;
-				} else if ((color = elementColor(effect->data.resistVariable))) {
-					++element;
+				} else if (shot) {
+					color = shot->data.color;
+					from = "its projectile's light";
+					++projectile;
+				} else if ((color = LightKit::ArtColor(effect->data.castingArt->GetModel()))) {
+					from = "its art";
+					++art;
+				} else if ((color = groupColor(effect->data.resistVariable))) {
+					from = "its resistance group";
+					++group;
 				} else {
 					++noColor;
+					continue;
+				}
+				// a black light is an author's dark on purpose (Colorful Bound Weapons' black summon): black stays dark
+				if ((std::max)({ color->red, color->green, color->blue }) < LightKit::kDarkTop) {
+					++dark;
 					continue;
 				}
 				auto* light = AutoLight(*color, tuned);
@@ -179,13 +202,12 @@ namespace Plugin
 					continue;
 				}
 				gCastingTargets.push_back({ effect, effect->data.light, model, light });
-				SKSE::log::info("[CAST-AUTO] {} | {} | {},{},{} from {}", Label(effect), model, color->red, color->green, color->blue,
-					effect->data.light ? "its own light" : "its element");
+				SKSE::log::info("[CAST-AUTO] {} | {} | {},{},{} from {}", Label(effect), model, color->red, color->green, color->blue, from);
 			}
 			SKSE::log::info(
-				"automatic lights: {} spell(s) no config lights - {} in their own light's color, {} in their element's, {} left as they are "
-				"(no color to read); {} light(s) made",
-				own + element + noColor, own, element, noColor, AutoLightCount());
+				"automatic lights: {} spell(s) no config lights - {} in their own light's color, {} in their projectile's, {} in their "
+				"art's, {} in their resistance group's, {} left as they are (no color to read), {} left dark (a black color); {} light(s) made",
+				own + projectile + art + group + noColor, own, projectile, art, group, noColor, dark, AutoLightCount());
 		}
 	}
 

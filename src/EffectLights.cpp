@@ -230,6 +230,7 @@ namespace Plugin
 		ApplyCastingLights(false);
 		ApplyEffectLights(false);
 		ApplyStreamLights(false);
+		ApplySprayColors();
 		SKSE::log::info("lights refreshed for the settings in {:.1f} ms",
 			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
 	}

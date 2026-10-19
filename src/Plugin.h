@@ -126,6 +126,7 @@ namespace Plugin
 	[[nodiscard]] const std::vector<MenuNote>&    Notes();
 	[[nodiscard]] const std::vector<SprayMarker>& SprayMarkers();
 	[[nodiscard]] bool                            PluginLoaded(std::string_view a_plugin);
+	[[nodiscard]] bool                            PluginLoadedStartingWith(std::initializer_list<std::string_view> a_lowerPrefixes);  // lower-case name starts: a mod shipped under several plugin names
 	[[nodiscard]] bool                            SettingAvailable(const Setting& a_setting);
 	[[nodiscard]] int                             AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
 	[[nodiscard]] int                             SettingValue(std::string_view a_id, int a_fallback);
@@ -184,6 +185,7 @@ namespace Plugin
 	void                             RecordTablesReady();                                                    // the data load is done: RecordFlicker may read the tables
 	void                             AdvanceRecordFlicker(float a_delta);                                    // once a frame, on the main thread
 	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model);                             // nullptr: no row lights that model now
+	[[nodiscard]] RE::TESObjectLIGH* RecordLightOfData(const std::string& a_model);                          // its first row's light, whatever the settings
 	[[nodiscard]] float              RecordFadeNow(const RE::TESObjectLIGH* a_record, const void* a_light);  // its fade now, a flicker's keys played
 	// ArtLights.cpp (his report: "bound weapons not lighting up on vanilla"): a light of ours on every art effect and
 	// drawn weapon whose model a config row lights now; once a frame on the main thread
@@ -255,6 +257,7 @@ namespace Plugin
 	};
 
 	[[nodiscard]] SprayChoice ReadSprayChoice();
+	void                      ApplySprayColors();  // SprayLights.cpp: the raised sprays' colors for the settings as they are now
 	// SprayLights.cpp: the light a spray projectile had before pass 4 stretched a copy of it onto it, or nullptr
 	[[nodiscard]] RE::TESObjectLIGH* SprayOriginal(const RE::BGSProjectile* a_projectile);
 

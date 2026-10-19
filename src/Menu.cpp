@@ -36,6 +36,10 @@ namespace Plugin
 	{
 		constexpr std::size_t    kMaxPages = 24;
 		std::vector<std::string> gPages;
+		// each page's settings in the order they are drawn: a group's settings together, the groups where each first appears
+		// (the settings files list an author's mods by mod name, among the other authors', so drawn in file order an author's
+		// heading came back for each run of its mods - his "yes, fix it" 2026-10-18)
+		std::array<std::vector<std::size_t>, kMaxPages> gOrder;
 		// his word: "put praedy staves last" - after the fading module's pages too (RegisterMenuTail)
 		constexpr std::string_view kLastPage = "Praedy's Staves";
 		std::string                gCSLight;  // the CS Light plugin that is loaded, if one is
@@ -363,38 +367,10 @@ namespace Plugin
 			}
 		}
 
-		// HIS MENU: "soul gems needs to have 1 submenu with praedy's in the dropdown along with vanilla and none".
-		// The two settings the installers made stay (the configs' conditions read both); the menu shows them as ONE pick:
-		// None = no soul gem lights, Vanilla = the vanilla gems, Praedy's = the vanilla gems + Praedy's (offered only with
-		// Praedy's SoulGems.esp loaded, as its own switch was).
-		constexpr std::string_view kSoulGems = "IlluminatedSoulGems";
-		constexpr std::string_view kPraedysGems = "IlluminatedPraedys";
-
-		void DrawSoulGems(std::size_t a_gems, const Setting& a_s)
-		{
-			auto&       settings = Settings();
-			std::size_t praedy = settings.size();
-			for (std::size_t i = 0; i < settings.size(); ++i) {
-				if (settings[i].id == kPraedysGems) {
-					praedy = i;
-				}
-			}
-			const bool  withPraedy = praedy < settings.size() && SettingAvailable(settings[praedy]);
-			const char* items[] = { T("None"), T("Vanilla"), T("Praedy's") };
-			int         v = a_s.value == 0 ? 0 : (withPraedy && settings[praedy].value != 0) ? 2 :
-			                                                                                   1;
-			ImGuiMCP::PushID(static_cast<int>(a_gems));
-			if (ImGuiMCP::Combo(T("Soul gems"), &v, items, withPraedy ? 3 : 2)) {
-				SetSetting(a_gems, v == 0 ? 0 : 1);
-				if (withPraedy) {
-					SetSetting(praedy, v == 2 ? 1 : 0);
-				}
-			}
-			MenuStyle::Tip(T(
-				"Which soul gems glow. Vanilla: full gems only (empty ones share their mesh and stay dark). Praedy's: Praedy's "
-				"Soul Gems too (delete Soulgems.json from Subtle Soul Gems if you have it)."));
-			ImGuiMCP::PopID();
-		}
+		// (the soul gem pick - None / Vanilla / Praedy's - left with the soul gems, his order 2026-10-19: "remove them all from the
+		// mod. put them into a new mod" - Illuminated - Soul Gem Lighting NG lights them). An older install's settings file may
+		// still name its two settings: they are not drawn
+		constexpr std::string_view kRetiredSettings[]{ "IlluminatedSoulGems", "IlluminatedPraedys" };
 
 		void DrawPage(std::size_t a_page)
 		{
@@ -419,8 +395,8 @@ namespace Plugin
 					ImGuiMCP::TextColored(kWarn, T("%s is loaded."), gCSLight.c_str());
 					MenuStyle::Tip(T(
 						"Illuminated does not need CS Light. Keeping it for its world lights? Untick its Magic FX, Mysticsm, "
-						"Bound Weapons, Praedy Staves, Regular soulgems, Spiders, Misc Effects and Dwarven Spiders options, "
-						"or those lights glow twice."));
+						"Bound Weapons, Praedy Staves, Spiders, Misc Effects and Dwarven Spiders options, or those lights glow "
+						"twice."));
 				}
 			};
 			std::string group;
@@ -431,14 +407,8 @@ namespace Plugin
 					ImGuiMCP::TextWrapped("%s", T(n.text.c_str()));
 				}
 			}
-			for (std::size_t i = 0; i < settings.size(); ++i) {
+			for (const std::size_t i : gOrder[a_page]) {
 				auto& s = settings[i];
-				if (s.page != page) {
-					continue;
-				}
-				if (s.id == kPraedysGems) {
-					continue;  // drawn inside the one soul gem pick
-				}
 				if (s.group != group) {
 					if (s.group != kVersionGroup) {
 						presets();
@@ -451,10 +421,6 @@ namespace Plugin
 						DrawStatusCard();
 #endif
 					}
-				}
-				if (s.id == kSoulGems) {
-					DrawSoulGems(i, s);
-					continue;
 				}
 				DrawSetting(i, s);
 			}
@@ -490,15 +456,30 @@ namespace Plugin
 			}
 		}
 		gPages.clear();
-		std::unordered_set<std::string> seen;  // the pages in the order they are first named, each once
-		for (const auto& s : Settings()) {
-			if (seen.insert(s.page).second) {
+		const auto&                     settings = Settings();
+		std::unordered_set<std::string> seen;  // the pages in the order they are first named, each once (a retired setting names none)
+		for (const auto& s : settings) {
+			if (std::ranges::find(kRetiredSettings, s.id) == std::ranges::end(kRetiredSettings) && seen.insert(s.page).second) {
 				gPages.push_back(s.page);
 			}
 		}
 		if (gPages.size() > kMaxPages) {
 			SKSE::log::warn("settings name {} pages; the menu shows the first {}", gPages.size(), kMaxPages);
 			gPages.resize(kMaxPages);
+		}
+		for (std::size_t p = 0; p < gPages.size(); ++p) {
+			std::vector<std::size_t>      onPage;
+			std::vector<std::string_view> groups;
+			for (std::size_t i = 0; i < settings.size(); ++i) {
+				if (settings[i].page == gPages[p] && std::ranges::find(kRetiredSettings, settings[i].id) == std::ranges::end(kRetiredSettings)) {
+					onPage.push_back(i);
+					groups.push_back(settings[i].group);
+				}
+			}
+			gOrder[p].clear();
+			for (const auto at : ConfigText::GroupedOrder(groups)) {
+				gOrder[p].push_back(onPage[at]);
+			}
 		}
 		MenuStyle::gTheme = MenuStyle::MakeTheme(0xFFC94D);  // candle gold
 		// the framework may keep the pointer: the text lives for the whole session (a temporary's c_str() would dangle)
@@ -512,15 +493,21 @@ namespace Plugin
 		SKSE::log::info("menu: {} page(s) added to SKSE Menu Framework {}", gPages.size(), SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
 
-	// after the fading module's pages: the last page goes at the bottom of the section
+	// after the fading module's pages: the last page goes at the bottom of the section - Praedy's Staves only with Praedy's
+	// Staves AIO loaded (its settings file ships in the main download since the merge, so only its plugin says it is
+	// installed: "Praedy's StavesAIO..." - read off his install, the Legacy of the Dragonborn version -, or a Patch Hub
+	// patch, "Praedystaves..." / "PraedyStaves...", which needs it as a master - his "yes, fix it" 2026-10-18)
 	void RegisterMenuTail()
 	{
 		if (!SKSEMenuFramework::IsInstalled()) {
 			return;
 		}
+		const bool               withPraedys = PluginLoadedStartingWith({ "praedy's stavesaio", "praedystaves" });
 		static const std::string kSection(kOurFolder);
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
-			if (gPages[i] == kLastPage) {
+			if (gPages[i] == kLastPage && !withPraedys) {
+				SKSE::log::info("menu: no Praedy's Staves AIO plugin loaded - its page is left out");
+			} else if (gPages[i] == kLastPage) {
 				SKSEMenuFramework::SetSection(T(kSection.c_str()));
 				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
 			}

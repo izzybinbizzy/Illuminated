@@ -17,9 +17,44 @@ namespace Plugin
 
 		std::unordered_map<const RE::BGSProjectile*, RE::TESObjectLIGH*> gOriginal;  // each raised spray's light before it (data load)
 
-		std::uint8_t Clamp255(int a_value)
+		// each raised copy, colored again on every settings refresh: an art pick in the menu moves a spray's light at once (his
+		// 2026-10-10 "needs to be live"; 2026-10-19 his Frostbite kept the old pick's color until a restart)
+		struct SprayCopy
 		{
-			return static_cast<std::uint8_t>(std::clamp(a_value, 0, 255));
+			RE::TESObjectLIGH* copy{ nullptr };
+			Family             family{ Family::kNone };
+			RE::Color          own{};  // the color of the light it was copied from
+		};
+		std::vector<SprayCopy> gCopies;
+
+		// 64-bit: a marker's shift may be any int, and a channel plus INT_MAX must not overflow before the clamp (CodeRabbit, #26)
+		std::uint8_t Clamp255(std::int64_t a_value)
+		{
+			return static_cast<std::uint8_t>(std::clamp<std::int64_t>(a_value, 0, 255));
+		}
+
+		// the copy's color for the settings as they are now: the frost / shock marker's, the fire marker's shift on its own color,
+		// else its own color
+		void Recolor(const SprayCopy& a_s, const SprayChoice& a_sc)
+		{
+			auto& color = a_s.copy->data.color;
+			if (a_s.family == Family::kFrost && a_sc.frostSet) {
+				color.red = Clamp255(a_sc.frost.r);
+				color.green = Clamp255(a_sc.frost.g);
+				color.blue = Clamp255(a_sc.frost.b);
+			} else if (a_s.family == Family::kShock && a_sc.shockSet) {
+				color.red = Clamp255(a_sc.shock.r);
+				color.green = Clamp255(a_sc.shock.g);
+				color.blue = Clamp255(a_sc.shock.b);
+			} else if (a_s.family == Family::kFire && a_sc.fireSet) {
+				color.red = Clamp255(std::int64_t{ a_s.own.red } + a_sc.fireDelta.r);
+				color.green = Clamp255(std::int64_t{ a_s.own.green } + a_sc.fireDelta.g);
+				color.blue = Clamp255(std::int64_t{ a_s.own.blue } + a_sc.fireDelta.b);
+			} else {
+				color.red = a_s.own.red;
+				color.green = a_s.own.green;
+				color.blue = a_s.own.blue;
+			}
 		}
 
 		constexpr std::string_view FamilyName(Family a_family)
@@ -41,6 +76,7 @@ namespace Plugin
 	{
 		const auto sc = ReadSprayChoice();
 		gOriginal.clear();
+		gCopies.clear();
 		if (!sc.on) {
 			SKSE::log::info("spray lights: off (the Spray Lights setting's marker does not hold); no spray light is touched");
 			return;
@@ -90,19 +126,8 @@ namespace Plugin
 			copy->fade = family == Family::kFrost ? sc.frostFade : sc.fade;
 			copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(kSprayFlags);
 			copy->data.fallofExponent = sc.falloff;
-			if (family == Family::kFrost && sc.frostSet) {
-				copy->data.color.red = Clamp255(sc.frost.r);
-				copy->data.color.green = Clamp255(sc.frost.g);
-				copy->data.color.blue = Clamp255(sc.frost.b);
-			} else if (family == Family::kShock && sc.shockSet) {
-				copy->data.color.red = Clamp255(sc.shock.r);
-				copy->data.color.green = Clamp255(sc.shock.g);
-				copy->data.color.blue = Clamp255(sc.shock.b);
-			} else if (family == Family::kFire && sc.fireSet) {
-				copy->data.color.red = Clamp255(copy->data.color.red + sc.fireDelta.r);
-				copy->data.color.green = Clamp255(copy->data.color.green + sc.fireDelta.g);
-				copy->data.color.blue = Clamp255(copy->data.color.blue + sc.fireDelta.b);
-			}
+			const SprayCopy sprayed{ copy, family, bulb->data.color };
+			Recolor(sprayed, sc);  // and again on every refresh (ApplySprayColors)
 			proj->data.light = copy;
 			if (proj->data.light != copy || copy->data.radius != static_cast<std::uint32_t>(radius)) {
 				++failed;
@@ -110,6 +135,7 @@ namespace Plugin
 				continue;
 			}
 			gOriginal[proj] = bulb;
+			gCopies.push_back(sprayed);
 			LightCopies().push_back({ .id = "spray " + EditorID(proj), .base = EditorID(bulb), .form = copy, .startFade = copy->fade, .startRadius = copy->data.radius });
 			++raised;
 			SKSE::log::info("[SPRAY-RAISED] {} | range {} | radius {} | from {} | family {} | color {},{},{}", Label(proj), range,
@@ -119,6 +145,32 @@ namespace Plugin
 			"spray lights: {} spray projectiles seen; {} raised, {} with no light of their own, {} poison left to pass 2, "
 			"{} named as not spray spells, {} failed",
 			seen, raised, noLight, poison, named, failed);
+	}
+
+	void ApplySprayColors()
+	{
+		if (gCopies.empty()) {
+			return;
+		}
+		const auto sc = ReadSprayChoice();
+		for (const auto& s : gCopies) {
+			Recolor(s, sc);
+		}
+		// a held Frostbite after a Frost Art switch still wore the old pick's color in game while every refresh ran: one line
+		// per family says what its copies hold now, so the log tells "the copy did not change" from "the game did not take
+		// the copy's new color"
+		for (const auto family : { Family::kFire, Family::kFrost, Family::kShock }) {
+			const auto first = std::ranges::find(gCopies, family, &SprayCopy::family);
+			if (first == gCopies.end()) {
+				continue;
+			}
+			const auto  n = std::ranges::count(gCopies, family, &SprayCopy::family);
+			const auto& c = first->copy->data.color;
+			const bool  held = family == Family::kFrost ? sc.frostSet : family == Family::kShock ? sc.shockSet :
+			                                                                                       sc.fireSet;
+			SKSE::log::info("[SPRAY-COLOR] {} | {} copies | now {},{},{} | own {},{},{} | marker {}", FamilyName(family), n, c.red,
+				c.green, c.blue, first->own.red, first->own.green, first->own.blue, held ? "holds" : "does not hold");
+		}
 	}
 
 	RE::TESObjectLIGH* SprayOriginal(const RE::BGSProjectile* a_projectile)

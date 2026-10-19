@@ -474,6 +474,12 @@ namespace Plugin
 		return nullptr;
 	}
 
+	RE::TESObjectLIGH* RecordLightOfData(const std::string& a_model)
+	{
+		const auto it = gChoices.find(a_model);
+		return it == gChoices.end() || it->second.empty() ? nullptr : it->second.front().light;
+	}
+
 	std::string RecordReport()
 	{
 		return std::format(
