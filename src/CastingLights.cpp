@@ -128,13 +128,14 @@ namespace Plugin
 			if (!RecordRoute()) {
 				return;
 			}
-			// what the tuned spells wear now: the hand lights in the middle of which an automatic light sits, and the color most
-			// of the tuned spells of each element wear
+			// what the tuned spells wear in the data (each art's first row, whatever the settings at load - a switch or "all lights
+			// off" then changes no group's color; CodeRabbit, RELight #27): the hand lights in the middle of which an automatic
+			// light sits, and the color most of the tuned spells of each group wear
 			std::vector<const RE::TESObjectLIGH*>                          tuned;
 			std::map<RE::ActorValue, std::map<std::uint32_t, std::size_t>> byElement;
 			const auto                                                     pack = [](const RE::Color& c) { return (static_cast<std::uint32_t>(c.red) << 16) | (static_cast<std::uint32_t>(c.green) << 8) | c.blue; };
 			for (const auto& t : gCastingTargets) {
-				if (auto* record = RecordLightFor(t.model)) {
+				if (auto* record = RecordLightOfData(t.model)) {
 					tuned.push_back(record);
 					++byElement[t.effect->data.resistVariable][pack(record->data.color)];
 				}
@@ -192,7 +193,7 @@ namespace Plugin
 					continue;
 				}
 				// a black light is an author's dark on purpose (Colorful Bound Weapons' black summon): black stays dark
-				if ((std::max)({ color->red, color->green, color->blue }) < 16) {
+				if ((std::max)({ color->red, color->green, color->blue }) < LightKit::kDarkTop) {
 					++dark;
 					continue;
 				}

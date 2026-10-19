@@ -457,9 +457,9 @@ namespace Plugin
 		}
 		gPages.clear();
 		const auto&                     settings = Settings();
-		std::unordered_set<std::string> seen;  // the pages in the order they are first named, each once
+		std::unordered_set<std::string> seen;  // the pages in the order they are first named, each once (a retired setting names none)
 		for (const auto& s : settings) {
-			if (seen.insert(s.page).second) {
+			if (std::ranges::find(kRetiredSettings, s.id) == std::ranges::end(kRetiredSettings) && seen.insert(s.page).second) {
 				gPages.push_back(s.page);
 			}
 		}

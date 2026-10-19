@@ -27,9 +27,10 @@ namespace Plugin
 		};
 		std::vector<SprayCopy> gCopies;
 
-		std::uint8_t Clamp255(int a_value)
+		// 64-bit: a marker's shift may be any int, and a channel plus INT_MAX must not overflow before the clamp (CodeRabbit, #26)
+		std::uint8_t Clamp255(std::int64_t a_value)
 		{
-			return static_cast<std::uint8_t>(std::clamp(a_value, 0, 255));
+			return static_cast<std::uint8_t>(std::clamp<std::int64_t>(a_value, 0, 255));
 		}
 
 		// the copy's color for the settings as they are now: the frost / shock marker's, the fire marker's shift on its own color,
@@ -46,9 +47,9 @@ namespace Plugin
 				color.green = Clamp255(a_sc.shock.g);
 				color.blue = Clamp255(a_sc.shock.b);
 			} else if (a_s.family == Family::kFire && a_sc.fireSet) {
-				color.red = Clamp255(a_s.own.red + a_sc.fireDelta.r);
-				color.green = Clamp255(a_s.own.green + a_sc.fireDelta.g);
-				color.blue = Clamp255(a_s.own.blue + a_sc.fireDelta.b);
+				color.red = Clamp255(std::int64_t{ a_s.own.red } + a_sc.fireDelta.r);
+				color.green = Clamp255(std::int64_t{ a_s.own.green } + a_sc.fireDelta.g);
+				color.blue = Clamp255(std::int64_t{ a_s.own.blue } + a_sc.fireDelta.b);
 			} else {
 				color.red = a_s.own.red;
 				color.green = a_s.own.green;
