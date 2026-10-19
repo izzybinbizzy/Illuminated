@@ -13,6 +13,7 @@
 //   TwinKey, SwapTwins                  the Dynamic Lighting switch at once (LightCopies.cpp SwapDynamicTwins)
 //   Json, Reader, Number                the configs' JSON reader (never throws, depth capped)
 //   ReadFadeController                  a fadeController's keys: flicker or flash, its mean fade
+//   GroupedOrder                        a menu page's settings, a group's together, the groups where each first appears
 
 #pragma once
 
@@ -477,5 +478,27 @@ namespace ConfigText
 				                                                           1;
 			}
 		}
+	}
+
+	// the order a menu page draws its settings in, given each setting's group in file order: a group's settings together, in
+	// file order, and the groups where each first appears - the settings file lists an author's mods by mod name among the
+	// other authors', so drawn in file order an author's heading came back for each run of its mods (his "yes, fix it" 2026-10-18)
+	[[nodiscard]] inline std::vector<std::size_t> GroupedOrder(const std::vector<std::string_view>& a_groups)
+	{
+		std::vector<std::string_view> firstSeen;
+		std::vector<std::size_t>      rank(a_groups.size());
+		for (std::size_t i = 0; i < a_groups.size(); ++i) {
+			const auto at = std::ranges::find(firstSeen, a_groups[i]);
+			rank[i] = static_cast<std::size_t>(at - firstSeen.begin());
+			if (at == firstSeen.end()) {
+				firstSeen.push_back(a_groups[i]);
+			}
+		}
+		std::vector<std::size_t> order(a_groups.size());
+		for (std::size_t i = 0; i < order.size(); ++i) {
+			order[i] = i;
+		}
+		std::ranges::stable_sort(order, {}, [&rank](std::size_t i) { return rank[i]; });
+		return order;
 	}
 }

@@ -493,6 +493,26 @@ namespace Plugin
 	const std::vector<SprayMarker>& SprayMarkers() { return gMarkers; }
 	bool                            PluginLoaded(std::string_view a_plugin) { return Loaded(a_plugin); }
 
+	bool PluginLoadedStartingWith(std::initializer_list<std::string_view> a_lowerPrefixes)
+	{
+		const auto* dh = RE::TESDataHandler::GetSingleton();
+		const auto  match = [&](const RE::TESFile* a_file) {
+			const auto name = a_file ? LightKit::Lower(a_file->GetFilename()) : std::string();
+			return std::ranges::any_of(a_lowerPrefixes, [&name](std::string_view p) { return !name.empty() && name.starts_with(p); });
+		};
+		for (std::uint8_t i = 0; dh && dh->GetLoadedMods() && i < dh->GetLoadedModCount(); ++i) {
+			if (match(dh->GetLoadedMods()[i])) {
+				return true;
+			}
+		}
+		for (std::uint16_t i = 0; dh && dh->GetLoadedLightMods() && i < dh->GetLoadedLightModCount(); ++i) {
+			if (match(dh->GetLoadedLightMods()[i])) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	bool SettingAvailable(const Setting& a_setting)
 	{
 		if (a_setting.needs.empty()) {

@@ -4,7 +4,8 @@
 //
 // The spray settings: whether spray lights are on, and their reach, fade and colors. They were marker files an
 // installer put down; now they are marker rows in the settings file, each on while the menu's settings say so.
-// Read once when the game loads its data: the spray lights are copied then, so a change shows after a restart.
+// Read when the game loads its data (the spray lights are copied then, so on / off, reach and fade show after a restart) and
+// again on every settings refresh for the colors (SprayLights.cpp ApplySprayColors - an art pick moves them at once).
 
 #include "Plugin.h"
 
