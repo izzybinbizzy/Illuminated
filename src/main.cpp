@@ -95,6 +95,7 @@ namespace
 			StreamLights();  // pass 6: a spray's or bolt's own light raised, and the ward dome's two hooks
 			RecordTablesReady();
 			Fade::ForgetPassEditorIDs();  // only the fading module's three kept types stay, as on the full path
+			LoadVfxPacks();               // after every pass: the VFX switcher dresses the spell forms
 			return;
 		}
 		PoisonRuneArt();  // pass 3 first: its new casting art is then followed by pass 1 like any lit art
@@ -107,6 +108,7 @@ namespace
 		StreamLights();               // pass 6, after pass 4 (a spray's own light is its stretched copy by now); it sets the sliders on every copy
 		RecordTablesReady();          // last: the hooks installed earlier may read the record tables from here on
 		Fade::ForgetPassEditorIDs();  // the passes have run: only the fading module's three kept types stay
+		LoadVfxPacks();               // after every pass (they matched the forms' own models): the VFX switcher dresses the spell forms
 		SKSE::log::info("done in {:.1f} ms",
 			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - loadStarted).count());
 	}
@@ -150,6 +152,7 @@ namespace
 		case SKSE::MessagingInterface::kNewGame:
 			// a save holds the plugin's globals as they were when it was made; the settings file is the truth
 			ApplyGlobals();
+			WatchBlocking();  // the player's animation graph is new after a load: the shield's ward watch goes on it again
 			if (a_msg->type == SKSE::MessagingInterface::kNewGame) {
 				// no kPreLoadGame comes before a new game: the last game's lights go here
 				DropArtLights();
