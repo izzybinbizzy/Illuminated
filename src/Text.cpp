@@ -14,6 +14,17 @@ namespace Plugin
 	{
 		std::string out = Lower(a_path);
 		std::ranges::replace(out, '/', '\\');
+		// a VFX pack's copy (VfxPacks.cpp: meshes\VFX Packs\<pack>\...) reads as the model it stands in for, so the passes and the
+		// configs still find a spell the switcher dressed
+		constexpr std::string_view kPacks = "vfx packs\\";
+		const std::size_t          at = out.starts_with(kPacks)                ? std::size_t{ 0 } :
+		                                out.starts_with("meshes\\vfx packs\\") ? std::size_t{ 7 } :
+		                                                                         std::string::npos;
+		if (at != std::string::npos) {
+			if (const auto end = out.find('\\', at + kPacks.size()); end != std::string::npos) {
+				out.erase(at, end + 1 - at);
+			}
+		}
 		return out;
 	}
 

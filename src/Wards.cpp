@@ -40,6 +40,7 @@ namespace Plugin
 		constexpr const char*      kClearDome = "Magic\\Glow Wards\\Transparent\\wardbodyfx.nif";
 		constexpr const char*      kBlueWornDome = "Magic\\Glow Wards\\Blue\\wardbodyfxworn.nif";
 		constexpr const char*      kClearWornDome = "Magic\\Glow Wards\\Transparent\\wardbodyfxworn.nif";
+		constexpr const char*      kBlueWornHand = "Magic\\Glow Wards\\Blue\\wardinhandfxworn.nif";
 		constexpr std::string_view kWardLook = "IlluminatedWardLook";  // 0 vanilla blue, 1 transparent
 		int                        gLookApplied = -1;                  // the look last put on the forms (-1 none yet)
 		// his call: the dome (without 360 Ward) and the hand (always) wear OUR vanilla-blue copies (their own textures, so no
@@ -64,6 +65,10 @@ namespace Plugin
 		};
 		RE::BGSArtObject* gWornDome = nullptr;
 		RE::BGSArtObject* gWornHand = nullptr;
+		// the worn wards' models, loaded once and held for the session (his look 2026-10-19, checklist 67: "ward stays up but is
+		// not instant like dynamic wards"): read off disk when a worn ward came up, its dome showed late, while Dynamic Wards keeps
+		// every ward model it dresses loaded and its dome shows at once
+		std::vector<RE::NiPointer<RE::NiNode>> gWornModels;
 
 		// the bare mesh name, lower case: "Magic\WardBodyFX.nif" -> "wardbodyfx"
 		std::string MeshName(const char* a_model)
@@ -96,6 +101,52 @@ namespace Plugin
 		{
 			return a_e->data.archetype == RE::EffectArchetypes::ArchetypeID::kAccumulateMagnitude &&
 			       a_e->data.primaryAV == RE::ActorValue::kWardPower;
+		}
+
+		// the empty art a silenced effect wears, made on first need
+		RE::BGSArtObject* EmptyArt()
+		{
+			static RE::BGSArtObject* const empty = [] {
+				auto* art = NewForm<RE::BGSArtObject>();
+				if (art) {
+					art->SetModel(kEmptyModel);
+				}
+				return art;
+			}();
+			return empty;
+		}
+
+		// a second dome's effect: no art, no hand light (its own work - Ward Power, Stamina - is left as it is)
+		bool Silence(RE::EffectSetting* a_e)
+		{
+			auto* empty = EmptyArt();
+			if (!empty) {
+				return false;
+			}
+			a_e->data.castingArt = empty;
+			a_e->data.hitEffectArt = empty;
+			a_e->data.enchantEffectArt = nullptr;
+			a_e->data.light = nullptr;
+			SKSE::log::info("[WARD-SILENT] {}", Label(a_e));
+			return true;
+		}
+
+		// main thread, data load; not on VR (the loader's address is read off the SE / AE Address Library only, as LightKit.h
+		// ArtColor's)
+		void HoldWornModels()
+		{
+			if (REL::Module::IsVR() || !gWornModels.empty()) {
+				return;
+			}
+			for (const auto* model : { kBlueWornHand, kBlueWornDome, kClearWornDome }) {
+				RE::NiPointer<RE::NiNode> root;
+				if (RE::BSModelDB::Demand(model, root, RE::BSModelDB::DBTraits::ArgsType{}) == RE::BSResource::ErrorCode::kNone && root) {
+					gWornModels.push_back(std::move(root));
+				} else {
+					SKSE::log::warn("wards: {} could not be loaded ahead - a worn ward reads it when it comes up", model);
+				}
+			}
+			SKSE::log::info("wards: {} worn ward model(s) held loaded for the session", gWornModels.size());
 		}
 	}
 
@@ -177,16 +228,8 @@ namespace Plugin
 				extras.insert(others.begin(), others.end());
 			}
 		}
-		RE::BGSArtObject* empty = extras.empty() ? nullptr : NewForm<RE::BGSArtObject>();
-		if (empty) {
-			empty->SetModel(kEmptyModel);
-			for (auto* e : extras) {
-				e->data.castingArt = empty;
-				e->data.hitEffectArt = empty;
-				e->data.enchantEffectArt = nullptr;
-				e->data.light = nullptr;  // the second hand light goes with the second dome
-				SKSE::log::info("[WARD-SILENT] {}", Label(e));
-			}
+		for (auto* e : extras) {
+			Silence(e);  // the second hand light goes with the second dome
 		}
 		SKSE::log::info("wards: {} effect(s) wear the ward art beside a ward's rank and show no second dome", extras.size());
 
@@ -203,22 +246,157 @@ namespace Plugin
 			gWornHand = NewForm<RE::BGSArtObject>();
 		}
 		if (gWornDome && gWornHand) {
-			gWornHand->SetModel("Magic\\Glow Wards\\Blue\\wardinhandfxworn.nif");
-			const bool  has360 = PluginLoaded(k360Plugin);
-			auto*       dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm");
-			std::size_t worn = 0;
+			gWornHand->SetModel(kBlueWornHand);
+			const bool                         has360 = PluginLoaded(k360Plugin);
+			auto*                              dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm");
+			std::set<const RE::EffectSetting*> wornEffects;
 			for (const auto& r : kWorn) {
 				if (auto* e = dh->LookupForm<RE::EffectSetting>(r.id, r.plugin)) {
 					e->data.castingArt = gWornHand;
 					e->data.hitEffectArt = has360 ? dome : gWornDome;
-					++worn;
+					wornEffects.insert(e);
 				}
 			}
-			SKSE::log::info("wards: {} worn ward(s) (Spellbreaker, Crusader, Reman) wear the looping copies", worn);
+			// one dome on a shield too (checklist 67, read 2026-10-19): Artificer's Spellbreaker enchantment carries the worn ward
+			// beside two effects of its own in the vanilla ward art (Ward Power, Stamina) - those drew two idle domes and two more
+			// hand lights; like a spell's extras they lose their art and light
+			std::size_t shieldExtras = 0;
+			for (auto* ench : dh->GetFormArray<RE::EnchantmentItem>()) {
+				if (!ench) {
+					continue;
+				}
+				bool carries = false;
+				for (const auto* effect : ench->effects) {
+					carries = carries || (effect && wornEffects.contains(effect->baseEffect));
+				}
+				if (!carries) {
+					continue;
+				}
+				for (auto* effect : ench->effects) {
+					auto* base = effect ? effect->baseEffect : nullptr;
+					if (base && !wornEffects.contains(base) && WearsWardArt(base) && Silence(base)) {
+						++shieldExtras;
+					}
+				}
+			}
+			HoldWornModels();
+			SKSE::log::info("wards: {} worn ward(s) (Spellbreaker, Crusader, Reman) wear the looping copies; {} other ward-art effect(s) on their enchantments show no dome",
+				wornEffects.size(), shieldExtras);
 		}
 
 		// the sphere / dome and the worn dome: the ward look
 		gLookApplied = -1;
 		ApplyWardLook();
+	}
+
+	// ------------------------------------------------------------------ the shield's ward at once
+	// HIS LOOK (checklist 67): "ward stays up but is not instant like dynamic wards which needs to be fixed as a user also
+	// suggested." and again 2026-10-19: "I looked its not as fast as dynamic wards". Measured at 30 pictures a second:
+	// Spellbreaker's dome shows 0.1-1.0 s after block is pressed. The shield raises its ward through its enchantment, whose effects carry the
+	// condition IsBlocking == 1; the game re-checks an active effect's conditions only on its own timer
+	// (fActiveEffectConditionUpdateInterval), so the ward waits for the next check. Here, when the player's block starts, every
+	// one of her active effects that comes from an ENCHANTMENT and whose conditions ask IsBlocking is checked at once
+	// (ActiveEffect::EvaluateConditions, the effect's own virtual - no address needed), and once more on the next frame in case
+	// the game has not yet marked her blocking when the animation event comes. Only those effects: nothing else changes timing.
+	// It runs with or without Dynamic Wards (the wait is the game's, not the dome's), so it is not behind DynamicWardsLoaded.
+	namespace
+	{
+		// the animation event the player's graph sends as a block begins (read off the game's own events 2026-10-19 - a block sends
+		// "blockStartOut"; "blockStart" is the input event's name and never reached the graph)
+		constexpr std::string_view kBlockTag = "blockStartOut";
+
+		// an enchantment's effect whose conditions ask IsBlocking (the shield wards: Spellbreaker, Artificer's two extra
+		// Spellbreaker effects, the Crusader shields, any mod's shield that works the same way)
+		[[nodiscard]] bool WaitsForBlock(const RE::ActiveEffect* a_effect)
+		{
+			using Flag = RE::ActiveEffect::Flag;
+			if (!a_effect || !a_effect->effect || !a_effect->spell || a_effect->flags.none(Flag::kHasConditions) ||
+				a_effect->flags.any(Flag::kDispelled) || a_effect->spell->GetSpellType() != RE::MagicSystem::SpellType::kEnchantment) {
+				return false;
+			}
+			for (const auto* item = a_effect->effect->conditions.head; item; item = item->next) {
+				if (item->data.functionData.function.get() == RE::FUNCTION_DATA::FunctionID::kIsBlocking) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		class ShieldWards : public RE::MagicTarget::ForEachActiveEffectVisitor
+		{
+		public:
+			RE::BSContainer::ForEachResult Accept(RE::ActiveEffect* a_effect) override
+			{
+				if (WaitsForBlock(a_effect)) {
+					found.push_back(a_effect);
+				}
+				return RE::BSContainer::ForEachResult::kContinue;
+			}
+
+			std::vector<RE::ActiveEffect*> found;
+		};
+
+		// main thread: the shield wards' conditions read now, not on the game's next check. Collected first, then checked, so
+		// the list is never walked while an effect changes state
+		void RecheckShieldWards()
+		{
+			auto* player = RE::PlayerCharacter::GetSingleton();
+			auto* target = player ? player->AsMagicTarget() : nullptr;
+			if (!target) {
+				return;
+			}
+			ShieldWards wards;
+			target->VisitEffects(wards);  // SE, AE and VR alike (FadeCharge.cpp walks them the same way)
+			for (auto* effect : wards.found) {
+				effect->EvaluateConditions(0.0f, true);
+			}
+		}
+
+		class BlockWatch : public RE::BSTEventSink<RE::BSAnimationGraphEvent>
+		{
+		public:
+			RE::BSEventNotifyControl ProcessEvent(const RE::BSAnimationGraphEvent* a_event,
+				RE::BSTEventSource<RE::BSAnimationGraphEvent>*) override
+			{
+				LightKit::Guarded("block watch", [a_event]() {
+					const std::string_view tag = a_event ? a_event->tag.c_str() : "";
+					if (!LightKit::SameText(tag, kBlockTag)) {
+						return;
+					}
+					static bool told = false;
+					if (!told) {
+						told = true;
+						SKSE::log::info("wards: a block started - the shield wards are checked at once");
+					}
+					// the graph's events may come off the main thread: the effects are read on it
+					if (auto* tasks = SKSE::GetTaskInterface()) {
+						tasks->AddTask([]() {
+							LightKit::Guarded("shield ward check", []() {
+								RecheckShieldWards();
+								// once more a frame later: IsBlocking may only read true after this frame's update
+								if (auto* again = SKSE::GetTaskInterface()) {
+									again->AddTask([]() { LightKit::Guarded("shield ward check (next frame)", RecheckShieldWards); });
+								}
+							});
+						});
+					}
+				});
+				return RE::BSEventNotifyControl::kContinue;
+			}
+		};
+		BlockWatch gBlockWatch;
+	}
+
+	// a game loaded or a new one started (main.cpp): the player's animation graph is new, so the watch is put on it again
+	// (taken off first, so it is never on twice)
+	void WatchBlocking()
+	{
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		if (!player) {
+			return;
+		}
+		player->RemoveAnimationGraphEventSink(&gBlockWatch);
+		const bool added = player->AddAnimationGraphEventSink(&gBlockWatch);
+		SKSE::log::info("wards: the block watch is {} the player's animation graph", added ? "on" : "NOT on (no graph yet)");
 	}
 }

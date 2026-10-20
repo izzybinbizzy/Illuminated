@@ -281,4 +281,9 @@ namespace Plugin
 	void               Wards();                                                       // Wards.cpp: one dome per ward, 360 Ward's sphere in the vanilla blue
 	[[nodiscard]] bool DynamicWardsLoaded();                                          // Wards.cpp: every ward is Dynamic Wards' then (this mod and pass 6 step down)
 	void               ApplyWardLook();                                               // Wards.cpp: the Ward look pick onto the dome art (main thread)
+	void               WatchBlocking();                                               // Wards.cpp: a shield's ward checked the moment a block starts (each game load)
+
+	// ------------------------------------------------------------------ VfxPacks.cpp: the VFX switcher (his yes 2026-10-19)
+	void LoadVfxPacks();   // data load, after every pass: the converted packs read, the spell forms wearing their originals noted
+	void ApplyVfxPacks();  // main thread: each noted form wears the copy of the pack its element's art pick names, or its own
 }
