@@ -260,6 +260,17 @@ namespace Plugin
 			// one dome on a shield too (checklist 67, read 2026-10-19): Artificer's Spellbreaker enchantment carries the worn ward
 			// beside two effects of its own in the vanilla ward art (Ward Power, Stamina) - those drew two idle domes and two more
 			// hand lights; like a spell's extras they lose their art and light
+			// an effect a castable spell also carries keeps its art (silencing it would take the art off that spell everywhere)
+			std::set<const RE::EffectSetting*> castable;
+			for (const auto* spell : dh->GetFormArray<RE::SpellItem>()) {
+				if (spell && spell->GetSpellType() != RE::MagicSystem::SpellType::kEnchantment) {
+					for (const auto* effect : spell->effects) {
+						if (effect && effect->baseEffect) {
+							castable.insert(effect->baseEffect);
+						}
+					}
+				}
+			}
 			std::size_t shieldExtras = 0;
 			for (auto* ench : dh->GetFormArray<RE::EnchantmentItem>()) {
 				if (!ench) {
@@ -274,7 +285,7 @@ namespace Plugin
 				}
 				for (auto* effect : ench->effects) {
 					auto* base = effect ? effect->baseEffect : nullptr;
-					if (base && !wornEffects.contains(base) && WearsWardArt(base) && Silence(base)) {
+					if (base && !wornEffects.contains(base) && !castable.contains(base) && WearsWardArt(base) && Silence(base)) {
 						++shieldExtras;
 					}
 				}
@@ -363,9 +374,8 @@ namespace Plugin
 					if (!LightKit::SameText(tag, kBlockTag)) {
 						return;
 					}
-					static bool told = false;
-					if (!told) {
-						told = true;
+					static std::atomic_bool told{ false };  // the graph's events may come off the main thread
+					if (!told.exchange(true)) {
 						SKSE::log::info("wards: a block started - the shield wards are checked at once");
 					}
 					// the graph's events may come off the main thread: the effects are read on it
@@ -385,18 +395,40 @@ namespace Plugin
 			}
 		};
 		BlockWatch gBlockWatch;
+		// the graph the watch is on (main thread only): a transformation (werewolf, Vampire Lord) or a 3D reset builds the player a
+		// new one, and a new game has none at its first message - KeepBlockWatch puts the watch on whatever graph she has now
+		const RE::BSAnimationGraphManager* gWatchedGraph = nullptr;
+		float                              gWatchClock = 0.0f;
 	}
 
-	// a game loaded or a new one started (main.cpp): the player's animation graph is new, so the watch is put on it again
-	// (taken off first, so it is never on twice)
+	// a game loaded or a new one started (main.cpp), or her graph was rebuilt (KeepBlockWatch): the watch is put on the graph
+	// she has (taken off first, so it is never on twice)
 	void WatchBlocking()
 	{
 		auto* player = RE::PlayerCharacter::GetSingleton();
 		if (!player) {
 			return;
 		}
+		RE::BSTSmartPointer<RE::BSAnimationGraphManager> graph;
+		player->GetAnimationGraphManager(graph);
 		player->RemoveAnimationGraphEventSink(&gBlockWatch);
-		const bool added = player->AddAnimationGraphEventSink(&gBlockWatch);
+		const bool added = graph && player->AddAnimationGraphEventSink(&gBlockWatch);
+		gWatchedGraph = added ? graph.get() : nullptr;
 		SKSE::log::info("wards: the block watch is {} the player's animation graph", added ? "on" : "NOT on (no graph yet)");
+	}
+
+	// player update (LightCopies.cpp), main thread: once a second, a graph that is not the one the watch is on gets the watch
+	void KeepBlockWatch(float a_delta)
+	{
+		gWatchClock += std::max(a_delta, 0.0f);
+		if (gWatchClock < 1.0f) {
+			return;
+		}
+		gWatchClock = 0.0f;
+		auto*                                            player = RE::PlayerCharacter::GetSingleton();
+		RE::BSTSmartPointer<RE::BSAnimationGraphManager> graph;
+		if (player && player->GetAnimationGraphManager(graph) && graph && graph.get() != gWatchedGraph) {
+			WatchBlocking();
+		}
 	}
 }

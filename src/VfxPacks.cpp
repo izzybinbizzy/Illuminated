@@ -20,9 +20,8 @@ namespace Plugin
 {
 	namespace
 	{
-		// OFF in this release (his order 2026-10-19: "keep the spell switcher turned off in illuminated for now so we can ship with
-		// it in the code but not playable"): no pack list is read and no model is changed - the art picks keep only their light color
-		constexpr bool kSwitcherOn = false;
+		// OFF in this release (Plugin.h kVfxSwitcherOn - his order 2026-10-19): the art picks keep only their light color
+		constexpr bool kSwitcherOn = kVfxSwitcherOn;
 
 		constexpr std::string_view kPackFolder = "VFX Packs";
 

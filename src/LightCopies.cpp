@@ -497,8 +497,9 @@ namespace Plugin
 					AdvanceRecordFlicker(a_delta);
 					WatchDaylight(a_delta);
 					Frame();
-					TickSwapped(a_delta);  // the Dynamic Lighting swap's lights back to Light Placer's own verdict
-					TickArtLights();       // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
+					TickSwapped(a_delta);     // the Dynamic Lighting swap's lights back to Light Placer's own verdict
+					TickArtLights();          // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
+					KeepBlockWatch(a_delta);  // the shield ward's block watch follows a rebuilt animation graph (Wards.cpp)
 					if (!RecordRoute()) {
 						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
 					}

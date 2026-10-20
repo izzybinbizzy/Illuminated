@@ -282,8 +282,12 @@ namespace Plugin
 	[[nodiscard]] bool DynamicWardsLoaded();                                          // Wards.cpp: every ward is Dynamic Wards' then (this mod and pass 6 step down)
 	void               ApplyWardLook();                                               // Wards.cpp: the Ward look pick onto the dome art (main thread)
 	void               WatchBlocking();                                               // Wards.cpp: a shield's ward checked the moment a block starts (each game load)
+	void               KeepBlockWatch(float a_delta);                                 // Wards.cpp, player update: the watch follows a rebuilt animation graph
 
 	// ------------------------------------------------------------------ VfxPacks.cpp: the VFX switcher (his yes 2026-10-19)
-	void LoadVfxPacks();   // data load, after every pass: the converted packs read, the spell forms wearing their originals noted
-	void ApplyVfxPacks();  // main thread: each noted form wears the copy of the pack its element's art pick names, or its own
+	// OFF in this release (his order 2026-10-19: "keep the spell switcher turned off in illuminated for now so we can ship with
+	// it in the code but not playable"): no pack list is read, no model is changed, no path is read as a pack's
+	inline constexpr bool kVfxSwitcherOn = false;
+	void                  LoadVfxPacks();   // data load, after every pass: the converted packs read, the spell forms wearing their originals noted
+	void                  ApplyVfxPacks();  // main thread: each noted form wears the copy of the pack its element's art pick names, or its own
 }
