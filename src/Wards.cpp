@@ -397,8 +397,10 @@ namespace Plugin
 		BlockWatch gBlockWatch;
 		// the graph the watch is on (main thread only): a transformation (werewolf, Vampire Lord) or a 3D reset builds the player a
 		// new one, and a new game has none at its first message - KeepBlockWatch puts the watch on whatever graph she has now
-		const RE::BSAnimationGraphManager* gWatchedGraph = nullptr;
-		float                              gWatchClock = 0.0f;
+		// held (not only its address): the graph it replaced stays alive until the next check, so a new graph can never take
+		// the same address and look like the watched one (CodeRabbit's point on #27)
+		RE::BSTSmartPointer<RE::BSAnimationGraphManager> gWatchedGraph;
+		float                                            gWatchClock = 0.0f;
 	}
 
 	// a game loaded or a new one started (main.cpp), or her graph was rebuilt (KeepBlockWatch): the watch is put on the graph
@@ -413,7 +415,7 @@ namespace Plugin
 		player->GetAnimationGraphManager(graph);
 		player->RemoveAnimationGraphEventSink(&gBlockWatch);
 		const bool added = graph && player->AddAnimationGraphEventSink(&gBlockWatch);
-		gWatchedGraph = added ? graph.get() : nullptr;
+		gWatchedGraph = added ? graph : nullptr;
 		SKSE::log::info("wards: the block watch is {} the player's animation graph", added ? "on" : "NOT on (no graph yet)");
 	}
 
@@ -427,7 +429,7 @@ namespace Plugin
 		gWatchClock = 0.0f;
 		auto*                                            player = RE::PlayerCharacter::GetSingleton();
 		RE::BSTSmartPointer<RE::BSAnimationGraphManager> graph;
-		if (player && player->GetAnimationGraphManager(graph) && graph && graph.get() != gWatchedGraph) {
+		if (player && player->GetAnimationGraphManager(graph) && graph && graph.get() != gWatchedGraph.get()) {
 			WatchBlocking();
 		}
 	}
