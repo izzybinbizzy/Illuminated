@@ -481,7 +481,8 @@ namespace Plugin
 					// read 540 / 437, while the places read right)
 					const float reach = s.reach * reachPct;
 					const float want = rec->second.fade * s.strength * bright;
-					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) : 0.0f);
+					// a dimmer Brightness or daylight lowers the cap too, so the sliders still reach a capped row
+					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow(), 1.0f) : 0.0f);
 					Dress(light, color, steady * (flickers ? BeamRow::Flicker(seconds, i) : 1.0f), reach, isl);
 					light->local.translate = toLocal * (axis.start + axis.dir * (s.along * length));  // on the path, in the root's units
 					if (static std::size_t told = 0; told < 6) {
