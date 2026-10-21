@@ -271,77 +271,6 @@ namespace Plugin
 			});
 		}
 
-		// the Light colors pick on Light Placer's lights (his report: "colors stayed the same on each switch" - Light Placer
-		// gives each light the color its config names, so the pick reached only the record route): each light of ours drawn
-		// in the look, from the color Light Placer (or a fading / Lights by Item pass) last gave it. Main thread.
-		struct Looked
-		{
-			RE::NiPointer<RE::NiPointLight> light;  // held, so its address is never another light's while listed
-			RE::NiColor                     base, written;
-			std::uint32_t                   seen{ 0 };
-		};
-		std::unordered_map<const RE::NiPointLight*, Looked> gLooked;
-		std::uint32_t                                       gLookFrame = 0;
-
-		[[nodiscard]] RE::NiColor InLook(const RE::NiColor& a_c, int a_look)
-		{
-			if (a_look == 1) {
-				return { LightKit::ToScreen(a_c.red), LightKit::ToScreen(a_c.green), LightKit::ToScreen(a_c.blue) };
-			}
-			if (a_look == 2) {
-				return { LightKit::ToLinear(a_c.red), LightKit::ToLinear(a_c.green), LightKit::ToLinear(a_c.blue) };
-			}
-			return a_c;
-		}
-
-		template <class List>
-		void LookList(const List& a_list, int a_look)
-		{
-			for (const auto& bsLight : a_list) {
-				auto* light = bsLight ? netimmerse_cast<RE::NiPointLight*>(bsLight->light.get()) : nullptr;
-				if (!light || !LitOf(*light)) {
-					continue;
-				}
-				auto& diffuse = light->GetLightRuntimeData().diffuse;
-				auto [it, added] = gLooked.try_emplace(light);
-				auto& l = it->second;
-				if (added) {
-					l.light.reset(light);
-				}
-				if (added || diffuse.red != l.written.red || diffuse.green != l.written.green || diffuse.blue != l.written.blue) {
-					l.base = diffuse;  // given a color since we last drew it: that is the new base
-				}
-				diffuse = InLook(l.base, a_look);
-				l.written = diffuse;
-				l.seen = gLookFrame;
-			}
-		}
-
-		void LookPass(RE::ShadowSceneNode* a_scene)
-		{
-			const int look = RecordRoute() ? 0 : std::clamp(SettingValue("IlluminatedPaleColors", 0), 0, 2);
-			if (!look && gLooked.empty()) {
-				return;
-			}
-			++gLookFrame;
-			const auto& lights = a_scene->GetRuntimeData();
-			LookList(lights.activeLights, look);
-			LookList(lights.lightQueueAdd, look);
-			if (!look) {
-				// a light out of the scene this frame (Light Placer takes it off and puts it back) gets its own color back too
-				for (auto& [ptr, l] : gLooked) {
-					if (auto& d = l.light ? l.light->GetLightRuntimeData().diffuse : l.base;
-						l.light && d.red == l.written.red && d.green == l.written.green && d.blue == l.written.blue) {
-						d = l.base;
-					}
-				}
-				gLooked.clear();
-			} else if (gLookFrame % 300 == 0) {
-				// only lights nothing else holds any more leave, so one taken off and put back keeps its own color
-				std::erase_if(gLooked, [](const auto& a_kv) { return !a_kv.second.light || a_kv.second.light->GetRefCount() <= 1; });
-			}
-		}
-
 		// the main thread's look at the scene's lights: new flickering lights are listed; on the frame a slider changed
 		// (Brightness by a_ratio) every lit light takes its copy's cutoff and a steady light's fade moves with it - those
 		// go into a_moved, for the fading module to hear about once gFlickerLock is let go
@@ -530,9 +459,6 @@ namespace Plugin
 			}
 			StreamLightsFrame();
 			auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
-			if (scene) {
-				LookPass(scene);
-			}
 			if (!scene || (!changed && !Scaling())) {
 				return;
 			}

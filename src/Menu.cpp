@@ -300,14 +300,14 @@ namespace Plugin
 			{
 				const char* name;
 				const char* tip;
-				int         brightness, reach, flicker, hands, streams, colors;
+				int         brightness, reach, flicker, hands, streams;
 			};
-			// the Light colors look with each (his report: "none of the presets changed anything at all, colors stayed the same
-			// on each switch")
+			// 🚫🚫 no color look with them: HIS WORDS 2026-10-21 "pale and deep also need to be removed" (the Light colors pick is
+			// gone a second time - CLAUDE.md); every light keeps its own color
 			const Preset presets[] = {
-				{ T("Subtle"), T("Softer, paler lights that stay close to the spell."), 75, 80, 1, -1, -1, 1 },
-				{ T("Default"), T("The lights as the mod was made."), 100, 100, 1, 0, 1, 0 },
-				{ T("Cinematic"), T("Brighter, deeper lights that reach further."), 150, 120, 1, -1, -1, 2 },
+				{ T("Subtle"), T("Softer lights that stay close to the spell."), 75, 80, 1, -1, -1 },
+				{ T("Default"), T("The lights as the mod was made."), 100, 100, 1, 0, 1 },
+				{ T("Cinematic"), T("Brighter lights that reach further."), 150, 120, 1, -1, -1 },
 			};
 			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Presets"));
 			for (std::size_t i = 0; i < std::size(presets); ++i) {
@@ -325,7 +325,6 @@ namespace Plugin
 					if (p.streams >= 0) {
 						SetById("IlluminatedStreamLights", p.streams);
 					}
-					SetById("IlluminatedPaleColors", p.colors);
 				}
 				MenuStyle::Tip(p.tip);
 			}
@@ -441,13 +440,13 @@ namespace Plugin
 			Page<12>, Page<13>, Page<14>, Page<15>, Page<16>, Page<17>, Page<18>, Page<19>, Page<20>, Page<21>, Page<22>, Page<23>
 		};
 
-		// Lights by Item / Spell: its settings (Spells Without a Patch), then the fading module's item list
+		// Lights by Item > Spell: the settings file's "Lights by Item / Spell" page (Spells Without a Patch), then the spell list
 		std::size_t gItemsAt = kMaxPages;  // gPages' index of that page (kMaxPages: none)
 
 		void __stdcall ItemsPage()
 		{
 			DrawPage(gItemsAt);
-			Fade::Items::Render();
+			Fade::Items::RenderSpells();
 		}
 	}
 
@@ -519,7 +518,8 @@ namespace Plugin
 		SKSE::log::info("menu: {} page(s) added to SKSE Menu Framework {}", gPages.size(), SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
 
-	// after the fading module's pages (HUD, Fading): Lights by Item / Spell - its settings above the item list - and
+	// after the fading module's pages (HUD, Fading): the Lights by Item folder - Spell (its settings above the spell list) and
+	// Weapons and Staves - and
 	// Performance, the last page (his order 2026-10-20)
 	void RegisterMenuTail()
 	{
@@ -528,9 +528,12 @@ namespace Plugin
 		}
 		static const std::string kSection(kOurFolder);
 		SKSEMenuFramework::SetSection(T(kSection.c_str()));
-		// his order: "an entirely new main menu ... search for the weapon/spell and change it's lights" (FadeItems.cpp); with no
-		// setting of its own in the settings file the page is the item list alone
-		SKSEMenuFramework::AddSectionItem(T("Lights by Item / Spell"), ItemsPage);
+		// his order: "an entirely new main menu ... search for the weapon/spell and change it's lights" (FadeItems.cpp). A '/' in
+		// a name makes a submenu: Lights by Item holds Spell (Spells Without a Patch above the spell list) and the weapons' page
+		static const std::string kSpellPage = std::string(T("Lights by Item")) + "/" + T("Spell");
+		static const std::string kWeaponPage = std::string(T("Lights by Item")) + "/" + T("Weapons and Staves");
+		SKSEMenuFramework::AddSectionItem(kSpellPage.c_str(), ItemsPage);
+		SKSEMenuFramework::AddSectionItem(kWeaponPage.c_str(), Fade::Items::RenderWeapons);
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
 			if (gPages[i] == kPerformancePage) {
 				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
