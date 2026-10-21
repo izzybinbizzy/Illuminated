@@ -276,8 +276,9 @@ namespace Plugin
 		// in the look, from the color Light Placer (or a fading / Lights by Item pass) last gave it. Main thread.
 		struct Looked
 		{
-			RE::NiColor   base, written;
-			std::uint32_t seen{ 0 };
+			RE::NiPointer<RE::NiPointLight> light;  // held, so its address is never another light's while listed
+			RE::NiColor                     base, written;
+			std::uint32_t                   seen{ 0 };
 		};
 		std::unordered_map<const RE::NiPointLight*, Looked> gLooked;
 		std::uint32_t                                       gLookFrame = 0;
@@ -304,6 +305,9 @@ namespace Plugin
 				auto& diffuse = light->GetLightRuntimeData().diffuse;
 				auto [it, added] = gLooked.try_emplace(light);
 				auto& l = it->second;
+				if (added) {
+					l.light.reset(light);
+				}
 				if (added || diffuse.red != l.written.red || diffuse.green != l.written.green || diffuse.blue != l.written.blue) {
 					l.base = diffuse;  // given a color since we last drew it: that is the new base
 				}
@@ -324,9 +328,17 @@ namespace Plugin
 			LookList(lights.activeLights, look);
 			LookList(lights.lightQueueAdd, look);
 			if (!look) {
-				gLooked.clear();  // every light was just given its own color back
+				// a light out of the scene this frame (Light Placer takes it off and puts it back) gets its own color back too
+				for (auto& [ptr, l] : gLooked) {
+					if (auto& d = l.light ? l.light->GetLightRuntimeData().diffuse : l.base;
+						l.light && d.red == l.written.red && d.green == l.written.green && d.blue == l.written.blue) {
+						d = l.base;
+					}
+				}
+				gLooked.clear();
 			} else if (gLookFrame % 300 == 0) {
-				std::erase_if(gLooked, [](const auto& a_kv) { return gLookFrame - a_kv.second.seen > 300; });
+				// only lights nothing else holds any more leave, so one taken off and put back keeps its own color
+				std::erase_if(gLooked, [](const auto& a_kv) { return !a_kv.second.light || a_kv.second.light->GetRefCount() <= 1; });
 			}
 		}
 
