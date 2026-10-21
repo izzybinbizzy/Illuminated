@@ -270,6 +270,13 @@ namespace Plugin
 			}
 			if (it->second.beam) {
 				gRowLights -= (std::min)(gRowLights, it->second.lights.size());
+				// a row switched off while its projectile lives (a setting, Performance) leaves no light node behind on it - a row
+				// hung again later starts clean (the code review)
+				for (auto& bs : it->second.lights) {
+					if (auto* light = bs ? bs->light.get() : nullptr; light && light->parent) {
+						light->parent->DetachChild(light);
+					}
+				}
 			}
 			gLive.erase(it);  // the last reference to the projectile's 3D may go here, on the main thread
 		}
@@ -900,6 +907,10 @@ namespace Plugin
 			PickColor(c, copy->second, sc);
 			if (const auto row = gRows.find(formID); row != gRows.end()) {
 				row->second.color = ColorOf(copy->second);  // the row takes the color the settings pick now
+				if (c.borrowed) {                           // and a borrowed light's own strength and reach (the code review)
+					row->second.fade = c.borrowed->fade;
+					row->second.reach = static_cast<float>(c.borrowed->data.radius);
+				}
 			}
 		}
 		if (reborrowed) {
