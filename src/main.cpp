@@ -74,7 +74,7 @@ namespace
 		ReadLighting();  // before pass 0: on ENB and Vanilla its lights are made plain
 		RegisterMenu();
 		Fade::OnDataLoaded();  // the fading module: lights follow charge and magicka (its own settings, rules, hooks, menu pages)
-		RegisterMenuTail();    // Praedy's Staves last, below the fading pages (his word)
+		RegisterMenuTail();    // Lights by Item / Spell, then Performance last, below the fading pages (his order 2026-10-20)
 		LightSettings();
 		MakeLightCopies();                   // after pass 0 (the copies take its flags), before Light Placer reads its configs
 		VaerSwirls();                        // pass 7: VAER Reborn's swirls - the settings are loaded by now (HIS CALL)

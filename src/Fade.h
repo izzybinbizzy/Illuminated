@@ -1,4 +1,4 @@
-// The fading module (Illuminated and RELight - Spell Addon carry identical copies; FadeConfig.h and FadeDevBench.cpp are each mod's own)
+// The fading module (Illuminated and RELight - Spell Lighting NG carry identical copies; FadeConfig.h and FadeDevBench.cpp are each mod's own)
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file and the notice at the top of main.cpp.
 //
@@ -185,6 +185,8 @@ namespace Fade
 		bool                   gemFull{ false };  // a gem at full charge too (the HUD page's Show at full charge)
 		float                  low{ 0.15f };      // the sputter point: under it a Reticle Arcs bar reads low
 		std::array<HudHand, 2> hands{};
+		bool                   shoutLit{ false };  // the shout the player has ready carries a light: `shoutColor` is its color
+		Glow::Rgb              shoutColor{};
 	};
 	[[nodiscard]] HudState Hud();
 	// a game menu is open (inventory, map, dialogue, the console ...): the HUD elements hide, as the game's own HUD does

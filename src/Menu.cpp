@@ -40,8 +40,13 @@ namespace Plugin
 		// (the settings files list an author's mods by mod name, among the other authors', so drawn in file order an author's
 		// heading came back for each run of its mods - his "yes, fix it" 2026-10-18)
 		std::array<std::vector<std::size_t>, kMaxPages> gOrder;
-		// his word: "put praedy staves last" - after the fading module's pages too (RegisterMenuTail)
-		constexpr std::string_view kLastPage = "Praedy's Staves";
+		// 🔁 his order 2026-10-20: "performance added to its own main menu as the last menu, i want praedy's staves right below
+		// configs" and "spells without a patch moved to lights by item/spell" - Praedy's Staves is added with the pages up to
+		// Configs (RegisterMenu), these two after the fading module's pages (RegisterMenuTail); lagen.py names them
+		constexpr std::string_view kPraedyPage = "Praedy's Staves";
+		constexpr std::string_view kItemsPage = "Lights by Item / Spell";
+		constexpr std::string_view kPerformancePage = "Performance";
+		bool                       IsTailPage(std::string_view a_page) { return a_page == kItemsPage || a_page == kPerformancePage; }
 		std::string                gCSLight;  // the CS Light plugin that is loaded, if one is
 
 		const ImGuiMCP::ImVec4 kWarn{ 1.0f, 0.72f, 0.3f, 1.0f };
@@ -437,6 +442,15 @@ namespace Plugin
 			Page<0>, Page<1>, Page<2>, Page<3>, Page<4>, Page<5>, Page<6>, Page<7>, Page<8>, Page<9>, Page<10>, Page<11>,
 			Page<12>, Page<13>, Page<14>, Page<15>, Page<16>, Page<17>, Page<18>, Page<19>, Page<20>, Page<21>, Page<22>, Page<23>
 		};
+
+		// Lights by Item / Spell: its settings (Spells Without a Patch), then the fading module's item list
+		std::size_t gItemsAt = kMaxPages;  // gPages' index of that page (kMaxPages: none)
+
+		void __stdcall ItemsPage()
+		{
+			DrawPage(gItemsAt);
+			Fade::Items::Render();
+		}
 	}
 
 	void RegisterMenu()
@@ -485,30 +499,42 @@ namespace Plugin
 		// the framework may keep the pointer: the text lives for the whole session (a temporary's c_str() would dangle)
 		static const std::string kSection(kOurFolder);
 		SKSEMenuFramework::SetSection(T(kSection.c_str()));
+		// Praedy's Staves only with Praedy's Staves AIO loaded (its settings file ships in the main download since the merge, so
+		// only its plugin says it is installed: "Praedy's StavesAIO..." - read off his install, the Legacy of the Dragonborn
+		// version -, or a Patch Hub patch, "Praedystaves..." / "PraedyStaves...", which needs it as a master - his "yes, fix it"
+		// 2026-10-18). The settings files name it after Configs (lagen.py MENU_PAGE_ORDER), so it lands right below Configs
+		const bool withPraedys = PluginLoadedStartingWith({ "praedy's stavesaio", "praedystaves" });
+		gItemsAt = kMaxPages;
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
-			if (gPages[i] != kLastPage) {
-				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
+			if (gPages[i] == kItemsPage) {
+				gItemsAt = i;
 			}
+			if (IsTailPage(gPages[i])) {
+				continue;
+			}
+			if (gPages[i] == kPraedyPage && !withPraedys) {
+				SKSE::log::info("menu: no Praedy's Staves AIO plugin loaded - its page is left out");
+				continue;
+			}
+			SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
 		}
 		SKSE::log::info("menu: {} page(s) added to SKSE Menu Framework {}", gPages.size(), SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
 
-	// after the fading module's pages: the last page goes at the bottom of the section - Praedy's Staves only with Praedy's
-	// Staves AIO loaded (its settings file ships in the main download since the merge, so only its plugin says it is
-	// installed: "Praedy's StavesAIO..." - read off his install, the Legacy of the Dragonborn version -, or a Patch Hub
-	// patch, "Praedystaves..." / "PraedyStaves...", which needs it as a master - his "yes, fix it" 2026-10-18)
+	// after the fading module's pages (HUD, Fading): Lights by Item / Spell - its settings above the item list - and
+	// Performance, the last page (his order 2026-10-20)
 	void RegisterMenuTail()
 	{
 		if (!SKSEMenuFramework::IsInstalled()) {
 			return;
 		}
-		const bool               withPraedys = PluginLoadedStartingWith({ "praedy's stavesaio", "praedystaves" });
 		static const std::string kSection(kOurFolder);
+		SKSEMenuFramework::SetSection(T(kSection.c_str()));
+		// his order: "an entirely new main menu ... search for the weapon/spell and change it's lights" (FadeItems.cpp); with no
+		// setting of its own in the settings file the page is the item list alone
+		SKSEMenuFramework::AddSectionItem(T("Lights by Item / Spell"), ItemsPage);
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
-			if (gPages[i] == kLastPage && !withPraedys) {
-				SKSE::log::info("menu: no Praedy's Staves AIO plugin loaded - its page is left out");
-			} else if (gPages[i] == kLastPage) {
-				SKSEMenuFramework::SetSection(T(kSection.c_str()));
+			if (gPages[i] == kPerformancePage) {
 				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
 			}
 		}

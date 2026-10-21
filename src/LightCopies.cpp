@@ -840,7 +840,8 @@ namespace Plugin
 	{
 		const int brightness = SettingValue(kBrightness, 100);
 		const int reach = SettingValue(kReach, 100);
-		gHandBudget = SettingValue(kHandLights, 0);
+		// Performance (his order 2026-10-20): hand lights stay with the player and followers at most
+		gHandBudget = PerformanceMode() ? (std::max)(SettingValue(kHandLights, 0), 2) : SettingValue(kHandLights, 0);
 		// read now too, so a change of the setting shows at once (run 8: it waited for WatchDaylight's next look); at data
 		// load the player is in no cell yet, so 1
 		gDaylight = DaylightFactor();

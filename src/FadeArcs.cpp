@@ -1,4 +1,4 @@
-// The fading module (Illuminated and RELight - Spell Addon carry identical copies; FadeConfig.h and FadeDevBench.cpp are each mod's own)
+// The fading module (Illuminated and RELight - Spell Lighting NG carry identical copies; FadeConfig.h and FadeDevBench.cpp are each mod's own)
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file and the notice at the top of main.cpp.
 //
@@ -122,10 +122,19 @@ namespace Fade
 			a_state.active = t < 0.9f;
 		}
 
-		// interface 2: Reticle Arcs' own spell bars in the color of the light that hand holds; false (its fallback - the element's
-		// or the school's color, or the player's) for the shout and the bow, and for a hand the fading pass does not follow
+		// interface 2: Reticle Arcs' own spell bars in the color of the light that hand holds, its shout bar in the color of the
+		// ready shout's light (his yes 2026-10-20); false (its fallback - the element's or the school's color, or the player's)
+		// for the bow (no arrow-draw light exists), a shout with no light and a hand the fading pass does not follow
 		bool SpellBarColor(const ReticleArcsAPI::ColorQuery& a_query, std::uint32_t& a_rgb)
 		{
+			if (a_query.bar == ReticleArcsAPI::Bar::kShout) {
+				const auto hud = Hud();
+				if (!hud.shoutLit) {
+					return false;
+				}
+				a_rgb = Packed(hud.shoutColor);
+				return true;
+			}
 			if (a_query.bar != ReticleArcsAPI::Bar::kLeftSpell && a_query.bar != ReticleArcsAPI::Bar::kRightSpell) {
 				return false;
 			}

@@ -501,4 +501,9 @@ namespace ConfigText
 		std::ranges::stable_sort(order, {}, [&rank](std::size_t i) { return rank[i]; });
 		return order;
 	}
+
+	// whether a spray / stream / bolt wears the raised copy of its light (pass 4's Spray Lights, pass 6's Streams) or the light it
+	// had: the raised one only while its own setting is on AND "all lights off" is not (his report 2026-10-20, "all lights off is
+	// clearly not turning off spray and stream lights" - pass 4's copies never read that switch). Off, the game's own light is back
+	[[nodiscard]] constexpr bool WearsRaised(bool a_settingOn, bool a_allLightsOff) noexcept { return a_settingOn && !a_allLightsOff; }
 }
