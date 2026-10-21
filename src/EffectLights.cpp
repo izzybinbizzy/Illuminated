@@ -231,8 +231,7 @@ namespace Plugin
 		ApplyEffectLights(false);
 		ApplyStreamLights(false);
 		ApplySprayColors();
-		ApplyRecordColors();  // the Light colors pick (Vanilla / Paler / Deeper), live
-		ApplyVfxPacks();      // last: the art picks' VFX packs onto the spell forms (the passes above read a pack's copy as its original)
+		ApplyVfxPacks();  // last: the art picks' VFX packs onto the spell forms (the passes above read a pack's copy as its original)
 		SKSE::log::info("lights refreshed for the settings in {:.1f} ms",
 			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
 	}

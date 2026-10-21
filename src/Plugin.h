@@ -181,7 +181,6 @@ namespace Plugin
 	[[nodiscard]] bool               RecordRoute();
 	[[nodiscard]] const char*        RecordRouteWhy();                                                       // the reason, for the log and DevBench
 	void                             MakeRecordLights();                                                     // after MakeLightCopies and ReadCoverage, before pass 1
-	void                             ApplyRecordColors();                                                    // the record lights' colors for the lighting found (once)
 	void                             RecordFlicker(RE::ActorMagicCaster* a_caster);                          // after a caster's update: its hand light's flicker
 	void                             RecordTablesReady();                                                    // the data load is done: RecordFlicker may read the tables
 	void                             AdvanceRecordFlicker(float a_delta);                                    // once a frame, on the main thread
