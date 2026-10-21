@@ -268,6 +268,9 @@ namespace Plugin
 	using LightKit::NewForm;  // a form made in memory by the game's own factory (LightKit.h)
 
 	[[nodiscard]] RE::TESObjectLIGH* CopyLight(const RE::TESObjectLIGH* a_src);
+	// the light without its flicker / pulse (the Flicker switch off), or nullptr when it has none to take off
+	[[nodiscard]] RE::TESObjectLIGH* SteadyCopy(const RE::TESObjectLIGH* a_src);
+	[[nodiscard]] bool               FlickerOn();                                                              // the Flicker switch (Dynamic Lighting), LightCopies.cpp
 	void                             CopyLightInto(RE::TESObjectLIGH* a_out, const RE::TESObjectLIGH* a_src);  // the whole light: look, sound, flare, model
 
 	// ------------------------------------------------------------------ the passes (main.cpp runs them in its own order:

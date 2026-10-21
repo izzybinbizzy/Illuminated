@@ -271,6 +271,65 @@ namespace Plugin
 			});
 		}
 
+		// the Light colors pick on Light Placer's lights (his report: "colors stayed the same on each switch" - Light Placer
+		// gives each light the color its config names, so the pick reached only the record route): each light of ours drawn
+		// in the look, from the color Light Placer (or a fading / Lights by Item pass) last gave it. Main thread.
+		struct Looked
+		{
+			RE::NiColor   base, written;
+			std::uint32_t seen{ 0 };
+		};
+		std::unordered_map<const RE::NiPointLight*, Looked> gLooked;
+		std::uint32_t                                       gLookFrame = 0;
+
+		[[nodiscard]] RE::NiColor InLook(const RE::NiColor& a_c, int a_look)
+		{
+			if (a_look == 1) {
+				return { LightKit::ToScreen(a_c.red), LightKit::ToScreen(a_c.green), LightKit::ToScreen(a_c.blue) };
+			}
+			if (a_look == 2) {
+				return { LightKit::ToLinear(a_c.red), LightKit::ToLinear(a_c.green), LightKit::ToLinear(a_c.blue) };
+			}
+			return a_c;
+		}
+
+		template <class List>
+		void LookList(const List& a_list, int a_look)
+		{
+			for (const auto& bsLight : a_list) {
+				auto* light = bsLight ? netimmerse_cast<RE::NiPointLight*>(bsLight->light.get()) : nullptr;
+				if (!light || !LitOf(*light)) {
+					continue;
+				}
+				auto& diffuse = light->GetLightRuntimeData().diffuse;
+				auto [it, added] = gLooked.try_emplace(light);
+				auto& l = it->second;
+				if (added || diffuse.red != l.written.red || diffuse.green != l.written.green || diffuse.blue != l.written.blue) {
+					l.base = diffuse;  // given a color since we last drew it: that is the new base
+				}
+				diffuse = InLook(l.base, a_look);
+				l.written = diffuse;
+				l.seen = gLookFrame;
+			}
+		}
+
+		void LookPass(RE::ShadowSceneNode* a_scene)
+		{
+			const int look = RecordRoute() ? 0 : std::clamp(SettingValue("IlluminatedPaleColors", 0), 0, 2);
+			if (!look && gLooked.empty()) {
+				return;
+			}
+			++gLookFrame;
+			const auto& lights = a_scene->GetRuntimeData();
+			LookList(lights.activeLights, look);
+			LookList(lights.lightQueueAdd, look);
+			if (!look) {
+				gLooked.clear();  // every light was just given its own color back
+			} else if (gLookFrame % 300 == 0) {
+				std::erase_if(gLooked, [](const auto& a_kv) { return gLookFrame - a_kv.second.seen > 300; });
+			}
+		}
+
 		// the main thread's look at the scene's lights: new flickering lights are listed; on the frame a slider changed
 		// (Brightness by a_ratio) every lit light takes its copy's cutoff and a steady light's fade moves with it - those
 		// go into a_moved, for the fading module to hear about once gFlickerLock is let go
@@ -459,6 +518,9 @@ namespace Plugin
 			}
 			StreamLightsFrame();
 			auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+			if (scene) {
+				LookPass(scene);
+			}
 			if (!scene || (!changed && !Scaling())) {
 				return;
 			}
@@ -835,6 +897,11 @@ namespace Plugin
 	// so the two never compound; here Reach moves the light records' radius once (ApplyLightStrength), never a light in the
 	// scene, so there is nothing to note
 	void NoteReachWrite(const RE::NiPointLight*, float, float) {}
+
+	bool FlickerOn()
+	{
+		return SettingValue(kDynamicLighting, 1) != 0;
+	}
 
 	void ApplyLightStrength(bool a_log, bool a_quiet)
 	{

@@ -74,6 +74,7 @@ namespace Plugin
 		std::unordered_map<RE::FormID, Recipe>             gRecipes;     // ward base form -> its light
 		std::unordered_map<RE::FormID, RE::TESObjectLIGH*> gHandLight;   // a stream projectile's own light, to give back
 		std::unordered_map<RE::FormID, RE::TESObjectLIGH*> gStreamCopy;  // its own light's raised copy, worn while the setting is on
+		std::unordered_map<RE::FormID, RE::TESObjectLIGH*> gSteady;      // its own light without flicker, worn while Flicker is off
 
 		// what a raised copy's color is picked from, again on every settings refresh (the rows' and markers' settings change live)
 		struct StreamColor
@@ -407,9 +408,14 @@ namespace Plugin
 		// Main thread, gLiveLock held by the caller.
 		void MoveRows()
 		{
-			const bool       isl = InverseSquare();
-			const float      bright = BrightnessNow() * RowStrengthFor(LightingFound()), reachPct = Percent("IlluminatedReach");
-			RE::NiUpdateData update{};
+			const bool  isl = InverseSquare();
+			const float bright = BrightnessNow() * RowStrengthFor(LightingFound()), reachPct = Percent("IlluminatedReach");
+			// his report: "the streams/sprays don't flicker at all so it's just a beam" - a spray's own light is steady and Light
+			// Placer's hand lights are separate objects, so the row flickers by itself while the Flicker switch is on
+			static const auto start = std::chrono::steady_clock::now();
+			const float       seconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count();
+			const bool        flickers = FlickerOn();
+			RE::NiUpdateData  update{};
 			for (auto& [root, live] : gLive) {
 				if (!live.beam || !live.root || live.lights.empty()) {
 					continue;
@@ -447,7 +453,7 @@ namespace Plugin
 					// the radius is the scene's own units - the root's scale moves a child light's place, never its radius: divided
 					// by the Sparks root's scale (~0.4-0.5) it read 2-2.4x too wide (run cs 2026-10-20 17:11: laid ~262 / ~180,
 					// read 540 / 437, while the places read right)
-					Dress(light, color, rec->second.fade * s.strength * bright, s.reach * reachPct, isl);
+					Dress(light, color, rec->second.fade * s.strength * bright * (flickers ? BeamRow::Flicker(seconds, i) : 1.0f), s.reach * reachPct, isl);
 					if (beam) {
 						light->local.translate = { 0.0f, s.along * length / scale, 0.0f };  // in the root's own units
 					} else {
@@ -815,6 +821,9 @@ namespace Plugin
 				.startRadius = copy->data.radius,
 				.startCutoff = cutoff });
 			gHandLight[proj->GetFormID()] = own;
+			if (auto* steady = SteadyCopy(own)) {
+				gSteady[proj->GetFormID()] = steady;
+			}
 			gStreamCopy[proj->GetFormID()] = copy;
 			if (flame) {
 				++flames;
@@ -940,7 +949,11 @@ namespace Plugin
 			// radius 1,342; his "the spray lighting in the background is ruining all of the feature images")
 			// one with no light of its own wears the light it borrows, unraised, while no row lights it (Performance) - never
 			// nothing (CodeRabbit on #28)
-			auto* wanted = want && !PerformanceMode() && !gRows.contains(formID) ? copy->second : own;
+			// with Flicker off its own light is worn steady (his report: "performance was flickering when casting sparks even
+			// though flicker was turned off")
+			const auto steady = gSteady.find(formID);
+			auto*      ownNow = !FlickerOn() && steady != gSteady.end() ? steady->second : own;
+			auto*      wanted = want && !PerformanceMode() && !gRows.contains(formID) ? copy->second : ownNow;
 			if (!wanted && want && PerformanceMode()) {
 				wanted = BorrowedLight(formID);
 			}

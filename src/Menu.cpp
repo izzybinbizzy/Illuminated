@@ -122,21 +122,12 @@ namespace Plugin
 			const bool greyed = a_s.id == kYieldENBId && !EnbFound();
 			ImGuiMCP::BeginDisabled(greyed);
 			if (a_s.isSlider) {
-				// the slider moves freely while it is held; the value is saved, on its step, when it is let go
-				static std::unordered_map<std::size_t, int> held;
-				int                                         v = held.contains(a_index) ? held[a_index] : a_s.value.load();
+				// live while it is dragged, on its step (his report: "the sliders also stopped working live during sliding and only
+				// work after the click is released") - SetSetting queues one task however many steps it moves
+				int v = a_s.value.load();
 				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, "%d%%");
-				v = AllowedValue(a_s, v);
-				if (ImGuiMCP::IsItemActive()) {
-					held[a_index] = v;
-				} else {
-					held.erase(a_index);
-				}
-				if (ImGuiMCP::IsItemDeactivated() || (!ImGuiMCP::IsItemActive() && v != a_s.value)) {
-					held.erase(a_index);
-					if (v != a_s.value) {
-						SetSetting(a_index, v);
-					}
+				if (v = AllowedValue(a_s, v); v != a_s.value) {
+					SetSetting(a_index, v);
 				}
 				SettingTip(a_s, 0);
 			} else if (a_s.isChoice) {
@@ -305,12 +296,14 @@ namespace Plugin
 			{
 				const char* name;
 				const char* tip;
-				int         brightness, reach, flicker, hands, streams;
+				int         brightness, reach, flicker, hands, streams, colors;
 			};
+			// the Light colors look with each (his report: "none of the presets changed anything at all, colors stayed the same
+			// on each switch")
 			const Preset presets[] = {
-				{ T("Subtle"), T("Softer lights that stay close to the spell."), 75, 80, 1, -1, -1 },
-				{ T("Default"), T("The lights as the mod was made."), 100, 100, 1, 0, 1 },
-				{ T("Cinematic"), T("Brighter lights that reach further."), 150, 120, 1, -1, -1 },
+				{ T("Subtle"), T("Softer, paler lights that stay close to the spell."), 75, 80, 1, -1, -1, 1 },
+				{ T("Default"), T("The lights as the mod was made."), 100, 100, 1, 0, 1, 0 },
+				{ T("Cinematic"), T("Brighter, deeper lights that reach further."), 150, 120, 1, -1, -1, 2 },
 			};
 			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Presets"));
 			for (std::size_t i = 0; i < std::size(presets); ++i) {
@@ -328,6 +321,7 @@ namespace Plugin
 					if (p.streams >= 0) {
 						SetById("IlluminatedStreamLights", p.streams);
 					}
+					SetById("IlluminatedPaleColors", p.colors);
 				}
 				MenuStyle::Tip(p.tip);
 			}

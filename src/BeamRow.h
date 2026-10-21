@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <vector>
 
 namespace BeamRow
@@ -37,6 +38,17 @@ namespace BeamRow
 	inline constexpr float kMostReach = 200.0f;   // the light stays this close to the beam
 	inline constexpr float kEndScale = 0.5f;
 	inline constexpr int   kHalveFrom = 5;  // fewer lights keep full ends: halving one of 3 or 4 dims a third of the beam
+
+	inline constexpr float kFlicker = 0.13f;  // how far a flickering light swings either side of its steady strength
+
+	// the strength factor light a_index of the row has a_seconds into the session while the Flicker switch is on: two slow waves
+	// together, each light on its own phase so the row shimmers and does not pulse as one; always within 1 +- kFlicker
+	[[nodiscard]] inline float Flicker(float a_seconds, std::size_t a_index)
+	{
+		const float phase = static_cast<float>(a_index) * 1.7f;
+		const float wave = 0.6f * std::sin(a_seconds * 43.0f + phase) + 0.4f * std::sin(a_seconds * 71.0f + phase * 1.7f);
+		return 1.0f + kFlicker * wave;
+	}
 
 	// the light a ground point at (a_x along the beam, a_side across it) gets from the row, the beam a_height above the
 	// ground: the game's smooth falloff and the ground's cosine (the research's model)

@@ -32,4 +32,19 @@ namespace Plugin
 		return out;
 	}
 
+	RE::TESObjectLIGH* SteadyCopy(const RE::TESObjectLIGH* a_src)
+	{
+		using enum RE::TES_LIGHT_FLAGS;
+		constexpr auto kMoving = static_cast<std::uint32_t>(kFlicker) | static_cast<std::uint32_t>(kFlickerSlow) |
+		                         static_cast<std::uint32_t>(kPulse) | static_cast<std::uint32_t>(kPulseSlow);
+		if (!a_src || (a_src->data.flags.underlying() & kMoving) == 0) {
+			return nullptr;
+		}
+		auto* out = CopyLight(a_src);
+		if (out) {
+			out->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(out->data.flags.underlying() & ~kMoving);
+		}
+		return out;
+	}
+
 }

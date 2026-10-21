@@ -25,7 +25,8 @@ namespace Plugin
 			RE::TESObjectLIGH* original{ nullptr };  // the light the spray had before (worn again while all lights are off)
 			RE::TESObjectLIGH* copy{ nullptr };
 			Family             family{ Family::kNone };
-			RE::Color          own{};  // the color of the light it was copied from
+			RE::Color          own{};              // the color of the light it was copied from
+			RE::TESObjectLIGH* steady{ nullptr };  // the original without flicker (worn while Flicker is off), or nullptr
 		};
 		std::vector<SprayCopy> gCopies;
 
@@ -128,7 +129,7 @@ namespace Plugin
 			copy->fade = family == Family::kFrost ? sc.frostFade : sc.fade;
 			copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(kSprayFlags);
 			copy->data.fallofExponent = sc.falloff;
-			const SprayCopy sprayed{ proj, bulb, copy, family, bulb->data.color };
+			const SprayCopy sprayed{ proj, bulb, copy, family, bulb->data.color, SteadyCopy(bulb) };
 			Recolor(sprayed, sc);     // and again on every refresh (ApplySprayColors)
 			proj->data.light = copy;  // read by pass 6 as this spray's row color, then the original goes back (ApplySprayColors)
 			if (proj->data.light != copy || copy->data.radius != static_cast<std::uint32_t>(radius)) {
@@ -160,7 +161,7 @@ namespace Plugin
 		// "the spray lighting in the background is ruining all of the feature images"); the copy carries the row's color
 		// (on Performance there are no rows either, and the spray keeps the game's own light - the raised copy flooded the scene)
 		for (const auto& s : gCopies) {
-			s.proj->data.light = s.original;
+			s.proj->data.light = FlickerOn() || !s.steady ? s.original : s.steady;  // Flicker off: no flicker on the spray either
 			Recolor(s, sc);
 		}
 		// a held Frostbite after a Frost Art switch still wore the old pick's color in game while every refresh ran: one line
