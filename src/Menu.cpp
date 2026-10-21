@@ -440,7 +440,7 @@ namespace Plugin
 			Page<12>, Page<13>, Page<14>, Page<15>, Page<16>, Page<17>, Page<18>, Page<19>, Page<20>, Page<21>, Page<22>, Page<23>
 		};
 
-		// Lights by Item / Spell: its settings (Spells Without a Patch), then the fading module's item list
+		// Lights by Item > Spell: the settings file's "Lights by Item / Spell" page (Spells Without a Patch), then the spell list
 		std::size_t gItemsAt = kMaxPages;  // gPages' index of that page (kMaxPages: none)
 
 		void __stdcall ItemsPage()
@@ -518,7 +518,8 @@ namespace Plugin
 		SKSE::log::info("menu: {} page(s) added to SKSE Menu Framework {}", gPages.size(), SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
 
-	// after the fading module's pages (HUD, Fading): Lights by Item / Spell - its settings above the item list - and
+	// after the fading module's pages (HUD, Fading): the Lights by Item folder - Spell (its settings above the spell list) and
+	// Weapons and Staves - and
 	// Performance, the last page (his order 2026-10-20)
 	void RegisterMenuTail()
 	{

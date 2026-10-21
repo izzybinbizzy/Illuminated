@@ -554,7 +554,7 @@ namespace Fade::Items
 			{
 				std::lock_guard lock(gLock);
 				std::erase_if(gChoices, [a_spells](const auto& a_choice) {
-					return gCatalogIds.contains(a_choice.first) && gSpellIds.contains(a_choice.first) == a_spells;
+					return gSpellIds.contains(a_choice.first) == a_spells;  // a choice is only ever held for a listed item
 				});
 			}
 			MarkChanged();
