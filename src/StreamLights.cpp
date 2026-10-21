@@ -36,7 +36,7 @@
 // own size - no more one light raised to the whole length (the flood he reported). It lifts the 2026-10-13 rule above for
 // beams only (`stream rule check.py` allows a beam hook only beside BeamRow::Lay). Flame sprays and cones keep the raised own
 // light until their row is built. The row's moving parts are the old ladder's (local branch beam-ladder): lights hung off the
-// projectile's root along its +Y, the length its newest impact or else its range.
+// projectile's root along its path (PathOf: a bolt straight to what it hit), the length its newest impact or else its range.
 
 namespace Plugin
 {
@@ -74,7 +74,6 @@ namespace Plugin
 		std::unordered_map<RE::FormID, Recipe>             gRecipes;     // ward base form -> its light
 		std::unordered_map<RE::FormID, RE::TESObjectLIGH*> gHandLight;   // a stream projectile's own light, to give back
 		std::unordered_map<RE::FormID, RE::TESObjectLIGH*> gStreamCopy;  // its own light's raised copy, worn while the setting is on
-		std::unordered_map<RE::FormID, RE::TESObjectLIGH*> gSteady;      // its own light without flicker, worn while Flicker is off
 
 		// what a raised copy's color is picked from, again on every settings refresh (the rows' and markers' settings change live)
 		struct StreamColor
@@ -195,9 +194,9 @@ namespace Plugin
 		{
 			switch (a_lighting) {
 			case Lighting::kVanilla:
-				return 1.8f;
+				return 1.1f;
 			case Lighting::kEnb:
-				return 0.3f;  // at 0.5 ENB still lifted 1.6x Community Shaders' ground (19:06)
+				return 0.18f;  // kept to Community Shaders' lift once its row came off its cap
 			default:
 				return 1.0f;
 			}
@@ -322,6 +321,21 @@ namespace Plugin
 			}
 		}
 
+		// Community Shaders draws an inverse-square point light at four times its fade and writes back the reach that gives (run cs
+		// 2026-10-20 18:15: every row light read twice the reach laid, 389 for 197) - so the cutoff is set for that
+		constexpr float kDrawnTimes = 4.0f;
+
+		float IslRoom(float a_radius)
+		{
+			return a_radius * a_radius + kK * kLightSize * kLightSize * 0.5f;
+		}
+
+		// the strongest fade a row light of this reach can take on Community Shaders before its cutoff passes its top
+		float IslTop(float a_radius)
+		{
+			return LightKit::Isl::kHighestCutoff * IslRoom(a_radius) / (kDrawnTimes * kK);
+		}
+
 		// a light's strength, reach and color written whole - when it is made and again every frame a row moves (the ward's
 		// way below: the size in the radius' z, the attenuation, then Community Shaders' own words or a tenth for ambient)
 		void Dress(RE::NiPointLight* a_light, const RE::NiColor& a_color, float a_fade, float a_radius, bool a_isl)
@@ -332,14 +346,9 @@ namespace Plugin
 			data.radius = { a_radius, a_radius, kLightSize };
 			a_light->SetLightAttenuation(a_radius);
 			if (a_isl) {
-				// Community Shaders draws an inverse-square point light at four times its fade and writes back the reach that
-				// gives (run cs 2026-10-20 18:15: every row light read twice the reach laid, 389 for 197) - so the cutoff is set
-				// for that, and the fade lowered where the cutoff would pass its top, keeping the reach the row laid
-				constexpr float kDrawnTimes = 4.0f;
-				const float     room = a_radius * a_radius + kK * kLightSize * kLightSize * 0.5f;
-				data.fade = (std::min)(a_fade, LightKit::Isl::kHighestCutoff * room / (kDrawnTimes * kK));
+				data.fade = (std::min)(a_fade, IslTop(a_radius));  // past its top the reach would grow instead
 				LightKit::Isl::SetOwn(a_light);
-				LightKit::Isl::SetCutoff(a_light, kDrawnTimes * kK * data.fade / room);
+				LightKit::Isl::SetCutoff(a_light, kDrawnTimes * kK * data.fade / IslRoom(a_radius));
 			} else {
 				data.ambient = { a_color.red * 0.1f, a_color.green * 0.1f, a_color.blue * 0.1f };
 			}
@@ -378,30 +387,44 @@ namespace Plugin
 			return std::isfinite(reach) ? reach : 0.0f;
 		}
 
-		// how long a row is right now - where the drawn art ends (his look 2026-10-20 ~19:00: "can you keep it where the spark
-		// ends while still maintaining full coverage when spark is in the open and can fully draw?"), never past its newest
-		// impact, never past its range. Main thread.
-		float BeamLength(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_root, const Axis& a_axis)
+		// where a row runs right now and how long it is: a bolt that hit something runs straight from its root to that impact
+		// (the lightning is drawn to what it hit), one in the open along its model as far as its art is drawn; a flame spray or
+		// cone along its aim, never past its newest impact. Never past the range. Main thread.
+		struct Path
 		{
+			Axis  axis;
+			float length{ 0.0f };
+		};
+
+		Path PathOf(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_root, bool a_beam)
+		{
+			Path  path{ AxisOf(a_ref, a_root, a_beam) };
 			auto* proj = a_ref ? a_ref->As<RE::Projectile>() : nullptr;
-			if (!proj || !a_root) {
-				return 0.0f;
+			if (!proj) {
+				return path;
 			}
 			auto& rt = proj->GetProjectileRuntimeData();
-			float length = rt.range;
-			if (const float drawn = DrawnLength(a_root, a_axis); drawn > 1.0f && drawn < length) {
-				length = drawn;
+			path.length = rt.range;
+			if (const float drawn = DrawnLength(a_root, path.axis); drawn > 1.0f && drawn < path.length) {
+				path.length = drawn;
 			}
 			for (const auto* impact : rt.impacts) {  // the newest impact comes first
 				if (impact) {
-					const float hit = a_axis.start.GetDistance(impact->desiredTargetLoc);
-					if (hit > 0.0f && hit < length) {
-						length = hit;
+					const auto  hit = impact->desiredTargetLoc - path.axis.start;
+					const float d = hit.Length();
+					if (d > 1.0f && d < rt.range && (a_beam || d < path.length)) {
+						path.length = d;
+						if (a_beam) {
+							path.axis.dir = hit / d;
+						}
 					}
 					break;
 				}
 			}
-			return std::isfinite(length) ? length : 0.0f;
+			if (!std::isfinite(path.length)) {
+				path.length = 0.0f;
+			}
+			return path;
 		}
 
 		// every bolt's row spread over its length, strength and reach laid again for that length (BeamRow::Lay), once a frame.
@@ -413,7 +436,7 @@ namespace Plugin
 			// his report: "the streams/sprays don't flicker at all so it's just a beam" - a spray's own light is steady and Light
 			// Placer's hand lights are separate objects, so the row flickers by itself while the Flicker switch is on
 			static const auto start = std::chrono::steady_clock::now();
-			const float       seconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count();
+			const double      seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 			const bool        flickers = FlickerOn();
 			RE::NiUpdateData  update{};
 			for (auto& [root, live] : gLive) {
@@ -425,15 +448,17 @@ namespace Plugin
 					continue;
 				}
 				const bool  beam = rec->second.beam;
-				const Axis  axis = AxisOf(live.beam.get(), live.root.get(), beam);
-				const float length = BeamLength(live.beam.get(), live.root.get(), axis);
+				const auto  path = PathOf(live.beam.get(), live.root.get(), beam);
+				const auto& axis = path.axis;
+				const float length = path.length;
 				if (length <= 1.0f) {
 					continue;
 				}
 				if (static std::uint32_t frames = 0; ++frames % 30 == 0 && frames <= 30 * 60) {
-					SKSE::log::info("[STREAM-ROW-LENGTH] {} | drawn art reaches {:.0f} | length used {:.0f} | start {:.0f} from its root | aim . root +Y {:.2f}",
+					SKSE::log::info("[STREAM-ROW-LENGTH] {} | drawn art reaches {:.0f} | length used {:.0f} | start {:.0f} from its root | path . root +Y {:.2f} | start {:.0f},{:.0f},{:.0f} end {:.0f},{:.0f},{:.0f}",
 						beam ? "bolt" : "spray", DrawnLength(live.root.get(), axis), length, axis.start.GetDistance(live.root->world.translate),
-						axis.dir.Dot(live.root->world.rotate * RE::NiPoint3{ 0.0f, 1.0f, 0.0f }));
+						axis.dir.Dot(live.root->world.rotate * RE::NiPoint3{ 0.0f, 1.0f, 0.0f }), axis.start.x, axis.start.y, axis.start.z,
+						axis.start.x + axis.dir.x * length, axis.start.y + axis.dir.y * length, axis.start.z + axis.dir.z * length);
 				}
 				const RE::NiColor color = rec->second.colorFrom ? ColorOf(rec->second.colorFrom) : rec->second.color;
 				const auto        toLocal = live.root->world.Invert();
@@ -447,22 +472,22 @@ namespace Plugin
 					}
 					if (i >= row.size()) {  // a beam cut so short it needs fewer: the spare lights rest dark at the hand
 						Dress(light, color, 0.0f, 1.0f, isl);
+						light->local.translate = {};
 						continue;
 					}
 					const auto& s = row[i];
 					// the radius is the scene's own units - the root's scale moves a child light's place, never its radius: divided
 					// by the Sparks root's scale (~0.4-0.5) it read 2-2.4x too wide (run cs 2026-10-20 17:11: laid ~262 / ~180,
 					// read 540 / 437, while the places read right)
-					Dress(light, color, rec->second.fade * s.strength * bright * (flickers ? BeamRow::Flicker(seconds, i) : 1.0f), s.reach * reachPct, isl);
-					if (beam) {
-						light->local.translate = { 0.0f, s.along * length / scale, 0.0f };  // in the root's own units
-					} else {
-						light->local.translate = toLocal * (axis.start + axis.dir * (s.along * length));  // the aim, in the root's units
-					}
+					const float reach = s.reach * reachPct;
+					const float want = rec->second.fade * s.strength * bright;
+					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) : 0.0f);
+					Dress(light, color, steady * (flickers ? BeamRow::Flicker(seconds, i) : 1.0f), reach, isl);
+					light->local.translate = toLocal * (axis.start + axis.dir * (s.along * length));  // on the path, in the root's units
 					if (static std::size_t told = 0; told < 6) {
 						++told;
-						SKSE::log::info("[STREAM-ROW-LAID] {} light(s) over {:.0f} | reach {:.0f} | strength {:.2f} (set {:.2f}) | root scale {:.2f}",
-							row.size(), length, s.reach * reachPct, rec->second.fade * s.strength * bright, light->GetLightRuntimeData().fade, scale);
+						SKSE::log::info("[STREAM-ROW-LAID] {} light(s) over {:.0f} | reach {:.0f} | strength {:.2f} steady {:.2f} (set {:.2f}, top {:.2f}) | brightness {:.2f} | root scale {:.2f}",
+							row.size(), length, reach, want, steady, light->GetLightRuntimeData().fade, isl ? IslTop(reach) : 0.0f, bright, scale);
 					}
 					light->Update(update);
 				}
@@ -821,9 +846,6 @@ namespace Plugin
 				.startRadius = copy->data.radius,
 				.startCutoff = cutoff });
 			gHandLight[proj->GetFormID()] = own;
-			if (auto* steady = SteadyCopy(own)) {
-				gSteady[proj->GetFormID()] = steady;
-			}
 			gStreamCopy[proj->GetFormID()] = copy;
 			if (flame) {
 				++flames;
@@ -949,11 +971,11 @@ namespace Plugin
 			// radius 1,342; his "the spray lighting in the background is ruining all of the feature images")
 			// one with no light of its own wears the light it borrows, unraised, while no row lights it (Performance) - never
 			// nothing (CodeRabbit on #28)
-			// with Flicker off its own light is worn steady (his report: "performance was flickering when casting sparks even
-			// though flicker was turned off")
-			const auto steady = gSteady.find(formID);
-			auto*      ownNow = !FlickerOn() && steady != gSteady.end() ? steady->second : own;
-			auto*      wanted = want && !PerformanceMode() && !gRows.contains(formID) ? copy->second : ownNow;
+			// with Flicker off its own light, and the raised copy made from it, carry no flicker bits (his report: "performance was
+			// flickering when casting sparks even though flicker was turned off")
+			HoldFlicker(own, FlickerOn());
+			HoldFlicker(copy->second, FlickerOn());
+			auto* wanted = want && !PerformanceMode() && !gRows.contains(formID) ? copy->second : own;
 			if (!wanted && want && PerformanceMode()) {
 				wanted = BorrowedLight(formID);
 			}

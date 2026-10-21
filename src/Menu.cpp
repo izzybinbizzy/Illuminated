@@ -126,8 +126,12 @@ namespace Plugin
 				// work after the click is released") - SetSetting queues one task however many steps it moves
 				int v = a_s.value.load();
 				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, "%d%%");
+				const bool released = ImGuiMCP::IsItemDeactivatedAfterEdit();
 				if (v = AllowedValue(a_s, v); v != a_s.value) {
-					SetSetting(a_index, v);
+					SetSetting(a_index, v, false);  // applied at once, written when it is let go
+				}
+				if (released) {
+					SetSetting(a_index, a_s.value.load());
 				}
 				SettingTip(a_s, 0);
 			} else if (a_s.isChoice) {

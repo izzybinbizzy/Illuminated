@@ -409,7 +409,7 @@ namespace Plugin
 		}
 	}
 
-	void SetSetting(std::size_t a_index, int a_value)
+	void SetSetting(std::size_t a_index, int a_value, bool a_save)
 	{
 		{
 			std::lock_guard l{ gSettingsLock };
@@ -423,14 +423,21 @@ namespace Plugin
 		// The menu calls this on the RENDER thread: the game's globals, the file and the lit scene are the main thread's, so
 		// they follow in ONE SKSE task - a slider dragged over many steps queues one task, not one per step (the re-score's
 		// Illuminated issue 1)
-		static std::atomic<bool> queued{ false };
+		// a step of a slider still held is applied at once and written once it is let go (a_save false): the file is not rewritten
+		// every frame of a drag
+		static std::atomic<bool> queued{ false }, saveWanted{ false };
+		if (a_save) {
+			saveWanted = true;
+		}
 		if (queued.exchange(true)) {
 			return;
 		}
 		const auto apply = [] {
 			queued = false;
 			ApplyGlobals();
-			SaveSettings();
+			if (saveWanted.exchange(false)) {
+				SaveSettings();
+			}
 			RequestRefresh();
 		};
 		if (auto* tasks = SKSE::GetTaskInterface()) {
