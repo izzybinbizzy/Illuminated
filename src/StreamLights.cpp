@@ -119,6 +119,18 @@ namespace Plugin
 			return c != LightCopies().end() ? c->form : RE::TESForm::LookupByEditorID<RE::TESObjectLIGH>(a_row->light);
 		}
 
+		// the light record a beam with no light of its own borrows from its row, as the game can wear it
+		RE::TESObjectLIGH* BorrowedLight(RE::FormID a_projectile)
+		{
+			const auto  c = gStreamColor.find(a_projectile);
+			const auto* borrowed = c != gStreamColor.end() ? c->second.borrowed : nullptr;
+			if (!borrowed) {
+				return nullptr;
+			}
+			const auto copy = std::ranges::find(LightCopies(), borrowed, &LightCopy::form);
+			return copy != LightCopies().end() ? copy->form : RE::TESForm::LookupByID<RE::TESObjectLIGH>(borrowed->GetFormID());
+		}
+
 		struct Raised
 		{
 			float reach{ 0.0f };
@@ -926,14 +938,20 @@ namespace Plugin
 			// a bolt with a row (his checklist 140) wears its own light at its own size: the row lights its length. On Performance
 			// (no rows) it keeps its own light too - the one raised light flooded the whole courtyard (ENB test 2026-10-20 21:08,
 			// radius 1,342; his "the spray lighting in the background is ruining all of the feature images")
+			// one with no light of its own wears the light it borrows, unraised, while no row lights it (Performance) - never
+			// nothing (CodeRabbit on #28)
 			auto* wanted = want && !PerformanceMode() && !gRows.contains(formID) ? copy->second : own;
+			if (!wanted && want && PerformanceMode()) {
+				wanted = BorrowedLight(formID);
+			}
 			if (proj->data.light != wanted) {
 				proj->data.light = wanted;
 				++changed;
 			}
 		}
 		if (a_log || changed) {
-			SKSE::log::info("stream lights: {}; {} projectile(s) wear {}", want ? "on" : "off", changed, want ? "their raised own light" : "their own light");
+			SKSE::log::info("stream lights: {}; {} projectile(s) wear {}", want ? "on" : "off", changed,
+				want && !PerformanceMode() ? "their own light and a row" : "their own light");
 		}
 		gSprayRows = sc.on && !LightsOff();
 		{

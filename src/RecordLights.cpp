@@ -146,6 +146,13 @@ namespace Plugin
 		using LightKit::LinearChannel;  // a screen-color channel as linear light (the Deeper look)
 		using LightKit::ScreenChannel;  // a linear-light channel as the screen color that shows the same
 
+		// one channel in the Light colors look: 0 its own, 1 paler, 2 deeper
+		[[nodiscard]] std::uint8_t Shown(std::uint8_t a_c, int a_look)
+		{
+			return a_look == 1 ? ScreenChannel(a_c) : a_look == 2 ? LinearChannel(a_c) :
+			                                                        a_c;
+		}
+
 		[[nodiscard]] float Strength(const LightCopy& a_copy)
 		{
 			const auto radius = static_cast<float>(a_copy.startRadius);
@@ -323,10 +330,22 @@ namespace Plugin
 		if (!light) {
 			return nullptr;
 		}
-		light->data.color.red = a_color.red;
-		light->data.color.green = a_color.green;
-		light->data.color.blue = a_color.blue;
-		gMadeColors.emplace_back(light, light->data.color);
+		// the baseline is the color a record was MADE in, never one Paler / Deeper already turned: a color read off one of our
+		// record lights while a look is on is taken back to that light's own (CodeRabbit on #28), then the look drawn on it
+		RE::Color base = a_color;
+		if (gLook != 0) {
+			const auto drawn = std::ranges::find_if(gMadeColors, [&](const auto& a_m) {
+				const auto& c = a_m.first->data.color;
+				return c.red == a_color.red && c.green == a_color.green && c.blue == a_color.blue;
+			});
+			if (drawn != gMadeColors.end()) {
+				base = drawn->second;
+			}
+		}
+		light->data.color.red = Shown(base.red, gLook);
+		light->data.color.green = Shown(base.green, gLook);
+		light->data.color.blue = Shown(base.blue, gLook);
+		gMadeColors.emplace_back(light, base);
 		gOurRecords.insert(light);
 		LightCopy copy{ .id = std::format("auto {},{},{}", a_color.red, a_color.green, a_color.blue),
 			.base = source->id,
@@ -456,12 +475,10 @@ namespace Plugin
 			return;
 		}
 		gLook = look;
-		const auto shown = [look](std::uint8_t a_c) { return look == 1 ? ScreenChannel(a_c) : look == 2 ? LinearChannel(a_c) :
-			                                                                                              a_c; };
 		for (auto& [light, made] : gMadeColors) {
-			light->data.color.red = shown(made.red);
-			light->data.color.green = shown(made.green);
-			light->data.color.blue = shown(made.blue);
+			light->data.color.red = Shown(made.red, look);
+			light->data.color.green = Shown(made.green, look);
+			light->data.color.blue = Shown(made.blue, look);
 		}
 		SKSE::log::info("record lights: {} drawn in {} colors", gMadeColors.size(), look == 1 ? "paler" : look == 2 ? "deeper" :
 																													  "their own");
