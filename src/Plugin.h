@@ -130,7 +130,8 @@ namespace Plugin
 	[[nodiscard]] bool                            SettingAvailable(const Setting& a_setting);
 	[[nodiscard]] int                             AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
 	[[nodiscard]] int                             SettingValue(std::string_view a_id, int a_fallback);
-	[[nodiscard]] bool                            LightsOff();  // Performance > all of Illuminated's lights off (his switch)
+	[[nodiscard]] bool                            LightsOff();        // Performance > all of Illuminated's lights off (his switch)
+	[[nodiscard]] bool                            PerformanceMode();  // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
 	[[nodiscard]] bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
 	void                                          MakeLightCopies();  // LightCopies.cpp
@@ -260,6 +261,8 @@ namespace Plugin
 	void                      ApplySprayColors();  // SprayLights.cpp: the raised sprays' colors for the settings as they are now
 	// SprayLights.cpp: the light a spray projectile had before pass 4 stretched a copy of it onto it, or nullptr
 	[[nodiscard]] RE::TESObjectLIGH* SprayOriginal(const RE::BGSProjectile* a_projectile);
+	// SprayLights.cpp: pass 4's copy of a spray's light, recolored on every refresh - the color its row wears - or nullptr
+	[[nodiscard]] const RE::TESObjectLIGH* SprayCopyOf(const RE::BGSProjectile* a_projectile);
 
 	// ------------------------------------------------------------------ FormCopies.cpp: making copies in memory
 	using LightKit::NewForm;  // a form made in memory by the game's own factory (LightKit.h)

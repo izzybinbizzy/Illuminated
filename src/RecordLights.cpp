@@ -74,7 +74,7 @@ namespace Plugin
 		std::size_t                                           gMade = 0, gRows = 0, gNotOurs = 0, gMissing = 0, gFailed = 0;
 		double                                                gMs = 0.0;
 		std::vector<std::pair<RE::TESObjectLIGH*, RE::Color>> gMadeColors;     // every record light and the color it was made in
-		bool                                                  gPale = false;   // what ApplyRecordColors last drew
+		int                                                   gLook = 0;       // what ApplyRecordColors last drew: 0 vanilla, 1 paler, 2 deeper
 		std::unordered_map<const RE::TESObjectLIGH*, Flicker> gFlickerOf;      // the record lights of flicker rows
 		std::unordered_set<const RE::TESObjectLIGH*>          gOurRecords;     // every record light made here
 		std::atomic<float>                                    gClock{ 0.0f };  // seconds, advanced once a frame on the main thread
@@ -143,7 +143,15 @@ namespace Plugin
 			return { now && gAllOurs.contains(now) ? now : nullptr, false };
 		}
 
+		using LightKit::LinearChannel;  // a screen-color channel as linear light (the Deeper look)
 		using LightKit::ScreenChannel;  // a linear-light channel as the screen color that shows the same
+
+		// one channel in the Light colors look: 0 its own, 1 paler, 2 deeper
+		[[nodiscard]] std::uint8_t Shown(std::uint8_t a_c, int a_look)
+		{
+			return a_look == 1 ? ScreenChannel(a_c) : a_look == 2 ? LinearChannel(a_c) :
+			                                                        a_c;
+		}
 
 		[[nodiscard]] float Strength(const LightCopy& a_copy)
 		{
@@ -278,7 +286,7 @@ namespace Plugin
 			copies.push_back(std::move(a));
 		}
 		DropConfigLights();
-		gPale = false;
+		gLook = 0;  // the lights were just made in their own colors
 		ApplyRecordColors();
 		ApplyLightStrength(false);  // the new lights at the sliders' values
 		gMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
@@ -322,10 +330,22 @@ namespace Plugin
 		if (!light) {
 			return nullptr;
 		}
-		light->data.color.red = a_color.red;
-		light->data.color.green = a_color.green;
-		light->data.color.blue = a_color.blue;
-		gMadeColors.emplace_back(light, light->data.color);
+		// the baseline is the color a record was MADE in, never one Paler / Deeper already turned: a color read off one of our
+		// record lights while a look is on is taken back to that light's own (CodeRabbit on #28), then the look drawn on it
+		RE::Color base = a_color;
+		if (gLook != 0) {
+			const auto drawn = std::ranges::find_if(gMadeColors, [&](const auto& a_m) {
+				const auto& c = a_m.first->data.color;
+				return c.red == a_color.red && c.green == a_color.green && c.blue == a_color.blue;
+			});
+			if (drawn != gMadeColors.end()) {
+				base = drawn->second;
+			}
+		}
+		light->data.color.red = Shown(base.red, gLook);
+		light->data.color.green = Shown(base.green, gLook);
+		light->data.color.blue = Shown(base.blue, gLook);
+		gMadeColors.emplace_back(light, base);
 		gOurRecords.insert(light);
 		LightCopy copy{ .id = std::format("auto {},{},{}", a_color.red, a_color.green, a_color.blue),
 			.base = source->id,
@@ -445,19 +465,23 @@ namespace Plugin
 
 	void ApplyRecordColors()
 	{
-		// HIS CALL: "use pale colors for cs and default for vanilla/enb" - the lighting is found once, at data load, so this
-		// runs once, as the record lights are made (the automatic ones copy a drawn color after it)
-		const bool pale = LightingFound() == Lighting::kShaders;
-		if (!gOn || pale == gPale) {
+		// HIS ORDER 2026-10-20: "i want the paler/deeper settings back added into lights right below presets above light strength",
+		// then "no automatic, just paler or deeper or vanilla" - Vanilla (0, the default) draws each light in its own color, Paler (1)
+		// turns it from linear light to the screen's (the Community Shaders look), Deeper (2) the other way. (Was, his 2026-10-07
+		// call: paler on Community Shaders by itself.) Again on every settings refresh (RefreshLights); an automatic light copies
+		// the color drawn when it is made
+		const int look = std::clamp(SettingValue("IlluminatedPaleColors", 0), 0, 2);
+		if (!gOn || look == gLook) {
 			return;
 		}
-		gPale = pale;
+		gLook = look;
 		for (auto& [light, made] : gMadeColors) {
-			light->data.color.red = pale ? ScreenChannel(made.red) : made.red;
-			light->data.color.green = pale ? ScreenChannel(made.green) : made.green;
-			light->data.color.blue = pale ? ScreenChannel(made.blue) : made.blue;
+			light->data.color.red = Shown(made.red, look);
+			light->data.color.green = Shown(made.green, look);
+			light->data.color.blue = Shown(made.blue, look);
 		}
-		SKSE::log::info("record lights: {} drawn in {} colors", gMadeColors.size(), pale ? "the paler Community Shaders" : "their deeper");
+		SKSE::log::info("record lights: {} drawn in {} colors", gMadeColors.size(), look == 1 ? "paler" : look == 2 ? "deeper" :
+																													  "their own");
 	}
 
 	RE::TESObjectLIGH* RecordLightFor(const std::string& a_model)
@@ -483,7 +507,7 @@ namespace Plugin
 	std::string RecordReport()
 	{
 		return std::format(
-			R"({{"on":{},"why":"{}","lights":{},"flicker":{},"pale":{},"models":{},"rows":{},"notOurs":{},"missing":{},"failed":{},"ms":{:.1f}}})", gOn,
-			gWhy, gMade, gFlickerOf.size(), gPale, gChoices.size(), gRows, gNotOurs, gMissing, gFailed, gMs);
+			R"({{"on":{},"why":"{}","lights":{},"flicker":{},"look":{},"models":{},"rows":{},"notOurs":{},"missing":{},"failed":{},"ms":{:.1f}}})", gOn,
+			gWhy, gMade, gFlickerOf.size(), gLook, gChoices.size(), gRows, gNotOurs, gMissing, gFailed, gMs);
 	}
 }
