@@ -32,4 +32,20 @@ namespace Plugin
 		return out;
 	}
 
+	void HoldFlicker(RE::TESObjectLIGH* a_light, bool a_flickers)
+	{
+		using enum RE::TES_LIGHT_FLAGS;
+		constexpr auto                                                     kMoving = static_cast<std::uint32_t>(kFlicker) | static_cast<std::uint32_t>(kFlickerSlow) |
+		                                                                             static_cast<std::uint32_t>(kPulse) | static_cast<std::uint32_t>(kPulseSlow);
+		static std::unordered_map<const RE::TESObjectLIGH*, std::uint32_t> madeWith;  // each record's moving bits as the game made it
+		if (!a_light) {
+			return;
+		}
+		const auto bits = a_light->data.flags.underlying();
+		const auto kept = madeWith.try_emplace(a_light, bits & kMoving).first->second;
+		if (kept != 0) {
+			a_light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>((bits & ~kMoving) | (a_flickers ? kept : 0));
+		}
+	}
+
 }

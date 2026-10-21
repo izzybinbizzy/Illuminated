@@ -121,7 +121,7 @@ namespace Plugin
 	void                                          ApplyGlobals();
 	[[nodiscard]] bool                            SetLightPlacerRoute(bool a_lightPlacerDraws);  // the route global every Light Placer row waits on (his answer Q7); false = it could not be made
 	void                                          SaveSettings();
-	void                                          SetSetting(std::size_t a_index, int a_value);
+	void                                          SetSetting(std::size_t a_index, int a_value, bool a_save = true);
 	[[nodiscard]] std::vector<Setting>&           Settings();
 	[[nodiscard]] const std::vector<MenuNote>&    Notes();
 	[[nodiscard]] const std::vector<SprayMarker>& SprayMarkers();
@@ -268,7 +268,11 @@ namespace Plugin
 	using LightKit::NewForm;  // a form made in memory by the game's own factory (LightKit.h)
 
 	[[nodiscard]] RE::TESObjectLIGH* CopyLight(const RE::TESObjectLIGH* a_src);
-	void                             CopyLightInto(RE::TESObjectLIGH* a_out, const RE::TESObjectLIGH* a_src);  // the whole light: look, sound, flare, model
+	// the record's own flicker / pulse bits taken off while the Flicker switch is off and put back when it is on (main thread; the
+	// bits as the game made the record are kept the first time it is asked about)
+	void               HoldFlicker(RE::TESObjectLIGH* a_light, bool a_flickers);
+	[[nodiscard]] bool FlickerOn();                                                              // the Flicker switch (Dynamic Lighting), LightCopies.cpp
+	void               CopyLightInto(RE::TESObjectLIGH* a_out, const RE::TESObjectLIGH* a_src);  // the whole light: look, sound, flare, model
 
 	// ------------------------------------------------------------------ the passes (main.cpp runs them in its own order:
 	// 0, 7, the wards, 3, 1, 2, 4, 6 - pass 5 retired 2026-10-16)

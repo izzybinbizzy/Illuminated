@@ -161,6 +161,7 @@ namespace Plugin
 		// (on Performance there are no rows either, and the spray keeps the game's own light - the raised copy flooded the scene)
 		for (const auto& s : gCopies) {
 			s.proj->data.light = s.original;
+			HoldFlicker(s.original, FlickerOn());  // Flicker off: no flicker on the spray either (the record itself, so the sliders reach it)
 			Recolor(s, sc);
 		}
 		// a held Frostbite after a Frost Art switch still wore the old pick's color in game while every refresh ran: one line
