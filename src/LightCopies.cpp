@@ -578,6 +578,40 @@ namespace Plugin
 			Thunk::func = SKSE::GetTrampoline().write_call<5>(a_site.address(), Thunk::thunk);
 		}
 
+		// the explosions a magic effect sets off, itself or through its projectile: a creature's death or attack explosion is not one
+		[[nodiscard]] bool SpellExplosion(const RE::BGSExplosion* a_expl)
+		{
+			static const auto spells = [] {
+				std::unordered_set<const RE::BGSExplosion*> out;
+				for (const auto* mgef : LightKit::FormsOf<RE::EffectSetting>()) {
+					out.insert(mgef->data.explosion);
+					if (const auto* proj = mgef->data.projectileBase) {
+						out.insert(proj->data.explosionType);
+					}
+				}
+				out.erase(nullptr);
+				return out;
+			}();
+			return spells.contains(a_expl);
+		}
+
+		// the element of a spell explosion of the game's own art, Family::kNone for any other; atronach and wraith models are
+		// left alone (their lights belong to the elementals' own mods)
+		[[nodiscard]] Family ExplosionFamily(const RE::BGSExplosion* a_expl)
+		{
+			if (!a_expl->GetModel() || !SpellExplosion(a_expl)) {
+				return Family::kNone;
+			}
+			const auto model = NormalPath(a_expl->GetModel());
+			const auto file = std::string_view(model).substr(model.find_last_of('\\') + 1);
+			if (!VanillaArtModel(model) || file.contains("atronach") || file.contains("wraith")) {
+				return Family::kNone;
+			}
+			// the game keeps no editor ID for an explosion, so the model's file name tells the element when the ID is gone
+			const auto family = FamilyOf(EditorID(a_expl), true);
+			return family != Family::kNone ? family : FamilyOf(file, true);
+		}
+
 		// an explosion of the game's own art wears its element's hand color for the art pick, as the rest of its spell does
 		void TintUnder(RE::Explosion* a_explosion)
 		{
@@ -593,13 +627,8 @@ namespace Plugin
 			{
 				std::lock_guard l{ lock };
 				auto [it, added] = families.try_emplace(expl->GetFormID(), Family::kNone);
-				if (added && expl->GetModel() && VanillaArtModel(NormalPath(expl->GetModel()))) {
-					// the game keeps no editor ID for an explosion, so its model's file name tells the element when the ID is gone
-					it->second = FamilyOf(EditorID(expl), true);
-					if (it->second == Family::kNone) {
-						const auto model = NormalPath(expl->GetModel());
-						it->second = FamilyOf(std::string_view(model).substr(model.find_last_of('\\') + 1), true);
-					}
+				if (added) {
+					it->second = ExplosionFamily(expl);
 				}
 				family = it->second;
 			}
@@ -615,25 +644,12 @@ namespace Plugin
 					return RE::BSVisit::BSVisitControl::kContinue;
 				});
 			}
-			if (static std::atomic<int> told = 0; told < 12 && ++told) {
-				SKSE::log::info("[EXPLOSION-TINT] {} | model {} | game art {} | family {} | color {} | {} light(s) tinted", Label(expl),
-					expl->GetModel() ? expl->GetModel() : "", expl->GetModel() && VanillaArtModel(NormalPath(expl->GetModel())),
-					static_cast<int>(family), color ? std::format("{},{},{}", color->red, color->green, color->blue) : std::string("none"), tinted);
+			if (static std::atomic<int> told = 0; family != Family::kNone && told < 12 && ++told) {
+				SKSE::log::info("[EXPLOSION-TINT] {} | model {} | family {} | color {} | {} light(s) tinted", Label(expl),
+					expl->GetModel() ? expl->GetModel() : "", static_cast<int>(family),
+					color ? std::format("{},{},{}", color->red, color->green, color->blue) : std::string("none"), tinted);
 			}
 		}
-
-		// an explosion's 3D, once built: Light Placer has hung its lights by then, so they take the pick's color from the first frame
-		struct ExplosionLoad3D
-		{
-			static RE::NiAVObject* thunk(RE::Explosion* a_this, bool a_backgroundLoading)
-			{
-				auto* object = func(a_this, a_backgroundLoading);
-				LightKit::Guarded("explosion 3D", [a_this]() { TintUnder(a_this); });
-				return object;
-			}
-			static inline REL::Relocation<decltype(thunk)> func;
-			static void                                    Install() { func = REL::Relocation<std::uintptr_t>(RE::Explosion::VTABLE[0]).write_vfunc(0x6A, thunk); }
-		};
 
 		struct ExplosionUpdate
 		{
@@ -809,7 +825,6 @@ namespace Plugin
 			CasterUpdate::Install();
 			EffectUpdate<RE::ShaderReferenceEffect>::Install();
 			EffectUpdate<RE::ModelReferenceEffect>::Install();
-			ExplosionLoad3D::Install();
 			if (REL::Module::IsVR()) {
 				return;
 			}

@@ -98,7 +98,7 @@ namespace Plugin
 		}
 
 		// a raised copy's color for the settings as they are now: on the game's own art, the color its element's hand wears for
-		// the art pick (every light of a spell one color - his "match the hand"); else a beam's row whose settings hold (the data's
+		// the art pick (every light of a spell one color); else a beam's row whose settings hold (the data's
 		// color), else the frost / shock spray marker, else the color of the light it was raised from
 		RE::Color ColorFor(const StreamColor& a_c, const SprayChoice& a_sc)
 		{

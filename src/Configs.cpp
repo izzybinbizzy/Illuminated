@@ -339,10 +339,8 @@ namespace Plugin
 			return std::nullopt;
 		}
 		// only the pick decides: the route, Dynamic Lighting and sneaking twins of one pick share its color
-		const int pick = SettingValue(std::string("Illuminated") + std::string(a_family == Family::kShock ? "ShockArt" :
-																			   a_family == Family::kFire  ? "FireArt" :
-																											"FrostArt"),
-			0);
+		static const std::array<std::string, 3> kSettings{ "IlluminatedShockArt", "IlluminatedFireArt", "IlluminatedFrostArt" };
+		const int                               pick = SettingValue(kSettings[static_cast<std::size_t>(hand - kArtHands.begin())], 0);
 		for (const auto& row : rows->second) {
 			if (!row.hasColor) {
 				continue;
