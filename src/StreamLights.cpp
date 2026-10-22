@@ -221,6 +221,11 @@ namespace Plugin
 				return 1.0f;
 			}
 		}
+		// Community Shaders draws a row light at 4x its fade, so twice the reach laid; drawn plain a row reaches only that
+		[[nodiscard]] float RowReachFor(Lighting a_lighting)
+		{
+			return a_lighting == Lighting::kShaders ? 1.0f : 2.0f;
+		}
 		std::size_t gRowLights = 0;      // row lights in the scene now (under gLiveLock)
 		bool        gSprayRows = false;  // pass 4's sprays wear a row: the Spray Lights setting holds and all lights are not off
 
@@ -499,7 +504,7 @@ namespace Plugin
 					// the radius is the scene's own units - the root's scale moves a child light's place, never its radius: divided
 					// by the Sparks root's scale (~0.4-0.5) it read 2-2.4x too wide (run cs 2026-10-20 17:11: laid ~262 / ~180,
 					// read 540 / 437, while the places read right)
-					const float reach = s.reach * reachPct;
+					const float reach = s.reach * reachPct * RowReachFor(LightingFound());
 					const float want = rec->second.fade * s.strength * bright;
 					// a dimmer Brightness or daylight lowers the cap too, so the sliders still reach a capped row
 					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow(), 1.0f) : 0.0f);
