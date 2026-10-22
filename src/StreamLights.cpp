@@ -256,6 +256,21 @@ namespace Plugin
 		std::vector<RE::NiPointer<RE::TESObjectREFR>> gToHang;
 		std::vector<RE::NiPointer<RE::NiAVObject>>    gToDrop;
 		std::uint32_t                                 gSweepClock = 0;  // frames since the last sweep (main thread)
+		// a projectile that flies while its row is switched off (Performance, Streams, Spray Lights, All lights off): its row is hung
+		// when the switch comes back, or a held stream stays bare until the next cast (main thread)
+		std::vector<RE::NiPointer<RE::TESObjectREFR>> gParkedRows;
+		constexpr std::size_t                         kMostParked = 64;
+
+		void ParkRow(RE::TESObjectREFR* a_ref)
+		{
+			std::erase_if(gParkedRows, [](const auto& a_parked) {
+				const auto* root = a_parked ? a_parked->Get3D() : nullptr;
+				return !root || !root->parent;
+			});
+			if (a_ref && gParkedRows.size() < kMostParked) {
+				gParkedRows.emplace_back(a_ref);
+			}
+		}
 
 		// every ward belongs to Dynamic Wards: when that mod is here, this pass does not light a ward
 		bool WardLightsOn()
@@ -526,7 +541,11 @@ namespace Plugin
 		{
 			auto* scene = SceneNode();
 			auto* proj = a_ref->As<RE::Projectile>();
-			if (!scene || !proj || !RowOn(a_rec)) {
+			if (!scene || !proj) {
+				return;
+			}
+			if (!RowOn(a_rec)) {
+				ParkRow(a_ref);
 				return;
 			}
 			std::size_t n = 0;
@@ -1047,10 +1066,28 @@ namespace Plugin
 			for (const auto& [root, live] : gLive) {
 				if (const auto rec = gRows.find(live.base); live.beam && (rec == gRows.end() || !RowOn(rec->second))) {
 					rows.push_back(root);
+					if (rec != gRows.end()) {
+						ParkRow(live.beam.get());
+					}
 				}
 			}
 			for (const auto* root : rows) {
 				Forget(root, scene);
+			}
+		}
+		{
+			// a row switched back on: the projectiles still flying get theirs now (HangRow parks one whose row is still off)
+			auto parked = std::move(gParkedRows);
+			gParkedRows.clear();
+			for (const auto& ref : parked) {
+				auto* root = ref ? ref->Get3D() : nullptr;
+				auto* base = ref ? ref->GetBaseObject() : nullptr;
+				if (!root || !root->parent || !root->AsNode() || !base) {
+					continue;
+				}
+				if (const auto rec = gRows.find(base->GetFormID()); rec != gRows.end()) {
+					HangRow(ref.get(), root->AsNode(), base->GetFormID(), rec->second);
+				}
 			}
 		}
 		if (!WardLightsOn()) {
