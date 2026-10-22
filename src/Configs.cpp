@@ -55,6 +55,23 @@ namespace Plugin
 		// (DynamicRow), so the Dynamic Lighting switch can swap each twin pair at once (LightCopies.cpp)
 		std::unordered_map<std::string, std::uint8_t> gTwinRows;
 
+		// each element's own hand art and the pick that recolors it: kept on every route, so a stream's lights match the hand
+		struct ArtHand
+		{
+			Family           family;
+			std::string_view model;
+			std::string_view global;  // lower case, as ParseConditions keeps it
+		};
+		constexpr std::array<ArtHand, 3>                          kArtHands{ { { Family::kShock, "magic\\shockhandeffects.nif", "illuminatedshockart" },
+			{ Family::kFire, "magic\\fireball01handeffects.nif", "illuminatedfireart" },
+			{ Family::kFrost, "magic\\frostbolthandfx01.nif", "illuminatedfrostart" } } };
+		std::unordered_map<std::string, std::vector<ConfigLight>> gArtHandRows;
+
+		[[nodiscard]] bool IsArtHand(std::string_view a_model)
+		{
+			return std::ranges::any_of(kArtHands, [&](const ArtHand& a_h) { return a_h.model == a_model; });
+		}
+
 		[[nodiscard]] ConfigLight ReadConfigLight(const Json& a_light, std::vector<std::vector<Clause>> a_test)
 		{
 			ConfigLight out;
@@ -129,6 +146,14 @@ namespace Plugin
 				// each light of the entry: the settings it waits on (and, for the game's own light records, the light itself)
 				std::vector<std::vector<std::vector<Clause>>> tests;
 				ConfigEntry                                   rows;
+				std::vector<std::string>                      artHands;  // the element hand art this entry claims
+				if (const auto* models = a_stream ? nullptr : entry.Get("models"); models && models->kind == Json::Kind::kArray) {
+					for (const auto& m : models->items) {
+						if (const auto low = NormalPath(m.text); IsArtHand(low)) {
+							artHands.push_back(low);
+						}
+					}
+				}
 				if (const auto* lights = entry.Get("lights"); lights && lights->kind == Json::Kind::kArray) {
 					for (const auto& light : lights->items) {
 						std::vector<std::string> conds;
@@ -149,6 +174,9 @@ namespace Plugin
 						}
 						if (gKeepLights || a_stream) {
 							rows.push_back(ReadConfigLight(light, tests.back()));
+						}
+						for (const auto& hand : artHands) {
+							gArtHandRows[hand].push_back(ReadConfigLight(light, tests.back()));
 						}
 					}
 				}
@@ -242,6 +270,7 @@ namespace Plugin
 		gCoverage = Coverage{};
 		DropConfigLights();
 		decltype(gTwinRows){}.swap(gTwinRows);
+		decltype(gArtHandRows){}.swap(gArtHandRows);
 		gReadMs = gParseMs = 0.0;
 		const auto started = Clock::now();
 		const auto root = fs::current_path() / "Data" / "LightPlacer";
@@ -297,6 +326,62 @@ namespace Plugin
 			}
 		}
 		return nullptr;
+	}
+
+	std::optional<RE::Color> ArtHandColor(Family a_family)
+	{
+		const auto hand = std::ranges::find(kArtHands, a_family, &ArtHand::family);
+		if (hand == kArtHands.end()) {
+			return std::nullopt;
+		}
+		const auto rows = gArtHandRows.find(std::string(hand->model));
+		if (rows == gArtHandRows.end()) {
+			return std::nullopt;
+		}
+		// only the pick decides: the route, Dynamic Lighting and sneaking twins of one pick share its color
+		static const std::array<std::string, 3> kSettings{ "IlluminatedShockArt", "IlluminatedFireArt", "IlluminatedFrostArt" };
+		const int                               pick = SettingValue(kSettings[static_cast<std::size_t>(hand - kArtHands.begin())], 0);
+		for (const auto& row : rows->second) {
+			if (!row.hasColor) {
+				continue;
+			}
+			bool named = false, holds = false;
+			for (const auto& run : row.test) {
+				for (const auto& c : run) {
+					if (c.global == hand->global) {
+						named = true;
+						holds |= c.value == pick;
+					}
+				}
+			}
+			// a row that names no pick is the one every pick shares
+			if (holds || (!named && pick == 0)) {
+				return RE::Color(row.r, row.g, row.b, 0);
+			}
+		}
+		return std::nullopt;
+	}
+
+	bool VanillaArtModel(const std::string& a_model)
+	{
+		static const auto models = [] {
+			std::unordered_set<std::string>           out;
+			constexpr std::array<std::string_view, 5> kGame{ "skyrim.esm", "update.esm", "dawnguard.esm", "hearthfires.esm", "dragonborn.esm" };
+			const auto                                add = [&](const auto* a_form) {
+				const auto* file = a_form ? a_form->GetFile(0) : nullptr;
+				if (file && std::ranges::find(kGame, Lower(file->GetFilename())) != kGame.end() && a_form->GetModel()) {
+					out.insert(NormalPath(a_form->GetModel()));
+				}
+			};
+			for (auto* proj : LightKit::FormsOf<RE::BGSProjectile>()) {
+				add(proj);
+			}
+			for (auto* expl : LightKit::FormsOf<RE::BGSExplosion>()) {
+				add(expl);
+			}
+			return out;
+		}();
+		return models.contains(a_model);
 	}
 
 	ConfigText::Twin DynamicTwinOf(const std::string& a_configAndLight)

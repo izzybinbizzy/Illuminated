@@ -578,12 +578,91 @@ namespace Plugin
 			Thunk::func = SKSE::GetTrampoline().write_call<5>(a_site.address(), Thunk::thunk);
 		}
 
+		// the explosions a magic effect sets off, itself or through its projectile: a creature's death or attack explosion is not one
+		[[nodiscard]] bool SpellExplosion(const RE::BGSExplosion* a_expl)
+		{
+			static const auto spells = [] {
+				std::unordered_set<const RE::BGSExplosion*> out;
+				for (const auto* mgef : LightKit::FormsOf<RE::EffectSetting>()) {
+					if (!mgef) {
+						continue;
+					}
+					out.insert(mgef->data.explosion);
+					if (const auto* proj = mgef->data.projectileBase) {
+						out.insert(proj->data.explosionType);
+					}
+				}
+				out.erase(nullptr);
+				return out;
+			}();
+			return spells.contains(a_expl);
+		}
+
+		// the element of a spell explosion of the game's own art, Family::kNone for any other; atronach and wraith models are
+		// left alone (their lights belong to the elementals' own mods)
+		[[nodiscard]] Family ExplosionFamily(const RE::BGSExplosion* a_expl)
+		{
+			if (!a_expl->GetModel() || !SpellExplosion(a_expl)) {
+				return Family::kNone;
+			}
+			const auto model = NormalPath(a_expl->GetModel());
+			const auto file = std::string_view(model).substr(model.find_last_of('\\') + 1);
+			if (!VanillaArtModel(model) || file.contains("atronach") || file.contains("wraith")) {
+				return Family::kNone;
+			}
+			// the game keeps no editor ID for an explosion, so the model's file name tells the element when the ID is gone
+			const auto family = FamilyOf(EditorID(a_expl), true);
+			return family != Family::kNone ? family : FamilyOf(file, true);
+		}
+
+		// an explosion of the game's own art wears its element's hand color for the art pick, as the rest of its spell does
+		void TintUnder(RE::Explosion* a_explosion)
+		{
+			auto*       root = a_explosion->Get3D();
+			const auto* base = a_explosion->GetBaseObject();
+			const auto* expl = base ? base->As<RE::BGSExplosion>() : nullptr;
+			if (!root || !expl || LightsOff()) {  // all lights off: the explosion keeps the game's own color
+				return;
+			}
+			static std::mutex                             lock;
+			static std::unordered_map<RE::FormID, Family> families;
+			Family                                        family = Family::kNone;
+			{
+				std::lock_guard l{ lock };
+				auto [it, added] = families.try_emplace(expl->GetFormID(), Family::kNone);
+				if (added) {
+					it->second = ExplosionFamily(expl);
+				}
+				family = it->second;
+			}
+			const auto  color = family == Family::kNone ? std::nullopt : ArtHandColor(family);
+			std::size_t tinted = 0;
+			if (color) {
+				const RE::NiColor diffuse{ color->red / 255.0f, color->green / 255.0f, color->blue / 255.0f };
+				RE::BSVisit::TraverseScenegraphLights(root, [&](RE::NiPointLight* a_light) {
+					if (a_light) {
+						a_light->GetLightRuntimeData().diffuse = diffuse;
+						++tinted;
+					}
+					return RE::BSVisit::BSVisitControl::kContinue;
+				});
+			}
+			if (static std::atomic<int> told = 0; family != Family::kNone && told < 12 && ++told) {
+				SKSE::log::info("[EXPLOSION-TINT] {} | model {} | family {} | color {} | {} light(s) tinted", Label(expl),
+					expl->GetModel() ? expl->GetModel() : "", static_cast<int>(family),
+					color ? std::format("{},{},{}", color->red, color->green, color->blue) : std::string("none"), tinted);
+			}
+		}
+
 		struct ExplosionUpdate
 		{
 			static bool thunk(RE::Explosion* a_this)
 			{
 				const bool result = func(a_this);
-				LightKit::Guarded("explosion update", [a_this]() { ScaleUnder(a_this); });
+				LightKit::Guarded("explosion update", [a_this]() {
+					ScaleUnder(a_this);
+					TintUnder(a_this);
+				});
 				return result;
 			}
 			static inline REL::Relocation<decltype(thunk)> func;

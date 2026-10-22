@@ -25,7 +25,9 @@ namespace Plugin
 			RE::TESObjectLIGH* original{ nullptr };  // the light the spray had before (worn again while all lights are off)
 			RE::TESObjectLIGH* copy{ nullptr };
 			Family             family{ Family::kNone };
-			RE::Color          own{};  // the color of the light it was copied from
+			RE::Color          own{};                // the color of the light it was copied from
+			bool               vanillaArt{ false };  // the game's own art, which the art picks recolor
+			RE::TESObjectLIGH* tint{ nullptr };      // the original in the pick's color, worn in its place on the game's art
 		};
 		std::vector<SprayCopy> gCopies;
 
@@ -40,7 +42,11 @@ namespace Plugin
 		void Recolor(const SprayCopy& a_s, const SprayChoice& a_sc)
 		{
 			auto& color = a_s.copy->data.color;
-			if (a_s.family == Family::kFrost && a_sc.frostSet) {
+			if (const auto hand = a_s.vanillaArt ? ArtHandColor(a_s.family) : std::nullopt) {
+				color.red = hand->red;
+				color.green = hand->green;
+				color.blue = hand->blue;
+			} else if (a_s.family == Family::kFrost && a_sc.frostSet) {
 				color.red = Clamp255(a_sc.frost.r);
 				color.green = Clamp255(a_sc.frost.g);
 				color.blue = Clamp255(a_sc.frost.b);
@@ -128,7 +134,16 @@ namespace Plugin
 			copy->fade = family == Family::kFrost ? sc.frostFade : sc.fade;
 			copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(kSprayFlags);
 			copy->data.fallofExponent = sc.falloff;
-			const SprayCopy sprayed{ proj, bulb, copy, family, bulb->data.color };
+			SprayCopy sprayed{ proj, bulb, copy, family, bulb->data.color, VanillaArtModel(model) };
+			if (sprayed.vanillaArt && family != Family::kNone) {
+				sprayed.tint = CopyLight(bulb);
+				if (const auto lc = std::ranges::find(LightCopies(), bulb, &LightCopy::form); sprayed.tint && lc != LightCopies().end()) {
+					auto entry = *lc;
+					entry.id = "tint " + id;
+					entry.form = sprayed.tint;
+					LightCopies().push_back(std::move(entry));
+				}
+			}
 			Recolor(sprayed, sc);     // and again on every refresh (ApplySprayColors)
 			proj->data.light = copy;  // read by pass 6 as this spray's row color, then the original goes back (ApplySprayColors)
 			if (proj->data.light != copy || copy->data.radius != static_cast<std::uint32_t>(radius)) {
@@ -160,9 +175,16 @@ namespace Plugin
 		// "the spray lighting in the background is ruining all of the feature images"); the copy carries the row's color
 		// (on Performance there are no rows either, and the spray keeps the game's own light - the raised copy flooded the scene)
 		for (const auto& s : gCopies) {
-			s.proj->data.light = s.original;
 			HoldFlicker(s.original, FlickerOn());  // Flicker off: no flicker on the spray either (the record itself, so the sliders reach it)
 			Recolor(s, sc);
+			// the record's own color is vanilla's: on the game's art the spray wears it in the copy's color, unless all lights are off
+			if (s.tint && !LightsOff()) {
+				s.tint->data.color = s.copy->data.color;
+				HoldFlicker(s.tint, FlickerOn());
+				s.proj->data.light = s.tint;
+			} else {
+				s.proj->data.light = s.original;
+			}
 		}
 		// a held Frostbite after a Frost Art switch still wore the old pick's color in game while every refresh ran: one line
 		// per family says what its copies hold now, so the log tells "the copy did not change" from "the game did not take

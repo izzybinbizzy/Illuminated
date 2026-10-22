@@ -172,6 +172,10 @@ namespace Plugin
 	void                                DropConfigLights();  // once the record lights are made
 	// a beam's row out of the Streams folder whose settings hold now (lagen move_beams), or nullptr - pass 6's color for it
 	[[nodiscard]] const ConfigLight* StreamRowFor(const std::string& a_model);
+	// the color an element's own hand light wears for its art pick as the settings hold now, or none
+	[[nodiscard]] std::optional<RE::Color> ArtHandColor(Family a_family);
+	// a model one of the game's own projectiles uses: the art the spell art picks recolor
+	[[nodiscard]] bool VanillaArtModel(const std::string& a_model);
 	// which Dynamic Lighting twin a Light Placer light's "<config>|<light>" is (made by ConfigText.h TwinKey; TwinOf), for
 	// LightCopies.cpp to swap each pair at once when the setting moves
 	[[nodiscard]] ConfigText::Twin DynamicTwinOf(const std::string& a_configAndLight);
