@@ -584,6 +584,9 @@ namespace Plugin
 			static const auto spells = [] {
 				std::unordered_set<const RE::BGSExplosion*> out;
 				for (const auto* mgef : LightKit::FormsOf<RE::EffectSetting>()) {
+					if (!mgef) {
+						continue;
+					}
 					out.insert(mgef->data.explosion);
 					if (const auto* proj = mgef->data.projectileBase) {
 						out.insert(proj->data.explosionType);
@@ -618,7 +621,7 @@ namespace Plugin
 			auto*       root = a_explosion->Get3D();
 			const auto* base = a_explosion->GetBaseObject();
 			const auto* expl = base ? base->As<RE::BGSExplosion>() : nullptr;
-			if (!root || !expl) {
+			if (!root || !expl || LightsOff()) {  // all lights off: the explosion keeps the game's own color
 				return;
 			}
 			static std::mutex                             lock;
