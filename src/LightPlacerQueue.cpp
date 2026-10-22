@@ -24,38 +24,65 @@ namespace Plugin
 			}
 		}
 
-		// under the scene's queue lock. The addition came last (the resume just queued it): the removal is dropped, and so is the
-		// addition when the light is still in the scene, so it is not listed twice
-		std::size_t KeepRequeued(RE::ShadowSceneNode* a_scene)
+		// the queues as they stood before the resume: how many additions waited, and which lights waited to be removed
+		struct Queued
+		{
+			std::size_t                     added{ 0 };
+			std::vector<const RE::BSLight*> removed;
+		};
+
+		[[nodiscard]] Queued QueuedNow(RE::ShadowSceneNode* a_scene)
 		{
 			auto&               data = a_scene->GetRuntimeData();
 			RE::BSSpinLockGuard locker(data.lightQueueLock);
-			if (data.lightQueueAdd.empty() || data.lightQueueRemove.empty()) {
-				return 0;
-			}
-			std::vector<const RE::BSLight*> both;
+			Queued              out{ data.lightQueueAdd.size(), {} };
 			for (const auto& removed : data.lightQueueRemove) {
-				if (removed && std::ranges::any_of(data.lightQueueAdd, [&](const auto& added) { return added.get() == removed.get(); })) {
-					both.push_back(removed.get());
+				if (removed) {
+					out.removed.push_back(removed.get());
 				}
 			}
-			for (const auto* light : both) {
+			return out;
+		}
+
+		// under the scene's queue lock. Only an addition THIS resume queued (past a_before.added) of a light whose removal waited
+		// before it: the removal is dropped, and so is that addition when the light is still in the scene, so it is not listed twice
+		std::size_t KeepRequeued(RE::ShadowSceneNode* a_scene, const Queued& a_before)
+		{
+			auto&                           data = a_scene->GetRuntimeData();
+			RE::BSSpinLockGuard             locker(data.lightQueueLock);
+			std::vector<const RE::BSLight*> requeued;
+			for (std::size_t i = a_before.added; i < data.lightQueueAdd.size(); ++i) {
+				const auto* light = data.lightQueueAdd[static_cast<std::uint32_t>(i)].get();
+				if (light && std::ranges::contains(a_before.removed, light) &&
+					std::ranges::any_of(data.lightQueueRemove, [&](const auto& removed) { return removed.get() == light; })) {
+					requeued.push_back(light);
+				}
+			}
+			for (const auto* light : requeued) {
 				EraseAll(data.lightQueueRemove, light);
 				if (std::ranges::any_of(data.activeLights, [&](const auto& active) { return active.get() == light; })) {
-					EraseAll(data.lightQueueAdd, light);
+					for (std::size_t i = data.lightQueueAdd.size(); i-- > a_before.added;) {
+						if (data.lightQueueAdd[static_cast<std::uint32_t>(i)].get() == light) {
+							data.lightQueueAdd.erase(data.lightQueueAdd.begin() + static_cast<std::ptrdiff_t>(i));
+						}
+					}
 				}
 			}
-			return both.size();
+			return requeued.size();
 		}
 
 		struct ResumeAfterLightPlacer
 		{
 			static void thunk(RE::ShaderReferenceEffect* a_this)
 			{
+				auto*        scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+				const Queued before = scene ? QueuedNow(scene) : Queued{};
 				func(a_this);
-				LightKit::Guarded("effect resume", []() {
-					auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
-					if (const auto n = scene ? KeepRequeued(scene) : 0; n > 0) {
+				if (!scene || before.removed.empty()) {
+					return;
+				}
+				LightKit::Guarded("effect resume", [scene, &before]() {
+					if (const auto n = KeepRequeued(scene, before); n > 0) {
 						if (const auto total = gKept.fetch_add(n, std::memory_order_relaxed) + n; total <= 5) {
 							SKSE::log::info("light placer: {} light(s) put back on an effect's resume kept in the scene ({} so far)", n, total);
 						}
