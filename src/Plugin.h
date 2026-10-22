@@ -180,6 +180,9 @@ namespace Plugin
 	// LightCopies.cpp to swap each pair at once when the setting moves
 	[[nodiscard]] ConfigText::Twin DynamicTwinOf(const std::string& a_configAndLight);
 
+	// ------------------------------------------------------------------ LightPlacerQueue.cpp: Light Placer's light put back on a resume stays
+	void KeepLightPlacerLights();  // at data load, after Light Placer hooked the resume when it loaded
+
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
 	void                             DecideRecordRoute();  // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer
 	[[nodiscard]] bool               RecordRoute();

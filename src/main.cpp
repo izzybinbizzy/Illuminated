@@ -77,6 +77,7 @@ namespace
 		RegisterMenuTail();    // Lights by Item / Spell, then Performance last, below the fading pages (his order 2026-10-20)
 		LightSettings();
 		MakeLightCopies();                   // after pass 0 (the copies take its flags), before Light Placer reads its configs
+		KeepLightPlacerLights();             // a Light Placer light put back on an effect's resume stays (LightPlacerQueue.cpp)
 		VaerSwirls();                        // pass 7: VAER Reborn's swirls - the settings are loaded by now (HIS CALL)
 		Wards();                             // before pass 1: an effect it silences must not be followed by the casting-light pass
 		DecideRecordRoute();                 // Vanilla / ENB, or no Light Placer: the configs light the game's own light records (RecordLights.cpp)
