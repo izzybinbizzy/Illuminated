@@ -256,6 +256,21 @@ namespace Plugin
 		std::vector<RE::NiPointer<RE::TESObjectREFR>> gToHang;
 		std::vector<RE::NiPointer<RE::NiAVObject>>    gToDrop;
 		std::uint32_t                                 gSweepClock = 0;  // frames since the last sweep (main thread)
+		// a projectile that flies while its row is switched off (Performance, Streams, Spray Lights, All lights off) or the light cap is
+		// full: its row is hung when that passes, or a held stream stays bare until the next cast (main thread, StreamLightsFrame)
+		std::vector<RE::NiPointer<RE::TESObjectREFR>> gParkedRows;
+		constexpr std::size_t                         kMostParked = 64;
+
+		void ParkRow(RE::TESObjectREFR* a_ref)
+		{
+			std::erase_if(gParkedRows, [](const auto& a_parked) {
+				const auto* root = a_parked ? a_parked->Get3D() : nullptr;
+				return !root || !root->parent;
+			});
+			if (a_ref && gParkedRows.size() < kMostParked) {
+				gParkedRows.emplace_back(a_ref);
+			}
+		}
 
 		// every ward belongs to Dynamic Wards: when that mod is here, this pass does not light a ward
 		bool WardLightsOn()
@@ -526,7 +541,11 @@ namespace Plugin
 		{
 			auto* scene = SceneNode();
 			auto* proj = a_ref->As<RE::Projectile>();
-			if (!scene || !proj || !RowOn(a_rec)) {
+			if (!scene || !proj) {
+				return;
+			}
+			if (!RowOn(a_rec)) {
+				ParkRow(a_ref);
 				return;
 			}
 			std::size_t n = 0;
@@ -542,6 +561,7 @@ namespace Plugin
 				n = (std::min)(want.size(), kMostRowLights - (std::min)(gRowLights, kMostRowLights));
 			}
 			if (!n) {
+				ParkRow(a_ref);  // the light cap is full: tried again when a row lets its lights go
 				return;
 			}
 			const bool                              isl = InverseSquare();
@@ -571,6 +591,7 @@ namespace Plugin
 					made.size(), proj->GetProjectileRuntimeData().range, a_rec.reach, a_rec.fade);
 			}
 			if (made.empty()) {
+				ParkRow(a_ref);
 				return;
 			}
 			std::lock_guard l{ gLiveLock };
@@ -927,6 +948,29 @@ namespace Plugin
 	// once a frame, on the main thread - what the loader threads left to do
 	void StreamLightsFrame()
 	{
+		// a row its switch or the light cap held back: tried again while its projectile flies, let go when that ends
+		if (!gParkedRows.empty()) {
+			bool room = false;
+			{
+				std::lock_guard l{ gLiveLock };
+				room = gRowLights < kMostRowLights;
+			}
+			auto parked = std::move(gParkedRows);
+			gParkedRows.clear();
+			for (const auto& ref : parked) {
+				auto*      root = ref ? ref->Get3D() : nullptr;
+				auto*      base = ref ? ref->GetBaseObject() : nullptr;
+				const auto rec = base ? gRows.find(base->GetFormID()) : gRows.end();
+				if (!root || !root->parent || !root->AsNode() || rec == gRows.end()) {
+					continue;
+				}
+				if (room) {
+					HangRow(ref.get(), root->AsNode(), base->GetFormID(), rec->second);  // parks it again while its row stays off
+				} else {
+					gParkedRows.push_back(ref);
+				}
+			}
+		}
 		std::vector<RE::NiPointer<RE::TESObjectREFR>> hang;
 		{
 			std::lock_guard l{ gLiveLock };
@@ -1047,6 +1091,9 @@ namespace Plugin
 			for (const auto& [root, live] : gLive) {
 				if (const auto rec = gRows.find(live.base); live.beam && (rec == gRows.end() || !RowOn(rec->second))) {
 					rows.push_back(root);
+					if (rec != gRows.end()) {
+						ParkRow(live.beam.get());
+					}
 				}
 			}
 			for (const auto* root : rows) {
