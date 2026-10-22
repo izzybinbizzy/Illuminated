@@ -75,8 +75,11 @@ namespace Plugin
 		{
 			static void thunk(RE::ShaderReferenceEffect* a_this)
 			{
-				auto*        scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
-				const Queued before = scene ? QueuedNow(scene) : Queued{};
+				auto*  scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+				Queued before;
+				if (scene) {
+					LightKit::Guarded("effect resume queues", [scene, &before]() { before = QueuedNow(scene); });
+				}
 				func(a_this);
 				if (!scene || before.removed.empty()) {
 					return;
