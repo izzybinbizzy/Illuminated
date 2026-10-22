@@ -84,29 +84,49 @@ namespace Plugin
 			RE::Color                own{};                // the color of the light it was raised from
 			const RE::TESObjectLIGH* borrowed{ nullptr };  // a beam with no light of its own: the row's light it was raised from
 			float                    range{ 0.0f };        // the projectile's range (the raised reach follows it)
+			bool                     vanillaArt{ false };  // the game's own art, which the art picks recolor
 		};
 		std::unordered_map<RE::FormID, StreamColor> gStreamColor;  // only copies this pass made (pass 4's keep their own)
+		// a copy of a projectile's own light in the color its art pick gives - worn in place of the record, whose color is vanilla
+		std::unordered_map<RE::FormID, RE::TESObjectLIGH*> gOwnTint;
 
-		// a raised copy's color for the settings as they are now: a beam's row whose settings hold (the data's color - what its
-		// Light Placer rows were lit in), else the frost / shock spray marker, else the color of the light it was raised from
-		void PickColor(const StreamColor& a_c, RE::TESObjectLIGH* a_copy, const SprayChoice& a_sc)
+		void SetColor(RE::TESObjectLIGH* a_light, const RE::Color& a_color)
 		{
+			a_light->data.color.red = a_color.red;
+			a_light->data.color.green = a_color.green;
+			a_light->data.color.blue = a_color.blue;
+		}
+
+		// a raised copy's color for the settings as they are now: on the game's own art, the color its element's hand wears for
+		// the art pick (every light of a spell one color - his "match the hand"); else a beam's row whose settings hold (the data's
+		// color), else the frost / shock spray marker, else the color of the light it was raised from
+		RE::Color ColorFor(const StreamColor& a_c, const SprayChoice& a_sc)
+		{
+			if (a_c.vanillaArt) {
+				if (const auto hand = ArtHandColor(a_c.family)) {
+					return *hand;
+				}
+			}
 			const auto* row = a_c.beam ? StreamRowFor(a_c.model) : nullptr;
 			const auto  rgb = [](const Rgb& a_m) {
 				return RE::Color(static_cast<std::uint8_t>(std::clamp(a_m.r, 0, 255)), static_cast<std::uint8_t>(std::clamp(a_m.g, 0, 255)),
 					static_cast<std::uint8_t>(std::clamp(a_m.b, 0, 255)), 0);
 			};
-			RE::Color color = a_c.own;
 			if (row && row->hasColor) {
-				color = RE::Color(row->r, row->g, row->b, 0);
-			} else if (a_c.family == Family::kFrost && a_sc.frostSet) {
-				color = rgb(a_sc.frost);
-			} else if (a_c.family == Family::kShock && a_sc.shockSet) {
-				color = rgb(a_sc.shock);
+				return RE::Color(row->r, row->g, row->b, 0);
 			}
-			a_copy->data.color.red = color.red;
-			a_copy->data.color.green = color.green;
-			a_copy->data.color.blue = color.blue;
+			if (a_c.family == Family::kFrost && a_sc.frostSet) {
+				return rgb(a_sc.frost);
+			}
+			if (a_c.family == Family::kShock && a_sc.shockSet) {
+				return rgb(a_sc.shock);
+			}
+			return a_c.own;
+		}
+
+		void PickColor(const StreamColor& a_c, RE::TESObjectLIGH* a_copy, const SprayChoice& a_sc)
+		{
+			SetColor(a_copy, ColorFor(a_c, a_sc));
 		}
 
 		// the light a beam with none of its own borrows: its Streams row's light - one of our copies (pass 0's look), else the record
@@ -769,6 +789,7 @@ namespace Plugin
 		gHandLight.clear();
 		gStreamCopy.clear();
 		gStreamColor.clear();
+		gOwnTint.clear();
 		const auto  sc = ReadSprayChoice();
 		std::size_t cones = 0, beams = 0, flames = 0, kept = 0, skipped = 0;
 		for (auto* proj : LightKit::FormsOf<RE::BGSProjectile>()) {
@@ -830,7 +851,8 @@ namespace Plugin
 			const auto   family = FamilyOf(id, true);
 			const Raised raised = Raise(copy, base, range);
 			const float  reach = raised.reach, fade = raised.fade, cutoff = raised.cutoff;
-			const auto&  color = gStreamColor[proj->GetFormID()] = { model, family, beam, base->data.color, own ? nullptr : base, range };
+			const auto&  color = gStreamColor[proj->GetFormID()] = { model, family, beam, base->data.color, own ? nullptr : base, range,
+				VanillaArtModel(model) };
 			PickColor(color, copy, sc);  // and again on every refresh (ApplyStreamLights)
 			// his checklist 140: a bolt wears a row of lights (BeamRow.h) whose middle glows as its OWN light would right under
 			// it - never the raised copy's numbers: matched to those (run cs 2026-10-20 16:59) the row lit the whole courtyard,
@@ -848,6 +870,18 @@ namespace Plugin
 				.startCutoff = cutoff });
 			gHandLight[proj->GetFormID()] = own;
 			gStreamCopy[proj->GetFormID()] = copy;
+			if (own && color.vanillaArt && family != Family::kNone) {
+				if (auto* tint = CopyLight(own)) {
+					// the sliders reach it as they reach the light it copies (a copy of ours is scaled, a record of the game's is not)
+					if (const auto lc = std::ranges::find(LightCopies(), own, &LightCopy::form); lc != LightCopies().end()) {
+						auto entry = *lc;
+						entry.id = "tint " + id;
+						entry.form = tint;
+						LightCopies().push_back(std::move(entry));
+					}
+					gOwnTint[proj->GetFormID()] = tint;
+				}
+			}
 			if (flame) {
 				++flames;
 			} else if (cone) {
@@ -976,7 +1010,16 @@ namespace Plugin
 			// flickering when casting sparks even though flicker was turned off")
 			HoldFlicker(own, FlickerOn());
 			HoldFlicker(copy->second, FlickerOn());
-			auto* wanted = want && !PerformanceMode() && !gRows.contains(formID) ? copy->second : own;
+			// the record's own color is vanilla's: a spell on the game's art wears a copy in its pick's color while Streams is on
+			auto* worn = own;
+			if (const auto tint = gOwnTint.find(formID); want && tint != gOwnTint.end()) {
+				if (const auto c = gStreamColor.find(formID); c != gStreamColor.end()) {
+					SetColor(tint->second, ColorFor(c->second, sc));
+				}
+				HoldFlicker(tint->second, FlickerOn());
+				worn = tint->second;
+			}
+			auto* wanted = want && !PerformanceMode() && !gRows.contains(formID) ? copy->second : worn;
 			if (!wanted && want && PerformanceMode()) {
 				wanted = BorrowedLight(formID);
 			}

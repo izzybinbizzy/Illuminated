@@ -578,12 +578,72 @@ namespace Plugin
 			Thunk::func = SKSE::GetTrampoline().write_call<5>(a_site.address(), Thunk::thunk);
 		}
 
+		// an explosion of the game's own art wears its element's hand color for the art pick, as the rest of its spell does
+		void TintUnder(RE::Explosion* a_explosion)
+		{
+			auto*       root = a_explosion->Get3D();
+			const auto* base = a_explosion->GetBaseObject();
+			const auto* expl = base ? base->As<RE::BGSExplosion>() : nullptr;
+			if (!root || !expl) {
+				return;
+			}
+			static std::mutex                             lock;
+			static std::unordered_map<RE::FormID, Family> families;
+			Family                                        family = Family::kNone;
+			{
+				std::lock_guard l{ lock };
+				auto [it, added] = families.try_emplace(expl->GetFormID(), Family::kNone);
+				if (added && expl->GetModel() && VanillaArtModel(NormalPath(expl->GetModel()))) {
+					// the game keeps no editor ID for an explosion, so its model's file name tells the element when the ID is gone
+					it->second = FamilyOf(EditorID(expl), true);
+					if (it->second == Family::kNone) {
+						const auto model = NormalPath(expl->GetModel());
+						it->second = FamilyOf(std::string_view(model).substr(model.find_last_of('\\') + 1), true);
+					}
+				}
+				family = it->second;
+			}
+			const auto  color = family == Family::kNone ? std::nullopt : ArtHandColor(family);
+			std::size_t tinted = 0;
+			if (color) {
+				const RE::NiColor diffuse{ color->red / 255.0f, color->green / 255.0f, color->blue / 255.0f };
+				RE::BSVisit::TraverseScenegraphLights(root, [&](RE::NiPointLight* a_light) {
+					if (a_light) {
+						a_light->GetLightRuntimeData().diffuse = diffuse;
+						++tinted;
+					}
+					return RE::BSVisit::BSVisitControl::kContinue;
+				});
+			}
+			if (static std::atomic<int> told = 0; told < 12 && ++told) {
+				SKSE::log::info("[EXPLOSION-TINT] {} | model {} | game art {} | family {} | color {} | {} light(s) tinted", Label(expl),
+					expl->GetModel() ? expl->GetModel() : "", expl->GetModel() && VanillaArtModel(NormalPath(expl->GetModel())),
+					static_cast<int>(family), color ? std::format("{},{},{}", color->red, color->green, color->blue) : std::string("none"), tinted);
+			}
+		}
+
+		// an explosion's 3D, once built: Light Placer has hung its lights by then, so they take the pick's color from the first frame
+		struct ExplosionLoad3D
+		{
+			static RE::NiAVObject* thunk(RE::Explosion* a_this, bool a_backgroundLoading)
+			{
+				auto* object = func(a_this, a_backgroundLoading);
+				LightKit::Guarded("explosion 3D", [a_this]() { TintUnder(a_this); });
+				return object;
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+			static void                                    Install() { func = REL::Relocation<std::uintptr_t>(RE::Explosion::VTABLE[0]).write_vfunc(0x6A, thunk); }
+		};
+
 		struct ExplosionUpdate
 		{
 			static bool thunk(RE::Explosion* a_this)
 			{
 				const bool result = func(a_this);
-				LightKit::Guarded("explosion update", [a_this]() { ScaleUnder(a_this); });
+				LightKit::Guarded("explosion update", [a_this]() {
+					ScaleUnder(a_this);
+					TintUnder(a_this);
+				});
 				return result;
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
@@ -749,6 +809,7 @@ namespace Plugin
 			CasterUpdate::Install();
 			EffectUpdate<RE::ShaderReferenceEffect>::Install();
 			EffectUpdate<RE::ModelReferenceEffect>::Install();
+			ExplosionLoad3D::Install();
 			if (REL::Module::IsVR()) {
 				return;
 			}
