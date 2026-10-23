@@ -206,8 +206,12 @@ namespace Plugin
 		std::unordered_map<RE::FormID, RowRecipe> gRows;                // beam base form -> its row
 		constexpr std::size_t                     kMostRowLights = 64;  // every row light in the scene together
 		constexpr std::size_t                     kMostPerRow = 20;
-		constexpr float                           kRowHeight = 100.0f;  // a beam's usual height over the ground it lights
-		constexpr const char*                     kRowName = "IlluminatedStreamRow";
+		// off Community Shaders the game lets one piece of ground take only a few lights, so a row of 15 lit only the ground near
+		// her hands; fewer, wider lights reach the whole stream (BeamRow::Lay makes each stronger to keep the row's light)
+		constexpr std::size_t kMostPerRowPlain = 5;
+		constexpr float       kRowPlain = 0.5f;     // every row off Community Shaders
+		constexpr float       kRowHeight = 100.0f;  // a beam's usual height over the ground it lights
+		constexpr const char* kRowName = "IlluminatedStreamRow";
 		// HIS LOOK 2026-10-20 ~19:00: "make vanilla brighter enb softer as suggested to align with cs" - the same row lifted the
 		// ground 3-33 per band on Community Shaders, 9-24 on Vanilla and 33-72 on ENB (run cs / vanilla / enb, 18:29-18:43)
 		[[nodiscard]] float RowStrengthFor(Lighting a_lighting)
@@ -216,7 +220,7 @@ namespace Plugin
 			case Lighting::kVanilla:
 				return 1.1f;
 			case Lighting::kEnb:
-				return 0.18f;  // kept to Community Shaders' lift once its row came off its cap
+				return 0.5f;  // the whole stream lit, not washed out
 			default:
 				return 1.0f;
 			}
@@ -473,8 +477,8 @@ namespace Plugin
 		{
 			const bool  isl = InverseSquare();
 			const float bright = BrightnessNow() * RowStrengthFor(LightingFound()), reachPct = Percent("IlluminatedReach");
-			// his report: "the streams/sprays don't flicker at all so it's just a beam" - a spray's own light is steady and Light
-			// Placer's hand lights are separate objects, so the row flickers by itself while the Flicker switch is on
+			// a spray's own light is steady and Light Placer's hand lights are separate objects, so the row flickers by itself
+			// while the Flicker switch is on
 			static const auto start = std::chrono::steady_clock::now();
 			const double      seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 			const bool        flickers = FlickerOn();
@@ -516,11 +520,10 @@ namespace Plugin
 						continue;
 					}
 					const auto& s = row[i];
-					// the radius is the scene's own units - the root's scale moves a child light's place, never its radius: divided
-					// by the Sparks root's scale (~0.4-0.5) it read 2-2.4x too wide (run cs 2026-10-20 17:11: laid ~262 / ~180,
-					// read 540 / 437, while the places read right)
+					// the radius is the scene's own units - the root's scale moves a child light's place, never its radius
 					const float reach = s.reach * reachPct * RowReachFor(LightingFound());
-					const float want = rec->second.fade * s.strength * bright;
+					// at full strength five lights wash a stream out white off Community Shaders
+					const float want = rec->second.fade * s.strength * bright * (isl ? 1.0f : kRowPlain);
 					// a dimmer Brightness or daylight lowers the cap too, so the sliders still reach a capped row
 					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow(), 1.0f) : 0.0f);
 					Dress(light, color, steady * (flickers ? BeamRow::Flicker(seconds, i) : 1.0f), reach, isl);
@@ -557,7 +560,8 @@ namespace Plugin
 				if (gRowLights >= kMostRowLights) {
 					SweepGone(scene);
 				}
-				const auto want = BeamRow::Lay(proj->GetProjectileRuntimeData().range, static_cast<int>(kMostPerRow), a_rec.reach, kRowHeight);
+				const auto most = InverseSquare() ? kMostPerRow : kMostPerRowPlain;
+				const auto want = BeamRow::Lay(proj->GetProjectileRuntimeData().range, static_cast<int>(most), a_rec.reach, kRowHeight);
 				n = (std::min)(want.size(), kMostRowLights - (std::min)(gRowLights, kMostRowLights));
 			}
 			if (!n) {
@@ -1050,13 +1054,9 @@ namespace Plugin
 			if (!proj || copy == gStreamCopy.end()) {
 				continue;
 			}
-			// a bolt with a row (his checklist 140) wears its own light at its own size: the row lights its length. On Performance
-			// (no rows) it keeps its own light too - the one raised light flooded the whole courtyard (ENB test 2026-10-20 21:08,
-			// radius 1,342; his "the spray lighting in the background is ruining all of the feature images")
-			// one with no light of its own wears the light it borrows, unraised, while no row lights it (Performance) - never
-			// nothing (CodeRabbit on #28)
-			// with Flicker off its own light, and the raised copy made from it, carry no flicker bits (his report: "performance was
-			// flickering when casting sparks even though flicker was turned off")
+			// a bolt wears its own light at its own size: its row, or on Performance nothing, lights its length (one raised light
+			// flooded the whole scene). One with no light of its own wears the light it borrows, unraised, while no row lights it.
+			// With Flicker off its own light and the copy made from it carry no flicker bits
 			HoldFlicker(own, FlickerOn());
 			HoldFlicker(copy->second, FlickerOn());
 			// the record's own color is vanilla's: a spell on the game's art wears a copy in its pick's color while Streams is on

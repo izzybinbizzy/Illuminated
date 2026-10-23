@@ -362,26 +362,27 @@ namespace Plugin
 		return std::nullopt;
 	}
 
-	bool VanillaArtModel(const std::string& a_model)
+	bool VanillaArtModel(const std::string& a_model, bool a_hazard)
 	{
-		static const auto models = [] {
+		const auto gameModels = [](const auto& a_forms) {
 			std::unordered_set<std::string>           out;
 			constexpr std::array<std::string_view, 5> kGame{ "skyrim.esm", "update.esm", "dawnguard.esm", "hearthfires.esm", "dragonborn.esm" };
-			const auto                                add = [&](const auto* a_form) {
-				const auto* file = a_form ? a_form->GetFile(0) : nullptr;
-				if (file && std::ranges::find(kGame, Lower(file->GetFilename())) != kGame.end() && a_form->GetModel()) {
-					out.insert(NormalPath(a_form->GetModel()));
+			for (const auto* form : a_forms) {
+				const auto* file = form ? form->GetFile(0) : nullptr;
+				if (file && std::ranges::find(kGame, Lower(file->GetFilename())) != kGame.end() && form->GetModel()) {
+					out.insert(NormalPath(form->GetModel()));
 				}
-			};
-			for (auto* proj : LightKit::FormsOf<RE::BGSProjectile>()) {
-				add(proj);
-			}
-			for (auto* expl : LightKit::FormsOf<RE::BGSExplosion>()) {
-				add(expl);
 			}
 			return out;
+		};
+		static const auto models = [&] {
+			auto out = gameModels(LightKit::FormsOf<RE::BGSProjectile>());
+			out.merge(gameModels(LightKit::FormsOf<RE::BGSExplosion>()));
+			return out;
 		}();
-		return models.contains(a_model);
+		// the burning ground and the walls a spell leaves, kept apart so a spray or stream on a hazard's model is not counted
+		static const auto hazards = gameModels(LightKit::FormsOf<RE::BGSHazard>());
+		return a_hazard ? hazards.contains(a_model) : models.contains(a_model);
 	}
 
 	ConfigText::Twin DynamicTwinOf(const std::string& a_configAndLight)

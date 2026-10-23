@@ -370,7 +370,7 @@ namespace Plugin
 		}
 
 		// (the soul gem pick - None / Vanilla / Praedy's - left with the soul gems, his order 2026-10-19: "remove them all from the
-		// mod. put them into a new mod" - Illuminated - Soul Gem Lighting NG lights them). An older install's settings file may
+		// mod. put them into a new mod" - Soul Gem Hub lights them). An older install's settings file may
 		// still name its two settings: they are not drawn
 		constexpr std::string_view kRetiredSettings[]{ "IlluminatedSoulGems", "IlluminatedPraedys" };
 

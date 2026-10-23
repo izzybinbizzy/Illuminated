@@ -9,10 +9,11 @@
 //   ENB                 } the game's own lighting: the inverse square flag means nothing, a light reaches its radius. Every
 //   Vanilla             } inverse-square light this mod makes or copies is turned into a plain one (LightKit::PlainOf)
 //
-// AUTOMATIC ONLY - HIS WORD: "i also want the detection to be automatic and users to not be able to manually switch
-// between versions" (it was a menu pick and an installer's Lighting.txt). The game is looked at once, at data load:
+// Automatic only, never a pick. The game is looked at once, at data load:
 // Community Shaders (its inverse square shader, Light Limit Fix's built-in one, or CommunityShaders.dll loaded) -> Community
-// Shaders; an ENB that is running, or its settings in the game folder -> ENB; else Vanilla.
+// Shaders; an ENB that is running -> ENB; else Vanilla. ENB's settings files alone never make it ENB: a preset left in the game
+// folder with no ENB running is the game's own lighting, and ENB's row strength there left the rows far too dim. An ENB under
+// another file name is found by its export.
 //
 // COMMUNITY SHADERS' TWO WORDS (RELight 2.1's user report 2026-10-14, Bottled Shaders + KittyVFX: frost and shock hand lights
 // dark): Light Limit Fix reads the first two words of EVERY light's runtime data as its own flags and cutoff
@@ -28,6 +29,9 @@
 // is LightMath.h's PlainOf / PlainAt, the one copy both mods use and the fading tests check.
 
 #include "Plugin.h"
+
+#include <Windows.h>
+#include <TlHelp32.h>
 
 namespace Plugin
 {
@@ -62,16 +66,35 @@ namespace Plugin
 		// Community Shaders, or a fork that keeps its DLL name (Bottled Shaders)
 		[[nodiscard]] bool CommunityShadersLoaded() { return REX::W32::GetModuleHandleA("CommunityShaders.dll") != nullptr; }
 
-		// an ENB that is running: its d3d11.dll exports its SDK (one loaded through an injector under another name is found by its
-		// settings files instead)
-		[[nodiscard]] bool EnbRunning()
+		// an ENB that is running: a loaded module exports its SDK - d3d11.dll as usual, or any other name an injector gave it;
+		// nullopt when the module list could not be read, so the caller falls back to ENB's settings files
+		[[nodiscard]] std::optional<bool> EnbRunning()
 		{
 			for (const char* dll : { "d3d11.dll", "dxgi.dll", "d3d9.dll" }) {
 				if (const auto handle = REX::W32::GetModuleHandleA(dll); handle && REX::W32::GetProcAddress(handle, "ENBGetSDKVersion")) {
 					return true;
 				}
 			}
-			return false;
+			// a module loading at that moment makes the snapshot fail with ERROR_BAD_LENGTH; Windows asks for a retry
+			auto snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
+			for (int tries = 0; snap == INVALID_HANDLE_VALUE && ::GetLastError() == ERROR_BAD_LENGTH && tries < 8; ++tries) {
+				snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
+			}
+			if (snap == INVALID_HANDLE_VALUE) {
+				return std::nullopt;
+			}
+			MODULEENTRY32W entry{};
+			entry.dwSize = sizeof(entry);
+			if (!::Module32FirstW(snap, &entry)) {
+				::CloseHandle(snap);
+				return std::nullopt;
+			}
+			bool found = false;
+			do {
+				found = ::GetProcAddress(entry.hModule, "ENBGetSDKVersion") != nullptr;
+			} while (!found && ::Module32NextW(snap, &entry));
+			::CloseHandle(snap);
+			return found;
 		}
 	}
 
@@ -82,15 +105,20 @@ namespace Plugin
 		const bool      inLlf = IslBuiltIntoLightLimitFix();
 		gCsLoaded = CommunityShadersLoaded();
 		gIslShader = shaderFile || inLlf || gCsLoaded;
-		gEnbRunning = EnbRunning();
 		gEnbFiles = EnbFilesLeft();
-		gFound = gIslShader ? Lighting::kShaders : gEnbRunning || gEnbFiles ? Lighting::kEnb :
-		                                                                      Lighting::kVanilla;
+		const auto running = EnbRunning();
+		gEnbRunning = running.value_or(gEnbFiles.load());
+		if (!running) {
+			SKSE::log::warn("lighting: the loaded modules could not be listed - ENB judged by its settings files");
+		}
+		gFound = gIslShader ? Lighting::kShaders : gEnbRunning ? Lighting::kEnb :
+		                                                         Lighting::kVanilla;
 		SKSE::log::info(
 			"lighting: {} (detected - CommunityShaders.dll {}, inverse square shader {}, in Light Limit Fix {}, ENB running {}, ENB "
-			"settings in the game folder {}); lights drawn {}",
+			"settings in the game folder {}{}); lights drawn {}",
 			LightingName(gFound), gCsLoaded ? "loaded" : "not loaded", shaderFile ? "installed" : "not installed", inLlf ? "yes" : "no",
-			gEnbRunning ? "yes" : "no", gEnbFiles ? "yes" : "no", InverseSquare() ? "inverse square" : "plain");
+			gEnbRunning ? "yes" : "no", gEnbFiles ? "yes" : "no", gEnbFiles && !gEnbRunning && !gIslShader ? " - left over, not used" : "",
+			InverseSquare() ? "inverse square" : "plain");
 	}
 
 	Lighting LightingFound()
