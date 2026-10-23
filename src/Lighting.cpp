@@ -9,8 +9,7 @@
 //   ENB                 } the game's own lighting: the inverse square flag means nothing, a light reaches its radius. Every
 //   Vanilla             } inverse-square light this mod makes or copies is turned into a plain one (LightKit::PlainOf)
 //
-// AUTOMATIC ONLY - HIS WORD: "i also want the detection to be automatic and users to not be able to manually switch
-// between versions" (it was a menu pick and an installer's Lighting.txt). The game is looked at once, at data load:
+// Automatic only, never a pick. The game is looked at once, at data load:
 // Community Shaders (its inverse square shader, Light Limit Fix's built-in one, or CommunityShaders.dll loaded) -> Community
 // Shaders; an ENB that is running -> ENB; else Vanilla. ENB's settings files alone never make it ENB: a preset left in the game
 // folder with no ENB running is the game's own lighting, and ENB's row strength there left the rows far too dim. An ENB under
@@ -75,7 +74,11 @@ namespace Plugin
 					return true;
 				}
 			}
-			const auto snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
+			// a module loading at that moment makes the snapshot fail with ERROR_BAD_LENGTH; Windows asks for a retry
+			auto snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
+			for (int tries = 0; snap == INVALID_HANDLE_VALUE && ::GetLastError() == ERROR_BAD_LENGTH && tries < 8; ++tries) {
+				snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
+			}
 			if (snap == INVALID_HANDLE_VALUE) {
 				return false;
 			}

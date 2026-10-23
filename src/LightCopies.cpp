@@ -598,21 +598,26 @@ namespace Plugin
 			return spells.contains(a_expl);
 		}
 
-		// the element of a spell explosion of the game's own art, Family::kNone for any other; atronach and wraith models are
-		// left alone (their lights belong to the elementals' own mods)
-		[[nodiscard]] Family ExplosionFamily(const RE::BGSExplosion* a_expl)
+		// the element of a form wearing the game's own art, Family::kNone for any other; atronach and wraith models are left
+		// alone (their lights belong to the elementals' own mods)
+		[[nodiscard]] Family ArtFamily(const RE::TESForm* a_form, const char* a_model)
 		{
-			if (!a_expl->GetModel() || !SpellExplosion(a_expl)) {
+			if (!a_model || !*a_model) {
 				return Family::kNone;
 			}
-			const auto model = NormalPath(a_expl->GetModel());
+			const auto model = NormalPath(a_model);
 			const auto file = std::string_view(model).substr(model.find_last_of('\\') + 1);
 			if (!VanillaArtModel(model) || file.contains("atronach") || file.contains("wraith")) {
 				return Family::kNone;
 			}
-			// the game keeps no editor ID for an explosion, so the model's file name tells the element when the ID is gone
-			const auto family = FamilyOf(EditorID(a_expl), true);
+			// the game keeps no editor ID for an explosion or a hazard, so the model's file name tells the element when the ID is gone
+			const auto family = FamilyOf(EditorID(a_form), true);
 			return family != Family::kNone ? family : FamilyOf(file, true);
+		}
+
+		[[nodiscard]] Family ExplosionFamily(const RE::BGSExplosion* a_expl)
+		{
+			return SpellExplosion(a_expl) ? ArtFamily(a_expl, a_expl->GetModel()) : Family::kNone;
 		}
 
 		// an explosion of the game's own art wears its element's hand color for the art pick, as the rest of its spell does
@@ -654,21 +659,40 @@ namespace Plugin
 			}
 		}
 
-		// the hazards a spell explosion leaves (Flames' burning ground ...): an explosion's placed object
-		[[nodiscard]] bool SpellHazard(const RE::BGSHazard* a_hazard)
+		// the element of a hazard a spell leaves, Family::kNone for a trap's or any other: the burning ground a spell explosion
+		// places, the hazard a Spawn Hazard effect makes, and the wall pieces an effect's impact data places (Wall of Flames
+		// and the other walls - MAGFlamesBarrierImpact -> FireBarrierHazard; no explosion names them)
+		[[nodiscard]] Family HazardFamily(const RE::BGSHazard* a_hazard)
 		{
-			static const auto hazards = [] {
-				std::unordered_set<const RE::BGSHazard*> out;
+			static const auto families = [] {
+				std::unordered_map<const RE::BGSHazard*, Family> out;
+				const auto                                       add = [&out](const RE::TESForm* a_form) {
+					if (const auto* hazard = a_form ? a_form->As<RE::BGSHazard>() : nullptr) {
+						out.try_emplace(hazard, ArtFamily(hazard, hazard->GetModel()));
+					}
+				};
 				for (const auto* expl : LightKit::FormsOf<RE::BGSExplosion>()) {
-					const auto* placed = expl ? reinterpret_cast<const RE::TESForm*>(expl->data.impactPlacedObject) : nullptr;
-					if (placed && SpellExplosion(expl)) {
-						out.insert(placed->As<RE::BGSHazard>());
+					if (expl && SpellExplosion(expl)) {
+						add(expl->data.impactPlacedObject);
 					}
 				}
-				out.erase(nullptr);
+				for (const auto* mgef : LightKit::FormsOf<RE::EffectSetting>()) {
+					if (!mgef) {
+						continue;
+					}
+					if (mgef->HasArchetype(RE::EffectSetting::Archetype::kSpawnHazard)) {
+						add(mgef->data.associatedForm);
+					}
+					if (const auto* set = mgef->data.impactDataSet) {
+						for (const auto& entry : set->impactMap) {
+							add(entry.second ? entry.second->hazard : nullptr);
+						}
+					}
+				}
 				return out;
 			}();
-			return hazards.contains(a_hazard);
+			const auto it = families.find(a_hazard);
+			return it == families.end() ? Family::kNone : it->second;
 		}
 
 		// a spell's hazard of the game's own art wears its element's hand color for the art pick, as its explosion does
@@ -680,22 +704,7 @@ namespace Plugin
 			if (!form || LightsOff()) {
 				return;
 			}
-			static std::mutex                             lock;
-			static std::unordered_map<RE::FormID, Family> families;
-			Family                                        family = Family::kNone;
-			{
-				std::lock_guard l{ lock };
-				auto [it, added] = families.try_emplace(form->GetFormID(), Family::kNone);
-				if (added && form->GetModel() && SpellHazard(form)) {
-					const auto model = NormalPath(form->GetModel());
-					const auto file = std::string_view(model).substr(model.find_last_of('\\') + 1);
-					if (VanillaArtModel(model)) {
-						const auto byId = FamilyOf(EditorID(form), true);
-						it->second = byId != Family::kNone ? byId : FamilyOf(file, true);
-					}
-				}
-				family = it->second;
-			}
+			const auto family = HazardFamily(form);
 			const auto color = family == Family::kNone ? std::nullopt : ArtHandColor(family);
 			if (!color) {
 				return;

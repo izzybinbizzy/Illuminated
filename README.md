@@ -2,7 +2,7 @@
 
 Copyright (C) 2026 izzydoingit. GPL-3.0-or-later, see `LICENSE`.
 
-The plugin of Illuminated - Spell & Weapon Light NG; it ships with the mod and is required by it.
+The plugin of Illuminated - Spell Lighting NG; it ships with the mod and is required by it.
 
 ## What it does
 - Lights spells, enchanted weapons, staves, projectiles, explosions and hazards in each spell's own color. The lighting

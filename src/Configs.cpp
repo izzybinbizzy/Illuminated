@@ -379,6 +379,10 @@ namespace Plugin
 			for (auto* expl : LightKit::FormsOf<RE::BGSExplosion>()) {
 				add(expl);
 			}
+			// the burning ground and the walls a spell leaves: without them no hazard ever counted as the game's own art
+			for (auto* hazard : LightKit::FormsOf<RE::BGSHazard>()) {
+				add(hazard);
+			}
 			return out;
 		}();
 		return models.contains(a_model);
