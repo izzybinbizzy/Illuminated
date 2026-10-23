@@ -83,12 +83,16 @@ namespace Plugin
 			if (snap == INVALID_HANDLE_VALUE) {
 				return std::nullopt;
 			}
-			bool           found = false;
 			MODULEENTRY32W entry{};
 			entry.dwSize = sizeof(entry);
-			for (bool more = ::Module32FirstW(snap, &entry); more && !found; more = ::Module32NextW(snap, &entry)) {
-				found = ::GetProcAddress(entry.hModule, "ENBGetSDKVersion") != nullptr;
+			if (!::Module32FirstW(snap, &entry)) {
+				::CloseHandle(snap);
+				return std::nullopt;
 			}
+			bool found = false;
+			do {
+				found = ::GetProcAddress(entry.hModule, "ENBGetSDKVersion") != nullptr;
+			} while (!found && ::Module32NextW(snap, &entry));
 			::CloseHandle(snap);
 			return found;
 		}

@@ -716,9 +716,12 @@ namespace Plugin
 			const auto color = LightsOff() ? std::nullopt : ArtHandColor(family);
 			if (!color) {
 				// all lights off, or a pick with no color: its own light back in its record's color (a hazard lives long enough to keep a stale tint)
-				if (own && form->data.light) {
-					const auto& c = form->data.light->data.color;
-					own->GetLightRuntimeData().diffuse = { c.red / 255.0f, c.green / 255.0f, c.blue / 255.0f };
+				if (form->data.light) {
+					const auto& record = form->data.light->data.color;
+					if (own) {
+						own->GetLightRuntimeData().diffuse = { record.red / 255.0f, record.green / 255.0f, record.blue / 255.0f };
+					}
+					PaintLightsUnder(a_hazard->Get3D(), record);
 				}
 				return;
 			}
