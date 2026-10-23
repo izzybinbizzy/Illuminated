@@ -206,8 +206,11 @@ namespace Plugin
 		std::unordered_map<RE::FormID, RowRecipe> gRows;                // beam base form -> its row
 		constexpr std::size_t                     kMostRowLights = 64;  // every row light in the scene together
 		constexpr std::size_t                     kMostPerRow = 20;
-		constexpr float                           kRowHeight = 100.0f;  // a beam's usual height over the ground it lights
-		constexpr const char*                     kRowName = "IlluminatedStreamRow";
+		// off Community Shaders the game lets one piece of ground take only a few lights, so a row of 15 lit only the ground near
+		// her hands; fewer, wider lights reach the whole stream (BeamRow::Lay makes each stronger to keep the row's light)
+		constexpr std::size_t kMostPerRowPlain = 5;
+		constexpr float       kRowHeight = 100.0f;  // a beam's usual height over the ground it lights
+		constexpr const char* kRowName = "IlluminatedStreamRow";
 		// HIS LOOK 2026-10-20 ~19:00: "make vanilla brighter enb softer as suggested to align with cs" - the same row lifted the
 		// ground 3-33 per band on Community Shaders, 9-24 on Vanilla and 33-72 on ENB (run cs / vanilla / enb, 18:29-18:43)
 		[[nodiscard]] float RowStrengthFor(Lighting a_lighting)
@@ -216,7 +219,7 @@ namespace Plugin
 			case Lighting::kVanilla:
 				return 1.1f;
 			case Lighting::kEnb:
-				return 0.18f;  // kept to Community Shaders' lift once its row came off its cap
+				return 0.5f;  // his pick off the level-aim pictures of five-light rows: the whole stream lit, not washed out
 			default:
 				return 1.0f;
 			}
@@ -557,7 +560,8 @@ namespace Plugin
 				if (gRowLights >= kMostRowLights) {
 					SweepGone(scene);
 				}
-				const auto want = BeamRow::Lay(proj->GetProjectileRuntimeData().range, static_cast<int>(kMostPerRow), a_rec.reach, kRowHeight);
+				const auto most = InverseSquare() ? kMostPerRow : kMostPerRowPlain;
+				const auto want = BeamRow::Lay(proj->GetProjectileRuntimeData().range, static_cast<int>(most), a_rec.reach, kRowHeight);
 				n = (std::min)(want.size(), kMostRowLights - (std::min)(gRowLights, kMostRowLights));
 			}
 			if (!n) {
