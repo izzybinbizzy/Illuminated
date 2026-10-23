@@ -654,6 +654,70 @@ namespace Plugin
 			}
 		}
 
+		// the hazards a spell explosion leaves (Flames' burning ground ...): an explosion's placed object
+		[[nodiscard]] bool SpellHazard(const RE::BGSHazard* a_hazard)
+		{
+			static const auto hazards = [] {
+				std::unordered_set<const RE::BGSHazard*> out;
+				for (const auto* expl : LightKit::FormsOf<RE::BGSExplosion>()) {
+					const auto* placed = expl ? reinterpret_cast<const RE::TESForm*>(expl->data.impactPlacedObject) : nullptr;
+					if (placed && SpellExplosion(expl)) {
+						out.insert(placed->As<RE::BGSHazard>());
+					}
+				}
+				out.erase(nullptr);
+				return out;
+			}();
+			return hazards.contains(a_hazard);
+		}
+
+		// a spell's hazard of the game's own art wears its element's hand color for the art pick, as its explosion does
+		void TintHazard(RE::Hazard* a_hazard)
+		{
+			const auto* base = a_hazard->GetBaseObject();
+			const auto* form = base ? base->As<RE::BGSHazard>() : nullptr;
+			auto*       root = a_hazard->Get3D();
+			if (!form || LightsOff()) {
+				return;
+			}
+			static std::mutex                             lock;
+			static std::unordered_map<RE::FormID, Family> families;
+			Family                                        family = Family::kNone;
+			{
+				std::lock_guard l{ lock };
+				auto [it, added] = families.try_emplace(form->GetFormID(), Family::kNone);
+				if (added && form->GetModel() && SpellHazard(form)) {
+					const auto model = NormalPath(form->GetModel());
+					const auto file = std::string_view(model).substr(model.find_last_of('\\') + 1);
+					if (VanillaArtModel(model)) {
+						const auto byId = FamilyOf(EditorID(form), true);
+						it->second = byId != Family::kNone ? byId : FamilyOf(file, true);
+					}
+				}
+				family = it->second;
+			}
+			const auto color = family == Family::kNone ? std::nullopt : ArtHandColor(family);
+			if (!color) {
+				return;
+			}
+			const RE::NiColor diffuse{ color->red / 255.0f, color->green / 255.0f, color->blue / 255.0f };
+			if (auto* own = netimmerse_cast<RE::NiPointLight*>(a_hazard->GetHazardRuntimeData().light.get())) {
+				own->GetLightRuntimeData().diffuse = diffuse;
+			}
+			if (root) {
+				RE::BSVisit::TraverseScenegraphLights(root, [&](RE::NiPointLight* a_light) {
+					if (a_light) {
+						a_light->GetLightRuntimeData().diffuse = diffuse;
+					}
+					return RE::BSVisit::BSVisitControl::kContinue;
+				});
+			}
+			if (static std::atomic<int> told = 0; told < 12 && ++told) {
+				SKSE::log::info("[HAZARD-TINT] {} | model {} | family {} | color {},{},{}", Label(form), form->GetModel(), static_cast<int>(family),
+					color->red, color->green, color->blue);
+			}
+		}
+
 		struct ExplosionUpdate
 		{
 			static bool thunk(RE::Explosion* a_this)
@@ -800,6 +864,7 @@ namespace Plugin
 				LightKit::Guarded("hazard update", [a_this]() {
 					PlaceHazardLight(a_this);
 					ScaleUnder(a_this);
+					TintHazard(a_this);
 #ifdef FADE_DEBUG_PAGE
 					LogHazardLight(a_this);
 #endif

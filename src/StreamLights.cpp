@@ -209,6 +209,7 @@ namespace Plugin
 		// off Community Shaders the game lets one piece of ground take only a few lights, so a row of 15 lit only the ground near
 		// her hands; fewer, wider lights reach the whole stream (BeamRow::Lay makes each stronger to keep the row's light)
 		constexpr std::size_t kMostPerRowPlain = 5;
+		constexpr float       kRowPlain = 0.5f;     // every row off Community Shaders
 		constexpr float       kRowHeight = 100.0f;  // a beam's usual height over the ground it lights
 		constexpr const char* kRowName = "IlluminatedStreamRow";
 		// HIS LOOK 2026-10-20 ~19:00: "make vanilla brighter enb softer as suggested to align with cs" - the same row lifted the
@@ -523,7 +524,8 @@ namespace Plugin
 					// by the Sparks root's scale (~0.4-0.5) it read 2-2.4x too wide (run cs 2026-10-20 17:11: laid ~262 / ~180,
 					// read 540 / 437, while the places read right)
 					const float reach = s.reach * reachPct * RowReachFor(LightingFound());
-					const float want = rec->second.fade * s.strength * bright;
+					// his look: five stronger lights washed Flames and Sparks out white off Community Shaders
+					const float want = rec->second.fade * s.strength * bright * (isl ? 1.0f : kRowPlain);
 					// a dimmer Brightness or daylight lowers the cap too, so the sliders still reach a capped row
 					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow(), 1.0f) : 0.0f);
 					Dress(light, color, steady * (flickers ? BeamRow::Flicker(seconds, i) : 1.0f), reach, isl);
