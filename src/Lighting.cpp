@@ -66,8 +66,9 @@ namespace Plugin
 		// Community Shaders, or a fork that keeps its DLL name (Bottled Shaders)
 		[[nodiscard]] bool CommunityShadersLoaded() { return REX::W32::GetModuleHandleA("CommunityShaders.dll") != nullptr; }
 
-		// an ENB that is running: a loaded module exports its SDK - d3d11.dll as usual, or any other name an injector gave it
-		[[nodiscard]] bool EnbRunning()
+		// an ENB that is running: a loaded module exports its SDK - d3d11.dll as usual, or any other name an injector gave it;
+		// nullopt when the module list could not be read, so the caller falls back to ENB's settings files
+		[[nodiscard]] std::optional<bool> EnbRunning()
 		{
 			for (const char* dll : { "d3d11.dll", "dxgi.dll", "d3d9.dll" }) {
 				if (const auto handle = REX::W32::GetModuleHandleA(dll); handle && REX::W32::GetProcAddress(handle, "ENBGetSDKVersion")) {
@@ -80,7 +81,7 @@ namespace Plugin
 				snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
 			}
 			if (snap == INVALID_HANDLE_VALUE) {
-				return false;
+				return std::nullopt;
 			}
 			bool           found = false;
 			MODULEENTRY32W entry{};
@@ -100,8 +101,12 @@ namespace Plugin
 		const bool      inLlf = IslBuiltIntoLightLimitFix();
 		gCsLoaded = CommunityShadersLoaded();
 		gIslShader = shaderFile || inLlf || gCsLoaded;
-		gEnbRunning = EnbRunning();
 		gEnbFiles = EnbFilesLeft();
+		const auto running = EnbRunning();
+		gEnbRunning = running.value_or(gEnbFiles.load());
+		if (!running) {
+			SKSE::log::warn("lighting: the loaded modules could not be listed - ENB judged by its settings files");
+		}
 		gFound = gIslShader ? Lighting::kShaders : gEnbRunning ? Lighting::kEnb :
 		                                                         Lighting::kVanilla;
 		SKSE::log::info(

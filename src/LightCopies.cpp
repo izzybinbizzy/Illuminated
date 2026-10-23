@@ -600,14 +600,14 @@ namespace Plugin
 
 		// the element of a form wearing the game's own art, Family::kNone for any other; atronach and wraith models are left
 		// alone (their lights belong to the elementals' own mods)
-		[[nodiscard]] Family ArtFamily(const RE::TESForm* a_form, const char* a_model)
+		[[nodiscard]] Family ArtFamily(const RE::TESForm* a_form, const char* a_model, bool a_hazard = false)
 		{
 			if (!a_model || !*a_model) {
 				return Family::kNone;
 			}
 			const auto model = NormalPath(a_model);
 			const auto file = std::string_view(model).substr(model.find_last_of('\\') + 1);
-			if (!VanillaArtModel(model) || file.contains("atronach") || file.contains("wraith")) {
+			if (!VanillaArtModel(model, a_hazard) || file.contains("atronach") || file.contains("wraith")) {
 				return Family::kNone;
 			}
 			// the game keeps no editor ID for an explosion or a hazard, so the model's file name tells the element when the ID is gone
@@ -618,6 +618,23 @@ namespace Plugin
 		[[nodiscard]] Family ExplosionFamily(const RE::BGSExplosion* a_expl)
 		{
 			return SpellExplosion(a_expl) ? ArtFamily(a_expl, a_expl->GetModel()) : Family::kNone;
+		}
+
+		// every light under a_root in a_color; how many
+		std::size_t PaintLightsUnder(RE::NiAVObject* a_root, const RE::Color& a_color)
+		{
+			const RE::NiColor diffuse{ a_color.red / 255.0f, a_color.green / 255.0f, a_color.blue / 255.0f };
+			std::size_t       painted = 0;
+			if (a_root) {
+				RE::BSVisit::TraverseScenegraphLights(a_root, [&](RE::NiPointLight* a_light) {
+					if (a_light) {
+						a_light->GetLightRuntimeData().diffuse = diffuse;
+						++painted;
+					}
+					return RE::BSVisit::BSVisitControl::kContinue;
+				});
+			}
+			return painted;
 		}
 
 		// an explosion of the game's own art wears its element's hand color for the art pick, as the rest of its spell does
@@ -640,18 +657,8 @@ namespace Plugin
 				}
 				family = it->second;
 			}
-			const auto  color = family == Family::kNone ? std::nullopt : ArtHandColor(family);
-			std::size_t tinted = 0;
-			if (color) {
-				const RE::NiColor diffuse{ color->red / 255.0f, color->green / 255.0f, color->blue / 255.0f };
-				RE::BSVisit::TraverseScenegraphLights(root, [&](RE::NiPointLight* a_light) {
-					if (a_light) {
-						a_light->GetLightRuntimeData().diffuse = diffuse;
-						++tinted;
-					}
-					return RE::BSVisit::BSVisitControl::kContinue;
-				});
-			}
+			const auto color = family == Family::kNone ? std::nullopt : ArtHandColor(family);
+			const auto tinted = color ? PaintLightsUnder(root, *color) : 0;
 			if (static std::atomic<int> told = 0; family != Family::kNone && told < 12 && ++told) {
 				SKSE::log::info("[EXPLOSION-TINT] {} | model {} | family {} | color {} | {} light(s) tinted", Label(expl),
 					expl->GetModel() ? expl->GetModel() : "", static_cast<int>(family),
@@ -668,7 +675,7 @@ namespace Plugin
 				std::unordered_map<const RE::BGSHazard*, Family> out;
 				const auto                                       add = [&out](const RE::TESForm* a_form) {
 					if (const auto* hazard = a_form ? a_form->As<RE::BGSHazard>() : nullptr) {
-						out.try_emplace(hazard, ArtFamily(hazard, hazard->GetModel()));
+						out.try_emplace(hazard, ArtFamily(hazard, hazard->GetModel(), true));
 					}
 				};
 				for (const auto* expl : LightKit::FormsOf<RE::BGSExplosion>()) {
@@ -695,32 +702,30 @@ namespace Plugin
 			return it == families.end() ? Family::kNone : it->second;
 		}
 
-		// a spell's hazard of the game's own art wears its element's hand color for the art pick, as its explosion does
+		// a spell's hazard of the game's own art wears its element's hand color for the art pick, as its explosion does; every
+		// update, so a pick changed while it burns reaches it
 		void TintHazard(RE::Hazard* a_hazard)
 		{
 			const auto* base = a_hazard->GetBaseObject();
 			const auto* form = base ? base->As<RE::BGSHazard>() : nullptr;
-			auto*       root = a_hazard->Get3D();
-			if (!form || LightsOff()) {
+			const auto  family = form ? HazardFamily(form) : Family::kNone;
+			if (family == Family::kNone) {
 				return;
 			}
-			const auto family = HazardFamily(form);
-			const auto color = family == Family::kNone ? std::nullopt : ArtHandColor(family);
+			auto*      own = netimmerse_cast<RE::NiPointLight*>(a_hazard->GetHazardRuntimeData().light.get());
+			const auto color = LightsOff() ? std::nullopt : ArtHandColor(family);
 			if (!color) {
+				// all lights off, or a pick with no color: its own light back in its record's color (a hazard lives long enough to keep a stale tint)
+				if (own && form->data.light) {
+					const auto& c = form->data.light->data.color;
+					own->GetLightRuntimeData().diffuse = { c.red / 255.0f, c.green / 255.0f, c.blue / 255.0f };
+				}
 				return;
 			}
-			const RE::NiColor diffuse{ color->red / 255.0f, color->green / 255.0f, color->blue / 255.0f };
-			if (auto* own = netimmerse_cast<RE::NiPointLight*>(a_hazard->GetHazardRuntimeData().light.get())) {
-				own->GetLightRuntimeData().diffuse = diffuse;
+			if (own) {
+				own->GetLightRuntimeData().diffuse = { color->red / 255.0f, color->green / 255.0f, color->blue / 255.0f };
 			}
-			if (root) {
-				RE::BSVisit::TraverseScenegraphLights(root, [&](RE::NiPointLight* a_light) {
-					if (a_light) {
-						a_light->GetLightRuntimeData().diffuse = diffuse;
-					}
-					return RE::BSVisit::BSVisitControl::kContinue;
-				});
-			}
+			PaintLightsUnder(a_hazard->Get3D(), *color);
 			if (static std::atomic<int> told = 0; told < 12 && ++told) {
 				SKSE::log::info("[HAZARD-TINT] {} | model {} | family {} | color {},{},{}", Label(form), form->GetModel(), static_cast<int>(family),
 					color->red, color->green, color->blue);
@@ -913,6 +918,11 @@ namespace Plugin
 				"light hung on its model's root (the burning-ground fires) stays where the game left it - lighting nothing");
 			WrapCall<CellAnimations>(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(18458, 18889), 0x52 }, "cell animations", kFlickerLost);
 		}
+	}
+
+	void NoteSpellHazards()
+	{
+		(void)HazardFamily(nullptr);  // builds the table now, not in the first hazard's update
 	}
 
 	void MakeLightCopies()

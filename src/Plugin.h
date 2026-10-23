@@ -134,8 +134,9 @@ namespace Plugin
 	[[nodiscard]] bool                            PerformanceMode();  // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
 	[[nodiscard]] bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
-	void                                          MakeLightCopies();  // LightCopies.cpp
-	[[nodiscard]] float                           BrightnessNow();    // LightCopies.cpp: Brightness x Dim in daylight, as the copies take it
+	void                                          MakeLightCopies();   // LightCopies.cpp
+	void                                          NoteSpellHazards();  // LightCopies.cpp: the hazard tint's tables, while editor IDs are kept
+	[[nodiscard]] float                           BrightnessNow();     // LightCopies.cpp: Brightness x Dim in daylight, as the copies take it
 	// StreamLights.cpp: pass 6 - each spray, stream and bolt lit by its own light record made bigger and brighter (his stream
 	// rule), and a ward dome's light when Dynamic Wards is not here
 	void               StreamLights();
@@ -174,8 +175,8 @@ namespace Plugin
 	[[nodiscard]] const ConfigLight* StreamRowFor(const std::string& a_model);
 	// the color an element's own hand light wears for its art pick as the settings hold now, or none
 	[[nodiscard]] std::optional<RE::Color> ArtHandColor(Family a_family);
-	// a model one of the game's own projectiles uses: the art the spell art picks recolor
-	[[nodiscard]] bool VanillaArtModel(const std::string& a_model);
+	// a model one of the game's own projectiles or explosions uses (a_hazard: one of its hazards): the art the spell art picks recolor
+	[[nodiscard]] bool VanillaArtModel(const std::string& a_model, bool a_hazard = false);
 	// which Dynamic Lighting twin a Light Placer light's "<config>|<light>" is (made by ConfigText.h TwinKey; TwinOf), for
 	// LightCopies.cpp to swap each pair at once when the setting moves
 	[[nodiscard]] ConfigText::Twin DynamicTwinOf(const std::string& a_configAndLight);
