@@ -312,7 +312,7 @@ namespace Plugin
 				if (!record) {
 					continue;
 				}
-				// the weapon's third-person 3D: the light lights the world from there in first person too
+				// the weapon's third-person 3D; in first person the body node, as for art (ArtNode: the arms are not posed there)
 				auto*       part = Fade::WeaponPart(a_actor, false, left, weapon);
 				const auto* hand = part ? HandAbove(part) : nullptr;
 				if (part && !gArtUnder.contains(part) && !gArtUnder.contains(hand) && !gHandsOnBody.contains(hand)) {
