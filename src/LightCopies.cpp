@@ -521,7 +521,7 @@ namespace Plugin
 				func(a_this, a_delta);
 				LightKit::Guarded("caster update", [a_this]() {
 					{
-						const SneakPause pause;
+						const SneakPause pause{ a_this->GetCasterAsActor() };  // only this caster's lights
 						ScaleOwned(a_this->GetCasterAsActor());
 						RecordFlicker(a_this);  // without Light Placer: the hand light's flicker (RecordLights.cpp), before the fading module scales it
 						ApplyHandBudget(a_this);
@@ -545,7 +545,7 @@ namespace Plugin
 			{
 				func(a_this);
 				LightKit::Guarded("effect update", [a_this]() {
-					const SneakPause pause;
+					const SneakPause pause{ OwnerOf(a_this->Get3D()) };  // only the lights of the actor it is on
 					if (Scaling()) {
 						// the owner by the effect's own 3D, not its target handle: this hook runs off the main thread, where making or
 						// reading a handle is not ours to do (the fading module's rule; the re-score's Illuminated issue 2)

@@ -224,13 +224,14 @@ namespace Plugin
 	class SneakPause
 	{
 	public:
-		SneakPause();
+		explicit SneakPause(const RE::TESObjectREFR* a_owner = nullptr);  // nullptr: every caster's lights
 		~SneakPause();
 		SneakPause(const SneakPause&) = delete;
 		SneakPause& operator=(const SneakPause&) = delete;
 
 	private:
-		bool held_{ false };
+		RE::FormID owner_{ 0 };
+		bool       held_{ false };
 	};
 	[[nodiscard]] bool IsOurLightPlacerLight(const RE::NiPointLight& a_light);  // LightCopies.cpp: Light Placer's light of one of our copies
 	// automatic lights (his go-to pick): a light of ours in a_color, at the middle strength and reach of the tuned

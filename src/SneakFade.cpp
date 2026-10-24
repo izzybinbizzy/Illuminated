@@ -277,7 +277,8 @@ namespace Plugin
 		gDimming.store(false, std::memory_order_release);
 	}
 
-	SneakPause::SneakPause()
+	SneakPause::SneakPause(const RE::TESObjectREFR* a_owner) :
+		owner_(a_owner ? a_owner->GetFormID() : 0)
 	{
 		if (!gDimming.load(std::memory_order_acquire)) {
 			return;
@@ -285,8 +286,10 @@ namespace Plugin
 		gLock.lock();
 		held_ = true;
 		for (auto& d : gDim | std::views::values) {
-			d.paused = d.down;
-			Restore(d);
+			d.paused = d.down && (owner_ == 0 || d.owner == owner_);
+			if (d.paused) {
+				Restore(d);
+			}
 		}
 	}
 
