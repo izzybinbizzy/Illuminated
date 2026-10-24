@@ -158,7 +158,7 @@ namespace Plugin
 		};
 		std::unordered_map<const RE::NiPointLight*, Flicker> gFlickers;
 		// the same lights by owner and by cell, so a caster's or a cell's update scales only its own (it runs for every caster
-		// every frame); remade with the list each frame, a light added between frames joins at once
+		// every frame); a light joins them when it is listed, and they are remade only when lights leave the list
 		std::unordered_map<RE::FormID, std::vector<Flicker*>>               gByOwner;
 		std::unordered_map<const RE::TESObjectCELL*, std::vector<Flicker*>> gByCell;
 		std::mutex                                                          gFlickerLock;
@@ -295,6 +295,7 @@ namespace Plugin
 				} else if (auto [it, added] = gFlickers.try_emplace(light); added) {
 					const auto* owner = OwnerOf(light);
 					it->second = { RE::NiPointer<RE::NiPointLight>(light), owner ? owner->GetFormID() : 0, owner ? owner->GetParentCell() : nullptr };
+					Index(it->second);
 				}
 			}
 		}
@@ -469,12 +470,12 @@ namespace Plugin
 				std::lock_guard l{ gFlickerLock };
 				VisitList(lights.activeLights, changed, ratio, moved);
 				VisitList(lights.lightQueueAdd, changed, ratio, moved);  // added before the next draw
-				if (Scaling()) {
-					std::erase_if(gFlickers, [](const auto& a_kv) { return a_kv.second.light->GetRefCount() <= 1; });  // only we hold it: gone
-				} else {
+				if (!Scaling()) {
 					gFlickers.clear();  // Light Placer's own values stand from here on
+					Reindex();
+				} else if (std::erase_if(gFlickers, [](const auto& a_kv) { return a_kv.second.light->GetRefCount() <= 1; }) > 0) {  // only we hold it: gone
+					Reindex();                                                                                                      // the gone entries' pointers leave the two maps
 				}
-				Reindex();
 			}
 			for (const auto& [light, now] : moved) {
 				Fade::Rebase(light, ratio, now);  // the scene's lists hold each light, so it is alive this frame
@@ -735,12 +736,43 @@ namespace Plugin
 			}
 		}
 
+		// Without Light Placer an explosion's light is the game's own. On a model with no AttachLight node (the fire storms'
+		// FireStormAreaEffect) the game hangs it on the model's root, level with the ground the explosion sits on, and it lit the
+		// floor edge-on: listed with fade 0.8 and radius 732, the room unchanged (four storms, Vanilla). So it is raised above the root.
+		constexpr float kExplosionLift = 128.0f;  // world units above the root
+
+		void LiftExplosionLight(RE::Explosion* a_explosion)
+		{
+			if (!RecordRoute()) {
+				return;
+			}
+			auto*       light = a_explosion->GetExplosionRuntimeData().light.get();
+			const auto* root = a_explosion->Get3D();
+			if (!light || !light->parent || !root) {
+				return;
+			}
+			for (const auto* up = light->parent; up != root; up = up->parent) {
+				if (!up || std::string_view(up->name.c_str()).starts_with("AttachLight")) {
+					return;
+				}
+			}
+			// the storms' root is scaled (about 3.4): the lift is in world units
+			const float scale = light->parent->world.scale > 0.01f ? light->parent->world.scale : 1.0f;
+			const float lift = kExplosionLift / scale;
+			if (light->local.translate.z >= lift) {
+				return;
+			}
+			light->local.translate.z = lift;
+			light->world = light->parent->world * light->local;
+		}
+
 		struct ExplosionUpdate
 		{
 			static bool thunk(RE::Explosion* a_this)
 			{
 				const bool result = func(a_this);
 				LightKit::Guarded("explosion update", [a_this]() {
+					LiftExplosionLight(a_this);
 					ScaleUnder(a_this);
 					TintUnder(a_this);
 				});
