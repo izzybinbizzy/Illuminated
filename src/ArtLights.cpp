@@ -233,19 +233,31 @@ namespace Plugin
 				underFirst = up == first;
 			}
 			if (!underFirst) {
-				return art;
-			}
-			const auto* attach = art->parent;
-			const char* name = attach ? attach->name.c_str() : nullptr;
-			auto*       same = name && *name ? third->GetObjectByName(attach->name) : nullptr;
-			if (!same) {
-				return third;
-			}
-			if (auto* hand = HandAbove(same)) {
+				// in first person a third-person hand is not posed either: art the game left on one goes to the body as well
+				// (CodeRabbit, Illuminated #37: its light sat on the unposed hand and held the weapon's light off)
+				const auto* camera = RE::PlayerCamera::GetSingleton();
+				auto*       hand = actor->IsPlayerRef() && camera && camera->IsInFirstPerson() ? HandAbove(art) : nullptr;
+				if (!hand) {
+					return art;
+				}
 				gHandsOnBody.insert(hand);
 				return BodyNode(third);
 			}
-			return same;
+			auto*       attach = art->parent;
+			const char* name = attach ? attach->name.c_str() : nullptr;
+			auto*       same = name && *name ? third->GetObjectByName(attach->name) : nullptr;
+			// the third-person hand that holds what the art is on: above its namesake, or (no namesake) the namesake of the
+			// first-person hand above it - so the weapon in that hand is not lit a second time (CodeRabbit, Illuminated #37)
+			RE::NiAVObject* hand = same ? HandAbove(same) : nullptr;
+			if (!same) {
+				const auto* firstHand = HandAbove(attach);
+				hand = firstHand ? third->GetObjectByName(firstHand->name) : nullptr;
+			}
+			if (hand) {
+				gHandsOnBody.insert(hand);
+				return BodyNode(third);
+			}
+			return same ? same : third;
 		}
 
 		// every magic effect's enchantment shader -> the key its config rows are kept under (Configs.cpp: "formid:" + its editor
