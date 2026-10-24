@@ -116,23 +116,16 @@ namespace Plugin
 			}
 		}
 
-		// Without Light Placer the hand light is the game's own casting light, and Light Placer's sneak condition has no twin on
-		// it (his report: "lights still dont go off while sneaking in the new version"), so the Sneaking setting is
-		// applied here: 0 (the default) puts a sneaking caster's hand light out after the game wrote it this frame, 1 keeps it.
-		// (The ground: GroundLights.cpp - setting the game light's own land flag afterwards was measured not enough.)
-		constexpr std::string_view kSneaking = "IlluminatedSneaking";
-
+		// Without Light Placer the hand light is the game's own casting light, which no row's condition reaches, so a sneaking
+		// caster's is faded here, after every other pass wrote it this frame (SneakFade.cpp). The ground twin copies it
+		// (GroundLights.cpp - setting the game light's own land flag afterwards was measured not enough).
 		void ApplyRecordHand(RE::ActorMagicCaster* a_caster)
 		{
 			if (!a_caster || !RecordRoute()) {
 				return;
 			}
 			auto* bs = a_caster->light.get();
-			auto* light = bs ? bs->light.get() : nullptr;
-			auto* actor = a_caster->GetCasterAsActor();
-			if (light && actor && actor->IsSneaking() && SettingValue(kSneaking, 0) == 0) {
-				light->GetLightRuntimeData().fade = 0.0f;
-			}
+			SneakDim(bs ? bs->light.get() : nullptr, a_caster->GetCasterAsActor());
 		}
 
 		// what a lit light of a config's copy needs, by the copy's editor ID. Written at data load and on the main thread.
@@ -493,6 +486,7 @@ namespace Plugin
 		{
 			static void thunk(RE::PlayerCharacter* a_this, float a_delta)
 			{
+				LightKit::Guarded("sneak fade", []() { SneakFrameStart(); });  // before the game and every pass write this frame's fades
 				func(a_this, a_delta);
 				LightKit::Guarded("player update", [a_delta]() {
 					AdvanceRecordFlicker(a_delta);
@@ -505,7 +499,8 @@ namespace Plugin
 						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
 					}
 					Fade::UpdateHands(a_delta);
-					TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
+					SneakFrameEnd(a_delta);  // over every fade written above (SneakFade.cpp)
+					TickGroundLights();      // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
 #ifdef FADE_DEBUG_PAGE
 					CheckHazardLights();
 #endif
@@ -525,11 +520,14 @@ namespace Plugin
 			{
 				func(a_this, a_delta);
 				LightKit::Guarded("caster update", [a_this]() {
-					ScaleOwned(a_this->GetCasterAsActor());
-					RecordFlicker(a_this);  // without Light Placer: the hand light's flicker (RecordLights.cpp), before the fading module scales it
-					ApplyHandBudget(a_this);
-					ApplyRecordHand(a_this);
-					Fade::AfterCaster(a_this);  // last: Lights by Item over Light Placer's animation of the casting lights
+					{
+						const SneakPause pause{ a_this->GetCasterAsActor() };  // only this caster's lights
+						ScaleOwned(a_this->GetCasterAsActor());
+						RecordFlicker(a_this);  // without Light Placer: the hand light's flicker (RecordLights.cpp), before the fading module scales it
+						ApplyHandBudget(a_this);
+						Fade::AfterCaster(a_this);  // Lights by Item over Light Placer's animation of the casting lights
+					}
+					ApplyRecordHand(a_this);  // last: the sneak fade over everything written above
 				});
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
@@ -547,6 +545,7 @@ namespace Plugin
 			{
 				func(a_this);
 				LightKit::Guarded("effect update", [a_this]() {
+					const SneakPause pause{ OwnerOf(a_this->Get3D()) };  // only the lights of the actor it is on
 					if (Scaling()) {
 						// the owner by the effect's own 3D, not its target handle: this hook runs off the main thread, where making or
 						// reading a handle is not ours to do (the fading module's rule; the re-score's Illuminated issue 2)
@@ -929,6 +928,7 @@ namespace Plugin
 			{
 				func(a_cell);
 				LightKit::Guarded("cell animations", [a_cell]() {
+					const SneakPause pause;
 					ScaleCell(a_cell);
 					Fade::ReapplyAll();  // this frame's fading numbers again for every hand's lights, without advancing any timer
 				});
@@ -1014,6 +1014,11 @@ namespace Plugin
 	float BrightnessNow()
 	{
 		return gBrightness.load(std::memory_order_relaxed);
+	}
+
+	bool IsOurLightPlacerLight(const RE::NiPointLight& a_light)
+	{
+		return LitOf(a_light) != nullptr;
 	}
 
 	void NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after)

@@ -148,6 +148,7 @@ namespace
 		case SKSE::MessagingInterface::kPreLoadGame:
 			DropArtLights();  // the art and weapons they hang on are the old game's
 			DropGroundLights();
+			DropSneakFade();
 			Fade::OnGameLoading();
 			break;
 		case SKSE::MessagingInterface::kPostLoadGame:
@@ -159,6 +160,7 @@ namespace
 				// no kPreLoadGame comes before a new game: the last game's lights go here
 				DropArtLights();
 				DropGroundLights();
+				DropSneakFade();
 				Fade::OnGameLoading();
 			}
 			break;
