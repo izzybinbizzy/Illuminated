@@ -191,6 +191,75 @@ namespace Plugin
 		// own model and its enchantment art - two lights on one blade; the art's is the one kept)
 		std::unordered_set<const RE::NiAVObject*> gArtUnder;
 
+		// the hand a node sits under (itself when it is one), or nullptr
+		[[nodiscard]] RE::NiAVObject* HandAbove(RE::NiAVObject* a_node)
+		{
+			for (auto* up = a_node; up; up = up->parent) {
+				if (std::string_view(up->name.c_str()).find("Hand [") != std::string_view::npos) {
+					return up;
+				}
+			}
+			return nullptr;
+		}
+
+		// In first person the third-person arms are not posed: the right hand and its WEAPON node sat on one spot 94 above her
+		// feet, and a light there lit nothing on the floor (bound battleaxe, Brightness 200 %). The third-person MagicEffectsNode
+		// on the spine does light it (a first-person cloak +41), so a light for what she holds hangs there in first person.
+		[[nodiscard]] RE::NiAVObject* BodyNode(RE::NiAVObject* a_third)
+		{
+			auto* node = a_third ? a_third->GetObjectByName("MagicEffectsNode") : nullptr;
+			return node ? node : a_third;
+		}
+
+		// the third-person hands whose art light went to the body this frame: their weapon is lit already
+		std::unordered_set<const RE::NiAVObject*> gHandsOnBody;
+
+		// The node an art light hangs on: the art's own model, or - when the game put the art on an actor's first-person
+		// skeleton (the player in first person: a cloak, a bound weapon's art) - the third-person node of the same name as the
+		// one the art hangs under, as RELight's body lights do (the body node for one on an arm). A light under the first-person
+		// skeleton lights nothing in the world (Dynamic Wards 3.1), so in first person those lights were dark while third person lit.
+		[[nodiscard]] RE::NiAVObject* ArtNode(RE::ModelReferenceEffect* a_art)
+		{
+			auto*       art = a_art->artObject3D.get();
+			const auto  ref = a_art->target.get();
+			auto* const actor = ref ? ref->As<RE::Actor>() : nullptr;
+			auto* const first = actor ? actor->Get3D(true) : nullptr;
+			auto* const third = actor ? actor->Get3D(false) : nullptr;
+			if (!art || !first || !third || first == third) {
+				return art;
+			}
+			bool underFirst = false;
+			for (const RE::NiAVObject* up = art->parent; up && !underFirst; up = up->parent) {
+				underFirst = up == first;
+			}
+			if (!underFirst) {
+				// in first person a third-person hand is not posed either: art the game left on one goes to the body as well
+				// (CodeRabbit, Illuminated #37: its light sat on the unposed hand and held the weapon's light off)
+				const auto* camera = RE::PlayerCamera::GetSingleton();
+				auto*       hand = actor->IsPlayerRef() && camera && camera->IsInFirstPerson() ? HandAbove(art) : nullptr;
+				if (!hand) {
+					return art;
+				}
+				gHandsOnBody.insert(hand);
+				return BodyNode(third);
+			}
+			auto*       attach = art->parent;
+			const char* name = attach ? attach->name.c_str() : nullptr;
+			auto*       same = name && *name ? third->GetObjectByName(attach->name) : nullptr;
+			// the third-person hand that holds what the art is on: above its namesake, or (no namesake) the namesake of the
+			// first-person hand above it - so the weapon in that hand is not lit a second time (CodeRabbit, Illuminated #37)
+			RE::NiAVObject* hand = same ? HandAbove(same) : nullptr;
+			if (!same) {
+				const auto* firstHand = HandAbove(attach);
+				hand = firstHand ? third->GetObjectByName(firstHand->name) : nullptr;
+			}
+			if (hand) {
+				gHandsOnBody.insert(hand);
+				return BodyNode(third);
+			}
+			return same ? same : third;
+		}
+
 		// every magic effect's enchantment shader -> the key its config rows are kept under (Configs.cpp: "formid:" + its editor
 		// ID), noted at load (NoteEnchantShaders) - the game keeps no effect shader's editor ID, and ours are forgotten once
 		// the passes are done (Fade::ForgetPassEditorIDs). Measured 2026-10-13 on Vanilla: asked of the game at run time the
@@ -255,9 +324,13 @@ namespace Plugin
 				if (!record) {
 					continue;
 				}
-				// the weapon's third-person 3D: the light lights the world from there in first person too
-				if (auto* part = Fade::WeaponPart(a_actor, false, left, weapon); part && !gArtUnder.contains(part)) {
-					Keep(part, part, record, a_scene);
+				// the weapon's third-person 3D; in first person the body node, as for art (ArtNode: the arms are not posed there)
+				auto*       part = Fade::WeaponPart(a_actor, false, left, weapon);
+				const auto* hand = part ? HandAbove(part) : nullptr;
+				if (part && !gArtUnder.contains(part) && !gArtUnder.contains(hand) && !gHandsOnBody.contains(hand)) {
+					const auto* camera = RE::PlayerCamera::GetSingleton();
+					const bool  firstPerson = a_actor->IsPlayerRef() && camera && camera->IsInFirstPerson();
+					Keep(part, firstPerson ? BodyNode(a_actor->Get3D(false)) : part, record, a_scene);
 				}
 			}
 		}
@@ -295,12 +368,13 @@ namespace Plugin
 			kept.seen = false;
 		}
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {
+			gHandsOnBody.clear();
 			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
 				auto* art = a_effect ? netimmerse_cast<RE::ModelReferenceEffect*>(a_effect) : nullptr;
 				if (art && !art->finished && art->artObject && art->artObject3D && !SneakHides(art->target.get().get())) {
 					const auto& model = ModelKey(art->artObject, art->artObject->GetModel());
 					if (const auto* record = model.empty() ? nullptr : RecordLightFor(model)) {
-						Keep(art, art->artObject3D.get(), record, scene);
+						Keep(art, ArtNode(art), record, scene);
 					}
 				} else if (auto* shader = art ? nullptr : netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect); shader && !shader->finished) {
 					KeepFlesh(shader, scene);
