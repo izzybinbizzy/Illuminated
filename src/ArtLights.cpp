@@ -15,7 +15,7 @@
 // The flesh spells the same way: their configs light an effect SHADER on the caster's body (Oakflesh ... Dragonhide, LightMath.h
 // kFleshLooks), which has no light record slot either, and without Light Placer nothing lit them. Each flesh shader effect
 // gets its row's light on the body (the effect's own attach root, the third-person one - a light under the first-person
-// skeleton lights nothing on ENB), switched off while its caster sneaks as the row's sneak test says, and drawn in FleshFX's
+// skeleton lights nothing on ENB), faded while its caster sneaks (SneakFade.cpp), and drawn in FleshFX's
 // hue where FleshFX's look wins (FleshLights.cpp has why). Only the flesh shaders are followed as effects; a drawn weapon's
 // enchantment SHADER (the blade's glow) is reached through the weapon instead (VisitWeapons, EnchantShaderLight).
 //
@@ -62,14 +62,6 @@ namespace Plugin
 				it->second.key = NormalPath(it->second.model.c_str());
 			}
 			return it->second.key;
-		}
-
-		// the rows' own sneak test (gen.py's While Sneaking clause): a caster who sneaks with the Sneaking setting off keeps
-		// none of these lights
-		[[nodiscard]] bool SneakHides(const RE::TESObjectREFR* a_ref)
-		{
-			const auto* actor = a_ref ? a_ref->As<RE::Actor>() : nullptr;
-			return actor && actor->IsSneaking() && SettingValue("IlluminatedSneaking", 0) == 0;
 		}
 
 		void Drop(Kept& a_kept, RE::ShadowSceneNode* a_scene)
@@ -170,7 +162,7 @@ namespace Plugin
 		}
 
 		// a flesh spell's light on its caster's body, while a setting lights its row (RecordLightFor - the Flesh Spells switch,
-		// full strength, Dynamic Lighting) and the caster is not sneaking with the Sneaking setting off (the row's own test)
+		// full strength, Dynamic Lighting); a sneaking caster's fades (SneakFade.cpp)
 		void KeepFlesh(RE::ShaderReferenceEffect* a_effect, RE::ShadowSceneNode* a_scene)
 		{
 			const auto& shaders = FleshShaders();
@@ -179,9 +171,6 @@ namespace Plugin
 			const auto  ref = record ? a_effect->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
 			auto*       root = ref ? FleshBodyNode(ref.get(), a_effect->GetAttachRoot()) : nullptr;
 			if (!root) {
-				return;
-			}
-			if (SneakHides(ref.get())) {
 				return;
 			}
 			Keep(a_effect, root, record, a_scene, LightKit::FleshFx::HueOf(a_effect->effectData));
@@ -304,10 +293,6 @@ namespace Plugin
 			if (!a_actor || !a_actor->Is3DLoaded() || !state || !state->IsWeaponDrawn()) {
 				return;
 			}
-			// the weapon rows' own sneak test (as KeepFlesh does for the flesh rows)
-			if (SneakHides(a_actor)) {
-				return;
-			}
 			for (const bool left : { false, true }) {
 				auto* form = a_actor->GetEquippedObject(left);
 				auto* weapon = form ? form->As<RE::TESObjectWEAP>() : nullptr;
@@ -371,7 +356,7 @@ namespace Plugin
 			gHandsOnBody.clear();
 			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
 				auto* art = a_effect ? netimmerse_cast<RE::ModelReferenceEffect*>(a_effect) : nullptr;
-				if (art && !art->finished && art->artObject && art->artObject3D && !SneakHides(art->target.get().get())) {
+				if (art && !art->finished && art->artObject && art->artObject3D) {
 					const auto& model = ModelKey(art->artObject, art->artObject->GetModel());
 					if (const auto* record = model.empty() ? nullptr : RecordLightFor(model)) {
 						Keep(art, ArtNode(art), record, scene);

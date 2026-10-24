@@ -214,6 +214,25 @@ namespace Plugin
 	void                      DropGroundLights();  // a game loads, or a new one starts: the twins and the hands they follow are the old game's
 	[[nodiscard]] std::size_t GroundLightCount();
 	[[nodiscard]] std::size_t GroundLightsMade();
+	// SneakFade.cpp: a sneaking caster's lights fade to Sneaking brightness over half a second and back when they stand. Our
+	// write is the last word on a dimmed light and never a base for another pass: SneakPause around a pass that writes fades
+	// gives it the numbers the others left
+	void SneakFrameStart();                                          // the player update, before the game's: every dimmed light back
+	void SneakFrameEnd(float a_delta);                               // the player update, last but the ground twins: the levels, the dimming
+	void SneakDim(RE::NiLight* a_light, const RE::Actor* a_caster);  // one light by its caster's level (any thread, outside a SneakPause)
+	void DropSneakFade();                                            // a game loads, or a new one starts
+	class SneakPause
+	{
+	public:
+		SneakPause();
+		~SneakPause();
+		SneakPause(const SneakPause&) = delete;
+		SneakPause& operator=(const SneakPause&) = delete;
+
+	private:
+		bool held_{ false };
+	};
+	[[nodiscard]] bool IsOurLightPlacerLight(const RE::NiPointLight& a_light);  // LightCopies.cpp: Light Placer's light of one of our copies
 	// automatic lights (his go-to pick): a light of ours in a_color, at the middle strength and reach of the tuned
 	// hand lights a_tuned (made once per color, at data load; follows the sliders)
 	[[nodiscard]] RE::TESObjectLIGH* AutoLight(RE::Color a_color, const std::vector<const RE::TESObjectLIGH*>& a_tuned);
