@@ -184,6 +184,7 @@ namespace Plugin
 
 	// ------------------------------------------------------------------ LightPlacerQueue.cpp: Light Placer's light put back on a resume stays
 	void KeepLightPlacerLights();  // at data load, after Light Placer hooked the resume when it loaded
+	void KeepCastingLights();      // once a frame, main thread: the casting art's Light Placer lights after a cell change
 
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
 	void                             DecideRecordRoute();  // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer

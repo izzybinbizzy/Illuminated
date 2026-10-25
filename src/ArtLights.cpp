@@ -306,8 +306,11 @@ namespace Plugin
 				auto*       record = model.empty() ? nullptr : RecordLightFor(model);
 				if (!record) {
 					// the held instance's own (FadeCharge.cpp ReadHand: the WORN copy's - the entry can hold other copies of the
-					// same weapon, CodeRabbit's point on #13 - else the weapon record's)
-					record = EnchantShaderLight(Fade::ReadHand(a_actor, left).ench);
+					// same weapon, CodeRabbit's point on #13 - else the weapon record's). ReadHand counts a bound weapon's time
+					// and reads no enchantment, so a bound weapon on an ordinary model (Odin's) takes its record's own
+					const auto* ench = Fade::ReadHand(a_actor, left).ench;
+					record = EnchantShaderLight(ench ? ench : weapon->IsBound() ? weapon->formEnchanting :
+																				  nullptr);
 				}
 				if (!record) {
 					continue;
