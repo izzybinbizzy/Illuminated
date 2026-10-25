@@ -27,6 +27,7 @@
 // (3D built or released on a loader thread is queued for the next frame - StreamLightsFrame).
 
 #include "BeamRow.h"
+#include "Fade.h"
 #include "Plugin.h"
 
 // 🔁 HIS ANSWER 2026-10-20 (checklist 140): one light stretched along the beam - and "if you plain out cannot make part 1 of
@@ -504,10 +505,15 @@ namespace Plugin
 						axis.dir.Dot(live.root->world.rotate * RE::NiPoint3{ 0.0f, 1.0f, 0.0f }), axis.start.x, axis.start.y, axis.start.z,
 						axis.start.x + axis.dir.x * length, axis.start.y + axis.dir.y * length, axis.start.z + axis.dir.z * length);
 				}
-				const RE::NiColor color = rec->second.colorFrom ? ColorOf(rec->second.colorFrom) : rec->second.color;
-				const auto        toLocal = live.root->world.Invert();
-				const auto        row = BeamRow::Lay(length, static_cast<int>(live.lights.size()), rec->second.reach, kRowHeight);
-				const float       scale = live.root->world.scale > 0.0f ? live.root->world.scale : 1.0f;
+				RE::NiColor color = rec->second.colorFrom ? ColorOf(rec->second.colorFrom) : rec->second.color;
+				if (auto* fired = live.beam ? live.beam->As<RE::Projectile>() : nullptr; fired && fired->GetProjectileRuntimeData().spell) {
+					if (const auto own = Fade::Items::ChoiceColor(fired->GetProjectileRuntimeData().spell->GetFormID())) {
+						color = *own;  // the spell's Lights by Item color reaches its row too
+					}
+				}
+				const auto  toLocal = live.root->world.Invert();
+				const auto  row = BeamRow::Lay(length, static_cast<int>(live.lights.size()), rec->second.reach, kRowHeight);
+				const float scale = live.root->world.scale > 0.0f ? live.root->world.scale : 1.0f;
 				for (std::size_t i = 0; i < live.lights.size(); ++i) {
 					auto* bs = live.lights[i].get();
 					auto* light = bs ? netimmerse_cast<RE::NiPointLight*>(bs->light.get()) : nullptr;
