@@ -1,7 +1,7 @@
 -- Illuminated - SKSE plugin. GPL-3.0-or-later, see LICENSE.txt.
 set_xmakever("3.0.0")
 set_project("Illuminated")
-set_version("1.7.0")
+set_version("1.8.0")
 set_license("GPL-3.0-or-later")
 set_arch("x64")
 set_languages("c++23")

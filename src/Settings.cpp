@@ -37,6 +37,7 @@ namespace Plugin
 		// draws none of ours (the route global held at 0) and every pass treats every config as unlit (Coverage::ModelLit)
 		constexpr std::string_view kLightsOff = "IlluminatedLightsOff";
 		constexpr std::string_view kQuality = "IlluminatedQuality";  // 0 Quality, 1 Performance (his order 2026-10-20)
+		constexpr std::string_view kShadowLights = "IlluminatedShadowLights";
 
 		[[nodiscard]] float RouteNow() { return LightsOff() ? 0.0f : gRouteValue; }
 
@@ -483,6 +484,11 @@ namespace Plugin
 	bool PerformanceMode()
 	{
 		return SettingValue(kQuality, 0) != 0;
+	}
+
+	bool ShadowLights()
+	{
+		return SettingValue(kShadowLights, 0) != 0 && !PerformanceMode() && !LightsOff();
 	}
 
 	bool RegisterEditorID(RE::TESForm* a_form, const std::string& a_id)
