@@ -797,7 +797,10 @@ namespace Plugin
 			r.radius = kWardRadius;
 			r.fade = kWardFade;
 			r.falloff = 2.0f;
-			if (proj->data.light) {
+			if (const auto strange = StrangeWardColor()) {
+				r.color = *strange;  // Strange Wards' pick: its dome's own color
+				++colored;
+			} else if (proj->data.light) {
 				r.color = ColorOf(proj->data.light);
 				++colored;
 			} else {

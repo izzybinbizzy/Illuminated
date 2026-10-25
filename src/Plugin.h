@@ -307,17 +307,19 @@ namespace Plugin
 	void LightSettings();                       // LightSettings.cpp
 	void CastingLights(const Coverage& a_cov);  // CastingLights.cpp
 	template <class T>
-	void               EffectLights(const Coverage& a_cov, std::string_view a_kind);  // EffectLights.cpp
-	void               PoisonRuneArt();                                               // PoisonRune.cpp
-	void               SprayLights();                                                 // SprayLights.cpp
-	void               ApplyCastingLights(bool a_log);                                // CastingLights.cpp: pass 1 again, for the settings as they are now
-	void               ApplyEffectLights(bool a_log);                                 // EffectLights.cpp: pass 2 again
-	void               VaerSwirls();                                                  // VaerSwirls.cpp: pass 7, VAER Reborn's brighter strands and Thaumaturgy's copies
-	void               Wards();                                                       // Wards.cpp: one dome per ward, 360 Ward's sphere in the vanilla blue
-	[[nodiscard]] bool DynamicWardsLoaded();                                          // Wards.cpp: every ward is Dynamic Wards' then (this mod and pass 6 step down)
-	void               ApplyWardLook();                                               // Wards.cpp: the Ward look pick onto the dome art (main thread)
-	void               WatchBlocking();                                               // Wards.cpp: a shield's ward checked the moment a block starts (each game load)
-	void               KeepBlockWatch(float a_delta);                                 // Wards.cpp, player update: the watch follows a rebuilt animation graph
+	void                                     EffectLights(const Coverage& a_cov, std::string_view a_kind);  // EffectLights.cpp
+	void                                     PoisonRuneArt();                                               // PoisonRune.cpp
+	void                                     SprayLights();                                                 // SprayLights.cpp
+	void                                     ApplyCastingLights(bool a_log);                                // CastingLights.cpp: pass 1 again, for the settings as they are now
+	void                                     ApplyEffectLights(bool a_log);                                 // EffectLights.cpp: pass 2 again
+	void                                     VaerSwirls();                                                  // VaerSwirls.cpp: pass 7, VAER Reborn's brighter strands and Thaumaturgy's copies
+	void                                     Wards();                                                       // Wards.cpp: one dome per ward, 360 Ward's sphere in the vanilla blue
+	[[nodiscard]] bool                       DynamicWardsLoaded();                                          // Wards.cpp: every ward is Dynamic Wards' then (this mod and pass 6 step down)
+	void                                     ApplyWardLook();                                               // Wards.cpp: the Ward look pick onto the dome art (main thread)
+	[[nodiscard]] bool                       StrangeWardsInstalled();                                       // Wards.cpp: Strange Wards' dome is the vanilla mesh
+	[[nodiscard]] std::optional<RE::NiColor> StrangeWardColor();                                            // Wards.cpp: its pick's color, none = the vanilla blue-white
+	void                                     WatchBlocking();                                               // Wards.cpp: a shield's ward checked the moment a block starts (each game load)
+	void                                     KeepBlockWatch(float a_delta);                                 // Wards.cpp, player update: the watch follows a rebuilt animation graph
 
 	// ------------------------------------------------------------------ VfxPacks.cpp: the VFX switcher (his yes 2026-10-19)
 	// OFF in this release (his order 2026-10-19: "keep the spell switcher turned off in illuminated for now so we can ship with
