@@ -12,8 +12,9 @@
 //
 // THE BLUE SPHERE. 360 Ward's own sphere is orange (its mesh uses the fire gradient); with 360 Ward loaded the vanilla
 // dome art form and 360 Ward's hit flash point at our copies under `meshes\magic\Glow Wards\Vanilla\` (his report,
-// "the 360 ward is orange"; the look below). Nothing is saved. The ward hand wears our copy under `Glow Wards\Blue\`, and
-// its light row claims that copy beside the vanilla mesh (lagen.py WARD_HAND_COPIES), so it is lit on either route.
+// "the 360 ward is orange"; the look below). Nothing is saved. The ward hand wears our copy under `Glow Wards\Blue\` - with
+// 360 Ward the `Vanilla\` one in the sphere's blue, with Strange Wards the game's own, which reads the gradient its pick ships -
+// and its light row claims every copy beside the vanilla mesh (lagen.py WARD_HAND_COPIES), so it is lit on either route.
 //
 // THE WARD LOOK (his words 2026-10-09: "change the blue ward to vanilla blue. add transparent ward with vanilla outline as a
 // preset for wards, no slider just pure transparent with outline."): the setting IlluminatedWardLook - 0 the vanilla ward's own
@@ -41,11 +42,14 @@ namespace Plugin
 		constexpr const char*      kBlueWornDome = "Magic\\Glow Wards\\Blue\\wardbodyfxworn.nif";
 		constexpr const char*      kClearWornDome = "Magic\\Glow Wards\\Transparent\\wardbodyfxworn.nif";
 		constexpr const char*      kBlueWornHand = "Magic\\Glow Wards\\Blue\\wardinhandfxworn.nif";
+		constexpr const char*      kSphereHand = "Magic\\Glow Wards\\Vanilla\\wardinhandfx.nif";  // the hands in 360 Ward's sphere blue
+		constexpr const char*      kSphereWornHand = "Magic\\Glow Wards\\Vanilla\\wardinhandfxworn.nif";
 		constexpr std::string_view kWardLook = "IlluminatedWardLook";  // 0 vanilla blue, 1 transparent
 		int                        gLookApplied = -1;                  // the look last put on the forms (-1 none yet)
 		// his call: the dome (without 360 Ward) and the hand (always) wear OUR vanilla-blue copies (their own textures, so no
 		// other mod's loose textures reach them)
-		constexpr std::uint32_t kHandArt = 0x0253F1;  // Skyrim.esm: magic\wardinhandfx.nif
+		constexpr std::uint32_t kHandArt = 0x0253F1;        // Skyrim.esm: magic\wardinhandfx.nif
+		constexpr std::uint32_t kWardHandLight = 0x02F3EF;  // Skyrim.esm MagicLightWardHand01: every ward's own hand light
 		constexpr const char*   kBlueDome = "Magic\\Glow Wards\\Blue\\wardbodyfx.nif";
 		constexpr const char*   kBlueHand = "Magic\\Glow Wards\\Blue\\wardinhandfx.nif";
 
@@ -138,7 +142,8 @@ namespace Plugin
 			if (REL::Module::IsVR() || !gWornModels.empty()) {
 				return;
 			}
-			for (const auto* model : { kBlueWornHand, kBlueWornDome, kClearWornDome }) {
+			const char* hand = gWornHand && gWornHand->GetModel() ? gWornHand->GetModel() : kBlueWornHand;
+			for (const auto* model : { hand, kBlueWornDome, kClearWornDome }) {
 				RE::NiPointer<RE::NiNode> root;
 				if (RE::BSModelDB::Demand(model, root, RE::BSModelDB::DBTraits::ArgsType{}) == RE::BSResource::ErrorCode::kNone && root) {
 					gWornModels.push_back(std::move(root));
@@ -305,9 +310,25 @@ namespace Plugin
 		}
 		SKSE::log::info("wards: {} effect(s) wear the ward art beside a ward's rank and show no second dome", extras.size());
 
+		const bool has360 = PluginLoaded(k360Plugin);
 		if (auto* hand = dh->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm")) {
-			hand->SetModel(kBlueHand);
-			SKSE::log::info("wards: the hand wears our vanilla blue ({})", kBlueHand);
+			if (has360) {
+				hand->SetModel(kSphereHand);
+				SKSE::log::info("wards: the hand wears 360 Ward's sphere blue ({})", kSphereHand);
+			} else if (StrangeWardsInstalled()) {
+				SKSE::log::info("wards: the hand keeps the game's own art - it reads Strange Wards' gradient, the dome's color");
+			} else {
+				hand->SetModel(kBlueHand);
+				SKSE::log::info("wards: the hand wears our vanilla blue ({})", kBlueHand);
+			}
+		}
+		// Strange Wards' Amber / Sswaye Special: the game's ward hand light takes the pick's color (not under 360 Ward's sphere)
+		if (const auto color = StrangeWardColor(); color && !has360) {
+			if (auto* light = dh->LookupForm<RE::TESObjectLIGH>(kWardHandLight, "Skyrim.esm")) {
+				light->data.color = RE::Color{ static_cast<std::uint8_t>(color->red * 255.0f), static_cast<std::uint8_t>(color->green * 255.0f),
+					static_cast<std::uint8_t>(color->blue * 255.0f), 0 };
+				SKSE::log::info("wards: the ward hand light takes Strange Wards' pick color");
+			}
 		}
 		// the worn wards: their own looping hand always, their own looping dome unless 360 Ward's sphere is the dome (the
 		// dome's model is the ward look's, set by ApplyWardLook below)
@@ -318,8 +339,7 @@ namespace Plugin
 			gWornHand = NewForm<RE::BGSArtObject>();
 		}
 		if (gWornDome && gWornHand) {
-			gWornHand->SetModel(kBlueWornHand);
-			const bool                         has360 = PluginLoaded(k360Plugin);
+			gWornHand->SetModel(has360 ? kSphereWornHand : kBlueWornHand);
 			auto*                              dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm");
 			std::set<const RE::EffectSetting*> wornEffects;
 			for (const auto& r : kWorn) {
