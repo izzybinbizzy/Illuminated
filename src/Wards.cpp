@@ -325,8 +325,8 @@ namespace Plugin
 		// Strange Wards' Amber / Sswaye Special: the game's ward hand light takes the pick's color (not under 360 Ward's sphere)
 		if (const auto color = StrangeWardColor(); color && !has360) {
 			if (auto* light = dh->LookupForm<RE::TESObjectLIGH>(kWardHandLight, "Skyrim.esm")) {
-				light->data.color = RE::Color{ static_cast<std::uint8_t>(color->red * 255.0f), static_cast<std::uint8_t>(color->green * 255.0f),
-					static_cast<std::uint8_t>(color->blue * 255.0f), 0 };
+				const auto byte = [](float a_value) { return static_cast<std::uint8_t>(std::lround(std::clamp(a_value, 0.0f, 1.0f) * 255.0f)); };
+				light->data.color = RE::Color{ byte(color->red), byte(color->green), byte(color->blue), 0 };
 				SKSE::log::info("wards: the ward hand light takes Strange Wards' pick color");
 			}
 		}

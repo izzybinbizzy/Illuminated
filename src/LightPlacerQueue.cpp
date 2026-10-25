@@ -115,6 +115,8 @@ namespace Plugin
 		std::size_t                                          gNextLook = 0;
 		bool                                                 gCellWatchOn = false;
 		std::size_t                                          gCellLogs = 0;
+		const void*                                          gLastSpace = nullptr;  // the interior cell, or the worldspace outside
+		bool                                                 gLastInside = false;
 
 		struct CellWatch final : RE::BSTEventSink<RE::BGSActorCellEvent>
 		{
@@ -197,11 +199,13 @@ namespace Plugin
 					continue;
 				}
 				const auto now = HeldNow(a_scene, light);
+#ifdef FADE_DEBUG_PAGE
 				if (logging) {
 					SKSE::log::info("[CELL-LIGHT] look {} | {} | registered {} | queued {} | portal strict {} | culled {}", a_look + 1,
 						light->name.c_str(), now.active.size(), now.queued, !now.active.empty() && now.active.front()->portalStrict,
 						light->GetAppCulled());
 				}
+#endif
 				if (now.queued || !now.active.empty()) {
 					++held;
 					continue;
@@ -271,6 +275,20 @@ namespace Plugin
 			return;
 		}
 		if (std::chrono::duration<float>(now - *gCellSince).count() >= kLookAt[gNextLook]) {
+			// the lights go only through a loading screen (an interior on either side, or another worldspace); a step across an
+			// exterior cell border keeps them, so it is not looked at
+			if (gNextLook == 0) {
+				const auto* cell = player->GetParentCell();
+				const bool  inside = cell && cell->IsInteriorCell();
+				const void* space = inside ? static_cast<const void*>(cell) : static_cast<const void*>(player->GetWorldspace());
+				const bool  through = inside || gLastInside || space != gLastSpace;
+				gLastSpace = space;
+				gLastInside = inside;
+				if (!through) {
+					gNextLook = kLookAt.size();
+					return;
+				}
+			}
 			LookAfterCellChange(scene, player, gNextLook);
 			++gNextLook;
 		}
