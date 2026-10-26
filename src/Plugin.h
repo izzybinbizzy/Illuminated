@@ -222,6 +222,7 @@ namespace Plugin
 	void SneakFrameEnd(float a_delta);                               // the player update, last but the ground twins: the levels, the dimming
 	void SneakDim(RE::NiLight* a_light, const RE::Actor* a_caster);  // one light by its caster's level (any thread, outside a SneakPause)
 	void DropSneakFade();                                            // a game loads, or a new one starts
+	void FindShadowSigns();                                          // data load: the perks and abilities that need the dark
 	class SneakPause
 	{
 	public:

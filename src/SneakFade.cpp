@@ -252,6 +252,8 @@ namespace Plugin
 		}
 	}
 
+	void FindShadowSigns() { static_cast<void>(Signs()); }
+
 	void SneakFrameEnd(float a_delta)
 	{
 		const bool              fades = Fades() || FadesInvisible();
