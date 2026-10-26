@@ -222,7 +222,11 @@ namespace Plugin
 			const auto* projectile = ref->As<RE::Projectile>();
 			const auto* base = projectile ? ref->GetBaseObject() : nullptr;
 			const auto* data = base ? base->As<RE::BGSProjectile>() : nullptr;
-			if (!data || !data->IsGrenade() || !projectile->GetProjectileRuntimeData().spell || !a_runesFade) {
+			if (!data || !data->IsGrenade() || !projectile->GetProjectileRuntimeData().spell) {
+				return std::nullopt;
+			}
+			// a rune proper is set off by someone coming near (its proximity trigger); a timed burst or a bloom has none
+			if (!a_runesFade && data->data.explosionProximity > 0.0f) {
 				return std::nullopt;
 			}
 			if (const auto shooter = projectile->GetProjectileRuntimeData().shooter.get()) {
