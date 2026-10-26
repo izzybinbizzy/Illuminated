@@ -6,7 +6,7 @@
 // over half a second, and back up when they stand. Light Placer can only cut a light at once, so the menu build's rows carry
 // no sneak test (lagen.py drop_sneak_tests) and the fade is done here, per caster:
 //   Light Placer's lights of our copies and our own art / weapon / flesh lights, by the actor they hang on - found once a frame
-//   in the scene's lists (the main thread); a rune's (a placed spell's lobbed projectile) by the player, as its row asked
+//   in the scene's lists (the main thread); a rune's (a placed spell's lobbed projectile) by the one who laid it
 //   the game's own casting light on the record route (Vanilla / ENB, or no Light Placer), by its caster - SneakDim from the
 //   caster's update, after every other pass wrote it
 // Our write is the last word on a dimmed light and never a base for anyone else's: each light remembers the fade the others
@@ -109,23 +109,38 @@ namespace Plugin
 			return nullptr;
 		}
 
-		// the caster a light of ours fades with: the actor it hangs on, or the player for a rune
-		[[nodiscard]] const RE::Actor* CasterOf(const RE::NiLight& a_light)
+		struct Caster
 		{
+			RE::FormID id{ 0 };
+			bool       sneaking{ false };
+		};
+
+		// the caster a light of ours fades with: the actor it hangs on, or the one who laid a rune (its shooter, else whoever set
+		// the chain off) - an enemy's rune or a trap's (laid by nobody) never fades because she sneaks
+		[[nodiscard]] std::optional<Caster> CasterOf(const RE::NiLight& a_light)
+		{
+			const auto of = [](const RE::Actor* a_actor) {
+				return a_actor ? std::optional<Caster>{ Caster{ a_actor->GetFormID(), a_actor->IsSneaking() } } : std::nullopt;
+			};
 			const auto* ref = OwnerOf(&a_light);
 			if (!ref) {
-				return nullptr;
+				return std::nullopt;
 			}
 			if (const auto* actor = ref->As<RE::Actor>()) {
-				return actor;
+				return of(actor);
 			}
 			const auto* projectile = ref->As<RE::Projectile>();
 			const auto* base = projectile ? ref->GetBaseObject() : nullptr;
 			const auto* data = base ? base->As<RE::BGSProjectile>() : nullptr;
-			if (data && data->IsGrenade() && projectile->GetProjectileRuntimeData().spell) {
-				return RE::PlayerCharacter::GetSingleton();
+			if (!data || !data->IsGrenade() || !projectile->GetProjectileRuntimeData().spell) {
+				return std::nullopt;
 			}
-			return nullptr;
+			if (const auto shooter = projectile->GetProjectileRuntimeData().shooter.get()) {
+				return of(shooter->As<RE::Actor>());
+			}
+			const auto* cause = ref->GetActorCause();
+			const auto  by = cause ? cause->actor.get() : RE::NiPointer<RE::Actor>{};
+			return of(by.get());
 		}
 
 		[[nodiscard]] bool Ours(RE::NiLight* a_light)
@@ -175,10 +190,9 @@ namespace Plugin
 			const auto& lists = scene->GetRuntimeData();
 			for (const auto* list : { &lists.activeLights, &lists.lightQueueAdd }) {
 				for (const auto& bs : *list) {
-					auto*       light = bs ? bs->light.get() : nullptr;
-					const auto* caster = Ours(light) ? CasterOf(*light) : nullptr;
-					if (caster) {
-						found.push_back({ light, caster->GetFormID(), caster->IsSneaking() });
+					auto* light = bs ? bs->light.get() : nullptr;
+					if (const auto caster = Ours(light) ? CasterOf(*light) : std::nullopt) {
+						found.push_back({ light, caster->id, caster->sneaking });
 					}
 				}
 			}
