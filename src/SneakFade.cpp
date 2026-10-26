@@ -8,7 +8,8 @@
 // Light Placer can only cut a light at once, so the menu build's rows carry
 // no sneak test (lagen.py drop_sneak_tests) and the fade is done here, per caster:
 //   Light Placer's lights of our copies and our own art / weapon / flesh lights, by the actor they hang on - found once a frame
-//   in the scene's lists (the main thread); a rune's (a placed spell's lobbed projectile) by the one who laid it
+//   in the scene's lists (the main thread); a rune's (a placed spell's lobbed projectile) by the one who laid it, unless
+//   "Runes" says they stay lit
 //   the game's own casting light on the record route (Vanilla / ENB, or no Light Placer), by its caster - SneakDim from the
 //   caster's update, after every other pass wrote it
 // Our write is the last word on a dimmed light and never a base for anyone else's: each light remembers the fade the others
@@ -26,6 +27,7 @@ namespace Plugin
 		constexpr std::string_view kSneaking = "IlluminatedSneaking";  // 0 fade (the default), 1 stay on
 		constexpr std::string_view kSneakBrightness = "IlluminatedSneakingBrightness";
 		constexpr std::string_view kInvisible = "IlluminatedWhileInvisible";  // 0 fade out (the default), 1 stay on
+		constexpr std::string_view kRunes = "IlluminatedSneakingRunes";       // 0 fade with their caster (the default), 1 stay lit
 		constexpr std::string_view kArtLight = "IlluminatedArtLight";         // ArtLights.cpp
 		constexpr float            kFadeSeconds = 0.5f;
 		constexpr std::uint32_t    kForgetFrames = 3;
@@ -52,6 +54,7 @@ namespace Plugin
 
 		[[nodiscard]] bool  Fades() { return SettingValue(kSneaking, 0) == 0; }
 		[[nodiscard]] bool  FadesInvisible() { return SettingValue(kInvisible, 0) == 0; }
+		[[nodiscard]] bool  RunesFade() { return SettingValue(kRunes, 0) == 0; }
 		[[nodiscard]] float SneakLow() { return static_cast<float>(std::clamp(SettingValue(kSneakBrightness, 0), 0, 100)) / 100.0f; }
 
 		// a perk or ability that only pays off in the dark (a Shadow birthsign: spells cheaper and quieter "in shadows") reads the
@@ -202,7 +205,8 @@ namespace Plugin
 		};
 
 		// the caster a light of ours fades with: the actor it hangs on, or the one who laid a rune (its shooter, else whoever set
-		// the chain off) - an enemy's rune or a trap's (laid by nobody) never fades because she sneaks
+		// the chain off) - an enemy's rune or a trap's (laid by nobody) never fades because she sneaks, and with Runes on "Stay lit"
+		// none does
 		[[nodiscard]] std::optional<Caster> CasterOf(const RE::NiLight& a_light, float a_low)
 		{
 			const auto of = [a_low](const RE::Actor* a_actor) {
@@ -218,7 +222,7 @@ namespace Plugin
 			const auto* projectile = ref->As<RE::Projectile>();
 			const auto* base = projectile ? ref->GetBaseObject() : nullptr;
 			const auto* data = base ? base->As<RE::BGSProjectile>() : nullptr;
-			if (!data || !data->IsGrenade() || !projectile->GetProjectileRuntimeData().spell) {
+			if (!data || !data->IsGrenade() || !projectile->GetProjectileRuntimeData().spell || !RunesFade()) {
 				return std::nullopt;
 			}
 			if (const auto shooter = projectile->GetProjectileRuntimeData().shooter.get()) {
