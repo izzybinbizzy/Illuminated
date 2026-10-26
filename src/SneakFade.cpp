@@ -3,8 +3,9 @@
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
 // Lights fade while sneaking. With "Lights fade while sneaking" a sneaking caster's lights glide down to Sneaking brightness
-// over half a second, and back up when they stand; with "While invisible" on "Lights fade out" an invisible caster's glide all the
-// way out the same way. Light Placer can only cut a light at once, so the menu build's rows carry
+// over half a second, and back up when they stand. With "While invisible or in shadow" on "Lights fade out" an invisible
+// caster's lights glide all the way out the same way, and hers while she carries a perk that needs the dark.
+// Light Placer can only cut a light at once, so the menu build's rows carry
 // no sneak test (lagen.py drop_sneak_tests) and the fade is done here, per caster:
 //   Light Placer's lights of our copies and our own art / weapon / flesh lights, by the actor they hang on - found once a frame
 //   in the scene's lists (the main thread); a rune's (a placed spell's lobbed projectile) by the one who laid it
@@ -55,11 +56,14 @@ namespace Plugin
 
 		// a perk or ability that only pays off in the dark (a Shadow birthsign: spells cheaper and quieter "in shadows") reads the
 		// light level, which our lights on her raise - so while she carries one her lights fade out (his pick). Found once: every
-		// perk whose conditions, or an entry point's, test GetLightLevel, and every ability with such an effect
+		// perk whose conditions, or an entry point's, ask for a LOW light level, and every ability with such an effect
 		[[nodiscard]] bool ReadsLightLevel(const RE::TESCondition& a_condition)
 		{
+			using Op = RE::CONDITION_ITEM_DATA::OpCode;
 			for (const auto* item = a_condition.head; item; item = item->next) {
-				if (item->data.functionData.function.get() == RE::FUNCTION_DATA::FunctionID::kGetLightLevel) {
+				const auto op = item->data.flags.opCode;
+				if (item->data.functionData.function.get() == RE::FUNCTION_DATA::FunctionID::kGetLightLevel &&
+					(op == Op::kLessThan || op == Op::kLessThanOrEqualTo)) {
 					return true;
 				}
 			}
