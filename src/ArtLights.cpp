@@ -41,7 +41,6 @@ namespace Plugin
 			const RE::TESObjectLIGH*        record{ nullptr };
 			const RE::NiColor*              hue{ nullptr };  // FleshFX's hue for a flesh spell's light (LightKit.h), or none
 			bool                            seen{ false };
-			bool                            shadow{ false };  // made a shadow caster (the player's, with Shadow-casting lights on)
 		};
 
 		std::unordered_map<const void*, Kept> gKept;  // main thread only
@@ -113,7 +112,7 @@ namespace Plugin
 			RE::NiUpdateData update{};
 			light->Update(update);
 			const bool portalStrict = (a_record->data.flags.underlying() & (1u << 13)) != 0;  // the row's PortalStrict
-			auto*      bs = LightKit::AddToScene(a_scene, light, 1.0f, portalStrict, a_kept.shadow);
+			auto*      bs = LightKit::AddToScene(a_scene, light, 1.0f, portalStrict);
 			if (!bs) {
 				a_root->DetachChild(light);
 				a_kept = {};
@@ -126,20 +125,18 @@ namespace Plugin
 
 		// the light this owner wants on this model now (a_record nullptr: none)
 		void Keep(RE::NiRefObject* a_owner, RE::NiAVObject* a_model, const RE::TESObjectLIGH* a_record, RE::ShadowSceneNode* a_scene,
-			bool a_player, const RE::NiColor* a_hue = nullptr)
+			const RE::NiColor* a_hue = nullptr)
 		{
 			auto* root = a_model ? a_model->AsNode() : nullptr;
 			if (!a_owner || !root || !a_record) {
 				return;
 			}
-			auto&      kept = gKept[a_owner];
-			const bool shadow = a_player && ShadowLights();
-			if (kept.light && (kept.root.get() != root || kept.light->parent != root || kept.shadow != shadow)) {
-				Drop(kept, a_scene);  // the model was rebuilt (a draw, a view change), or the light changes kind: a new one
+			auto& kept = gKept[a_owner];
+			if (kept.light && (kept.root.get() != root || kept.light->parent != root)) {
+				Drop(kept, a_scene);  // the model was rebuilt (a draw, a view change): a new one
 			}
 			kept.hue = a_hue;  // before Make, which draws the light's first color
 			if (!kept.light) {
-				kept.shadow = shadow;
 				kept.owner.reset(a_owner);
 				if (!Make(kept, root, a_record, a_scene)) {
 					return;
@@ -176,7 +173,7 @@ namespace Plugin
 			if (!root) {
 				return;
 			}
-			Keep(a_effect, root, record, a_scene, ref->IsPlayerRef(), LightKit::FleshFx::HueOf(a_effect->effectData));
+			Keep(a_effect, root, record, a_scene, LightKit::FleshFx::HueOf(a_effect->effectData));
 		}
 
 		// the weapon parts an art light already hangs under (measured on Vanilla: a bound sword's configs light both its
@@ -321,7 +318,7 @@ namespace Plugin
 				if (part && !gArtUnder.contains(part) && !gArtUnder.contains(hand) && !gHandsOnBody.contains(hand)) {
 					const auto* camera = RE::PlayerCamera::GetSingleton();
 					const bool  firstPerson = a_actor->IsPlayerRef() && camera && camera->IsInFirstPerson();
-					Keep(part, firstPerson ? BodyNode(a_actor->Get3D(false)) : part, record, a_scene, a_actor->IsPlayerRef());
+					Keep(part, firstPerson ? BodyNode(a_actor->Get3D(false)) : part, record, a_scene);
 				}
 			}
 		}
@@ -365,8 +362,7 @@ namespace Plugin
 				if (art && !art->finished && art->artObject && art->artObject3D) {
 					const auto& model = ModelKey(art->artObject, art->artObject->GetModel());
 					if (const auto* record = model.empty() ? nullptr : RecordLightFor(model)) {
-						const auto target = art->target.get();
-						Keep(art, ArtNode(art), record, scene, target && target->IsPlayerRef());
+						Keep(art, ArtNode(art), record, scene);
 					}
 				} else if (auto* shader = art ? nullptr : netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect); shader && !shader->finished) {
 					KeepFlesh(shader, scene);

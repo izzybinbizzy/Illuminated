@@ -132,7 +132,6 @@ namespace Plugin
 	[[nodiscard]] int                             SettingValue(std::string_view a_id, int a_fallback);
 	[[nodiscard]] bool                            LightsOff();        // Performance > all of Illuminated's lights off (his switch)
 	[[nodiscard]] bool                            PerformanceMode();  // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
-	[[nodiscard]] bool                            ShadowLights();     // Performance > Shadow-casting lights, never with Performance or all lights off
 	[[nodiscard]] bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
 	void                                          MakeLightCopies();   // LightCopies.cpp

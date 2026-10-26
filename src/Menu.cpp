@@ -57,8 +57,7 @@ namespace Plugin
 		// is not selected". 🔁 HIS WORD: "found by itself needs to be changed to "Automatic"" and "users to not be able
 		// to manually switch between versions" - the heading shows what was found (Lighting.cpp), there is no pick
 		constexpr std::string_view kYieldENBId = "IlluminatedYieldENBLight";
-		constexpr std::string_view kShadowLightsId = "IlluminatedShadowLights";  // greyed on Performance, a yellow warning beside it
-		constexpr std::string_view kVersionGroup = "Version";                    // lagen.py: the first heading on Lights
+		constexpr std::string_view kVersionGroup = "Version";  // lagen.py: the first heading on Lights
 
 		bool EnbFound() { return LightingFound() == Lighting::kEnb; }
 
@@ -120,7 +119,7 @@ namespace Plugin
 				ImGuiMCP::PopID();
 				return;
 			}
-			const bool greyed = (a_s.id == kYieldENBId && !EnbFound()) || (a_s.id == kShadowLightsId && PerformanceMode());
+			const bool greyed = a_s.id == kYieldENBId && !EnbFound();
 			ImGuiMCP::BeginDisabled(greyed);
 			if (a_s.isSlider) {
 				// live while it is dragged, on its step (his report: "the sliders also stopped working live during sliding and only
@@ -156,10 +155,6 @@ namespace Plugin
 				SettingTip(a_s, 0);
 			}
 			ImGuiMCP::EndDisabled();
-			if (a_s.id == kShadowLightsId) {
-				ImGuiMCP::SameLine();
-				ImGuiMCP::TextColored(ImGuiMCP::ImVec4{ 1.0f, 0.9f, 0.25f, 1.0f }, "%s", T("Will likely lower your frame rate."));
-			}
 			ImGuiMCP::PopID();
 		}
 
