@@ -3,7 +3,9 @@
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
 // Lights fade while sneaking. With "Lights fade while sneaking" a sneaking caster's lights glide down to Sneaking brightness
-// over half a second, and back up when they stand. Light Placer can only cut a light at once, so the menu build's rows carry
+// over half a second, and back up when they stand. With "While invisible or in shadow" on "Lights fade out" an invisible
+// caster's lights glide all the way out the same way, and hers while she carries a perk that needs the dark.
+// Light Placer can only cut a light at once, so the menu build's rows carry
 // no sneak test (lagen.py drop_sneak_tests) and the fade is done here, per caster:
 //   Light Placer's lights of our copies and our own art / weapon / flesh lights, by the actor they hang on - found once a frame
 //   in the scene's lists (the main thread); a rune's (a placed spell's lobbed projectile) by the one who laid it
@@ -23,7 +25,8 @@ namespace Plugin
 	{
 		constexpr std::string_view kSneaking = "IlluminatedSneaking";  // 0 fade (the default), 1 stay on
 		constexpr std::string_view kSneakBrightness = "IlluminatedSneakingBrightness";
-		constexpr std::string_view kArtLight = "IlluminatedArtLight";  // ArtLights.cpp
+		constexpr std::string_view kInvisible = "IlluminatedWhileInvisible";  // 0 fade out (the default), 1 stay on
+		constexpr std::string_view kArtLight = "IlluminatedArtLight";         // ArtLights.cpp
 		constexpr float            kFadeSeconds = 0.5f;
 		constexpr std::uint32_t    kForgetFrames = 3;
 
@@ -47,7 +50,90 @@ namespace Plugin
 		std::atomic<bool>                        gDimming{ false };  // gDim holds a light
 		std::uint32_t                            gFrame{ 0 };
 
-		[[nodiscard]] bool Fades() { return SettingValue(kSneaking, 0) == 0; }
+		[[nodiscard]] bool  Fades() { return SettingValue(kSneaking, 0) == 0; }
+		[[nodiscard]] bool  FadesInvisible() { return SettingValue(kInvisible, 0) == 0; }
+		[[nodiscard]] float SneakLow() { return static_cast<float>(std::clamp(SettingValue(kSneakBrightness, 0), 0, 100)) / 100.0f; }
+
+		// a perk or ability that only pays off in the dark (a Shadow birthsign: spells cheaper and quieter "in shadows") reads the
+		// light level, which our lights on her raise - so while she carries one her lights fade out (his pick). Found once: every
+		// perk whose conditions, or an entry point's, ask for a LOW light level, and every ability with such an effect
+		[[nodiscard]] bool ReadsLightLevel(const RE::TESCondition& a_condition)
+		{
+			using Op = RE::CONDITION_ITEM_DATA::OpCode;
+			for (const auto* item = a_condition.head; item; item = item->next) {
+				const auto op = item->data.flags.opCode;
+				if (item->data.functionData.function.get() == RE::FUNCTION_DATA::FunctionID::kGetLightLevel &&
+					item->data.object.get() == RE::CONDITIONITEMOBJECT::kSelf && (op == Op::kLessThan || op == Op::kLessThanOrEqualTo)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		struct ShadowSigns
+		{
+			std::vector<RE::BGSPerk*>   perks;
+			std::vector<RE::SpellItem*> abilities;
+		};
+
+		[[nodiscard]] const ShadowSigns& Signs()
+		{
+			static const ShadowSigns signs = [] {
+				ShadowSigns found;
+				auto*       dh = RE::TESDataHandler::GetSingleton();
+				if (!dh) {
+					return found;
+				}
+				for (auto* perk : dh->GetFormArray<RE::BGSPerk>()) {
+					const bool reads = perk && (ReadsLightLevel(perk->perkConditions) || std::ranges::any_of(perk->perkEntries, [](const auto* a_entry) {
+						const auto* point = a_entry && a_entry->GetType() == RE::PERK_ENTRY_TYPE::kEntryPoint ?
+						                        static_cast<const RE::BGSEntryPointPerkEntry*>(a_entry) :
+						                        nullptr;
+						return point && std::ranges::any_of(point->conditions, ReadsLightLevel);
+					}));
+					if (reads) {
+						found.perks.push_back(perk);
+					}
+				}
+				for (auto* spell : dh->GetFormArray<RE::SpellItem>()) {
+					if (spell && spell->GetSpellType() == RE::MagicSystem::SpellType::kAbility &&
+						std::ranges::any_of(spell->effects, [](const auto* a_effect) {
+							return a_effect && (ReadsLightLevel(a_effect->conditions) || (a_effect->baseEffect && ReadsLightLevel(a_effect->baseEffect->conditions)));
+						})) {
+						found.abilities.push_back(spell);
+					}
+				}
+				SKSE::log::info("sneak fade: {} perk(s) and {} abilit(y/ies) read the light level (her lights fade while she carries one)",
+					found.perks.size(), found.abilities.size());
+				return found;
+			}();
+			return signs;
+		}
+
+		std::atomic<bool> gShadowSign{ false };  // she carries one of Signs() - read once a frame on the main thread
+
+		[[nodiscard]] bool CarriesShadowSign(const RE::Actor& a_actor)
+		{
+			const auto& signs = Signs();
+			return std::ranges::any_of(signs.perks, [&](auto* a_perk) { return a_actor.HasPerk(a_perk); }) ||
+			       std::ranges::any_of(signs.abilities, [&](auto* a_spell) { return a_actor.HasSpell(a_spell); });
+		}
+
+		// the level a caster's lights glide to: Sneaking brightness while it sneaks, out while it is invisible (the Shadow Stone,
+		// Invisibility - every effect of that kind raises the Invisibility value) or, for her, while she carries a shadow sign;
+		// else full
+		[[nodiscard]] float TargetOf(const RE::Actor& a_actor, float a_low)
+		{
+			float target = 1.0f;
+			if (Fades() && a_actor.IsSneaking()) {
+				target = a_low;
+			}
+			if (FadesInvisible() && (a_actor.AsActorValueOwner()->GetActorValue(RE::ActorValue::kInvisibility) > 0.0f ||
+										(a_actor.IsPlayerRef() && gShadowSign.load(std::memory_order_relaxed)))) {
+				target = 0.0f;
+			}
+			return target;
+		}
 
 		[[nodiscard]] float LevelNow(RE::FormID a_owner)
 		{
@@ -112,15 +198,15 @@ namespace Plugin
 		struct Caster
 		{
 			RE::FormID id{ 0 };
-			bool       sneaking{ false };
+			float      target{ 1.0f };  // TargetOf
 		};
 
 		// the caster a light of ours fades with: the actor it hangs on, or the one who laid a rune (its shooter, else whoever set
 		// the chain off) - an enemy's rune or a trap's (laid by nobody) never fades because she sneaks
-		[[nodiscard]] std::optional<Caster> CasterOf(const RE::NiLight& a_light)
+		[[nodiscard]] std::optional<Caster> CasterOf(const RE::NiLight& a_light, float a_low)
 		{
-			const auto of = [](const RE::Actor* a_actor) {
-				return a_actor ? std::optional<Caster>{ Caster{ a_actor->GetFormID(), a_actor->IsSneaking() } } : std::nullopt;
+			const auto of = [a_low](const RE::Actor* a_actor) {
+				return a_actor ? std::optional<Caster>{ Caster{ a_actor->GetFormID(), TargetOf(*a_actor, a_low) } } : std::nullopt;
 			};
 			const auto* ref = OwnerOf(&a_light);
 			if (!ref) {
@@ -153,7 +239,7 @@ namespace Plugin
 		{
 			RE::NiLight* light{ nullptr };
 			RE::FormID   owner{ 0 };
-			bool         sneaking{ false };
+			float        target{ 1.0f };
 		};
 	}
 
@@ -166,9 +252,11 @@ namespace Plugin
 		}
 	}
 
+	void FindShadowSigns() { static_cast<void>(Signs()); }
+
 	void SneakFrameEnd(float a_delta)
 	{
-		const bool              fades = Fades();
+		const bool              fades = Fades() || FadesInvisible();
 		std::vector<RE::FormID> listed;
 		{
 			std::lock_guard l{ gLock };
@@ -180,8 +268,11 @@ namespace Plugin
 				listed.push_back(id);
 			}
 		}
-		const float low = static_cast<float>(std::clamp(SettingValue(kSneakBrightness, 0), 0, 100)) / 100.0f;
+		const float low = SneakLow();
 		const float step = std::clamp(a_delta, 0.0f, 0.25f) / kFadeSeconds;
+		if (const auto* player = RE::PlayerCharacter::GetSingleton()) {
+			gShadowSign.store(FadesInvisible() && CarriesShadowSign(*player), std::memory_order_relaxed);
+		}
 
 		// outside the lock: the scene's lists and the game's forms (the main thread)
 		static std::vector<Found> found;  // its storage kept between frames
@@ -191,44 +282,42 @@ namespace Plugin
 			for (const auto* list : { &lists.activeLights, &lists.lightQueueAdd }) {
 				for (const auto& bs : *list) {
 					auto* light = bs ? bs->light.get() : nullptr;
-					if (const auto caster = Ours(light) ? CasterOf(*light) : std::nullopt) {
-						found.push_back({ light, caster->id, caster->sneaking });
+					if (const auto caster = Ours(light) ? CasterOf(*light, low) : std::nullopt) {
+						found.push_back({ light, caster->id, caster->target });
 					}
 				}
 			}
 		}
-		std::unordered_map<RE::FormID, bool> sneaks;  // a caster still here: sneaking now?
-		std::vector<RE::FormID>              gone;
+		std::unordered_map<RE::FormID, float> targets;  // a caster still here: the level it glides to now
+		std::vector<RE::FormID>               gone;
 		for (const auto id : listed) {
 			if (const auto* actor = RE::TESForm::LookupByID<RE::Actor>(id)) {
-				sneaks[id] = actor->IsSneaking();
+				targets[id] = TargetOf(*actor, low);
 			} else {
 				gone.push_back(id);
 			}
 		}
 		for (const auto& f : found) {
-			sneaks[f.owner] = f.sneaking;
+			targets[f.owner] = f.target;
 		}
 
 		std::lock_guard l{ gLock };
 		for (const auto id : gone) {
 			gLevels.erase(id);
 		}
-		if (fades) {
-			for (const auto& f : found) {
-				if (f.sneaking) {
-					gLevels.try_emplace(f.owner, 1.0f);
-				}
+		for (const auto& f : found) {
+			if (f.target < 1.0f) {
+				gLevels.try_emplace(f.owner, 1.0f);
 			}
 		}
-		// each caster one step toward Sneaking brightness while it sneaks, else full; one listed by a caster's update since the
-		// look above takes its first step next frame
+		// each caster one step toward its target (Sneaking brightness, out while invisible, else full); one listed by a caster's
+		// update since the look above takes its first step next frame
 		std::erase_if(gLevels, [&](auto& a_kv) {
-			const auto s = sneaks.find(a_kv.first);
-			if (s == sneaks.end()) {
+			const auto s = targets.find(a_kv.first);
+			if (s == targets.end()) {
 				return false;
 			}
-			const float target = fades && s->second ? low : 1.0f;
+			const float target = s->second;
 			float&      now = a_kv.second;
 			now = now < target ? (std::min)(now + step, target) : (std::max)(now - step, target);
 			return now >= 1.0f && target >= 1.0f;
@@ -265,7 +354,7 @@ namespace Plugin
 		std::lock_guard l{ gLock };
 		auto            it = gLevels.find(id);
 		if (it == gLevels.end()) {
-			if (!a_caster->IsSneaking() || !Fades()) {
+			if (TargetOf(*a_caster, SneakLow()) >= 1.0f) {
 				return;
 			}
 			it = gLevels.emplace(id, 1.0f).first;
