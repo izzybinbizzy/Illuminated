@@ -207,7 +207,7 @@ namespace Plugin
 		// the caster a light of ours fades with: the actor it hangs on, or the one who laid a rune (its shooter, else whoever set
 		// the chain off) - an enemy's rune or a trap's (laid by nobody) never fades because she sneaks, and with Runes on "Stay lit"
 		// none does
-		[[nodiscard]] std::optional<Caster> CasterOf(const RE::NiLight& a_light, float a_low)
+		[[nodiscard]] std::optional<Caster> CasterOf(const RE::NiLight& a_light, float a_low, bool a_runesFade)
 		{
 			const auto of = [a_low](const RE::Actor* a_actor) {
 				return a_actor ? std::optional<Caster>{ Caster{ a_actor->GetFormID(), TargetOf(*a_actor, a_low) } } : std::nullopt;
@@ -222,7 +222,7 @@ namespace Plugin
 			const auto* projectile = ref->As<RE::Projectile>();
 			const auto* base = projectile ? ref->GetBaseObject() : nullptr;
 			const auto* data = base ? base->As<RE::BGSProjectile>() : nullptr;
-			if (!data || !data->IsGrenade() || !projectile->GetProjectileRuntimeData().spell || !RunesFade()) {
+			if (!data || !data->IsGrenade() || !projectile->GetProjectileRuntimeData().spell || !a_runesFade) {
 				return std::nullopt;
 			}
 			if (const auto shooter = projectile->GetProjectileRuntimeData().shooter.get()) {
@@ -273,6 +273,7 @@ namespace Plugin
 			}
 		}
 		const float low = SneakLow();
+		const bool  runesFade = RunesFade();
 		const float step = std::clamp(a_delta, 0.0f, 0.25f) / kFadeSeconds;
 		if (const auto* player = RE::PlayerCharacter::GetSingleton()) {
 			gShadowSign.store(FadesInvisible() && CarriesShadowSign(*player), std::memory_order_relaxed);
@@ -286,7 +287,7 @@ namespace Plugin
 			for (const auto* list : { &lists.activeLights, &lists.lightQueueAdd }) {
 				for (const auto& bs : *list) {
 					auto* light = bs ? bs->light.get() : nullptr;
-					if (const auto caster = Ours(light) ? CasterOf(*light, low) : std::nullopt) {
+					if (const auto caster = Ours(light) ? CasterOf(*light, low, runesFade) : std::nullopt) {
 						found.push_back({ light, caster->id, caster->target });
 					}
 				}
