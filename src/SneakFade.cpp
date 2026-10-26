@@ -6,7 +6,7 @@
 // over half a second, and back up when they stand. Light Placer can only cut a light at once, so the menu build's rows carry
 // no sneak test (lagen.py drop_sneak_tests) and the fade is done here, per caster:
 //   Light Placer's lights of our copies and our own art / weapon / flesh lights, by the actor they hang on - found once a frame
-//   in the scene's lists (the main thread); a rune's (a placed spell's lobbed projectile) by the player, as its row asked
+//   in the scene's lists (the main thread); a rune's (a placed spell's lobbed projectile) by the one who laid it
 //   the game's own casting light on the record route (Vanilla / ENB, or no Light Placer), by its caster - SneakDim from the
 //   caster's update, after every other pass wrote it
 // Our write is the last word on a dimmed light and never a base for anyone else's: each light remembers the fade the others
@@ -109,7 +109,8 @@ namespace Plugin
 			return nullptr;
 		}
 
-		// the caster a light of ours fades with: the actor it hangs on, or the player for a rune
+		// the caster a light of ours fades with: the actor it hangs on, or the one who laid a rune - an enemy's rune or a trap's
+		// (laid by nobody) never fades because she sneaks
 		[[nodiscard]] const RE::Actor* CasterOf(const RE::NiLight& a_light)
 		{
 			const auto* ref = OwnerOf(&a_light);
@@ -122,10 +123,11 @@ namespace Plugin
 			const auto* projectile = ref->As<RE::Projectile>();
 			const auto* base = projectile ? ref->GetBaseObject() : nullptr;
 			const auto* data = base ? base->As<RE::BGSProjectile>() : nullptr;
-			if (data && data->IsGrenade() && projectile->GetProjectileRuntimeData().spell) {
-				return RE::PlayerCharacter::GetSingleton();
+			if (!data || !data->IsGrenade() || !projectile->GetProjectileRuntimeData().spell) {
+				return nullptr;
 			}
-			return nullptr;
+			const auto shooter = projectile->GetProjectileRuntimeData().shooter.get();
+			return shooter ? shooter->As<RE::Actor>() : nullptr;  // the game holds the actor; only read this frame
 		}
 
 		[[nodiscard]] bool Ours(RE::NiLight* a_light)
