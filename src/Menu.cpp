@@ -126,7 +126,7 @@ namespace Plugin
 				SetById(kPulseShapesId, v == 2 ? 1 : 0);
 				SetById(kDynamicLightingId, v == 0 ? 0 : 1);
 			}
-			MenuStyle::Tip(T("Off: steady lights. Regular: every light breathes the same way. Realistic: each kind of spell pulses in its own way - fire flickers, absorb spells beat like a heart, healing breathes slowly."));
+			MenuStyle::Tip(T("Off: steady lights. Regular: every light breathes the same way. Realistic: each kind of spell pulses in its own way - fire flickers, absorb spells beat like a heart, healing breathes slowly. With Light Placer it pulses like Regular for now."));
 		}
 
 		void DrawSetting(std::size_t a_index, Setting& a_s)

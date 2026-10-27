@@ -298,6 +298,7 @@ namespace Plugin
 			RE::NiPointer<RE::BSLight>       light;
 			RE::FormID                       base{ 0 };
 			RE::FormID                       spell{ 0 };  // its Lights by Item color, read after the cone is gone too
+			RE::ObjectRefHandle              caster;      // whose sneak fade it follows
 			RE::NiPoint3                     launch;
 			RE::NiPoint3                     spot;
 			float                            sinceEnd{ -1.0f };  // seconds since the cone ended; below 0 while it flies
@@ -650,7 +651,8 @@ namespace Plugin
 			const auto* proj = a_ref->As<RE::Projectile>();
 			const auto* spell = proj ? proj->GetProjectileRuntimeData().spell : nullptr;
 			gClouds.push_back({ RE::NiPointer<RE::NiAVObject>(a_root), RE::NiPointer<RE::TESObjectREFR>(a_ref), RE::NiPointer<RE::NiNode>(holder),
-				RE::NiPointer<RE::BSLight>(bs), a_base, spell ? spell->GetFormID() : 0, a_ref->GetPosition(), a_ref->GetPosition() });
+				RE::NiPointer<RE::BSLight>(bs), a_base, spell ? spell->GetFormID() : 0, proj ? proj->GetProjectileRuntimeData().shooter : RE::ObjectRefHandle{},
+				a_ref->GetPosition(), a_ref->GetPosition() });
 			if (static std::size_t told = 0; told < 6) {
 				++told;
 				SKSE::log::info("[STREAM-CLOUD] {} | one light where its cloud is, held {:.1f} s after the cone ends", Label(a_ref->GetBaseObject()),
@@ -686,6 +688,9 @@ namespace Plugin
 				color = *own;  // the spell's Lights by Item color
 			}
 			Dress(light, color, steady * left, reach, isl);
+			if (const auto who = a_c.caster.get(); who && who->As<RE::Actor>()) {
+				SneakDim(light, who->As<RE::Actor>());  // its caster's sneak fade, as every other light of theirs
+			}
 			light->local.translate = a_c.holder->world.Invert() * a_c.spot;
 			RE::NiUpdateData update{};
 			light->Update(update);
