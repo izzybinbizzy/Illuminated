@@ -119,6 +119,18 @@ namespace Plugin
 			return DevBenchGlue::Refusal("unknown setting '" + key + "'", ids);
 		}
 
+		// the refusal after a throw, and a fixed one when even that cannot be built (no memory): nothing leaves through DevBench
+		void Refuse(void* a_sink, DevBenchAPI::WriteFn a_write, const char* a_what) noexcept
+		{
+			try {
+				DevBenchGlue::Reply(a_sink, a_write, DevBenchGlue::Refusal(a_what));
+			} catch (...) {
+				if (a_write) {
+					a_write(a_sink, "{\"ok\":false,\"error\":\"out of memory\"}");
+				}
+			}
+		}
+
 		// DevBench calls these across the DLL boundary: nothing may be thrown back through it
 		void Inspect(void*, const char*, void* a_sink, DevBenchAPI::WriteFn a_write) noexcept
 		{
@@ -127,7 +139,7 @@ namespace Plugin
 				const auto now = DevBenchGlue::OnMainThread([]() { return InspectNow(); });
 				DevBenchGlue::Reply(a_sink, a_write, now ? *now : DevBenchGlue::NotRunYet());
 			} catch (...) {
-				DevBenchGlue::Reply(a_sink, a_write, DevBenchGlue::Refusal("Illuminated could not build its report"));
+				Refuse(a_sink, a_write, "Illuminated could not build its report");
 			}
 		}
 
@@ -138,7 +150,7 @@ namespace Plugin
 				const auto now = DevBenchGlue::OnMainThread([args = DevBenchGlue::Args(a_args)]() { return Act(args); });
 				DevBenchGlue::Reply(a_sink, a_write, now ? *now : DevBenchGlue::NotRunYet());
 			} catch (...) {
-				DevBenchGlue::Reply(a_sink, a_write, DevBenchGlue::Refusal("Illuminated could not handle that"));
+				Refuse(a_sink, a_write, "Illuminated could not handle that");
 			}
 		}
 	}

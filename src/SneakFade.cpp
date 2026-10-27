@@ -287,15 +287,16 @@ namespace Plugin
 		static std::vector<Found> found;  // its storage kept between frames
 		found.clear();
 		if (auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0]) {
-			const auto& lists = scene->GetRuntimeData();
-			for (const auto* list : { &lists.activeLights, &lists.lightQueueAdd }) {
-				for (const auto& bs : *list) {
+			const auto walk = [&](const auto& a_list) {
+				for (const auto& bs : a_list) {
 					auto* light = bs ? bs->light.get() : nullptr;
 					if (const auto caster = Ours(light) ? CasterOf(*light, low, runesFade) : std::nullopt) {
 						found.push_back({ light, caster->id, caster->target });
 					}
 				}
-			}
+			};
+			walk(scene->GetRuntimeData().activeLights);
+			walk(QueuedLights(scene));  // copied under its lock: the game and Light Placer add to it (the audit's M5)
 		}
 		std::unordered_map<RE::FormID, float> targets;  // a caster still here: the level it glides to now
 		std::vector<RE::FormID>               gone;

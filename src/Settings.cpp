@@ -171,7 +171,12 @@ namespace Plugin
 			std::map<std::string, std::map<std::string, std::string>> out;
 			std::ifstream                                             in(IniPath());
 			std::string                                               line, section;
+			bool                                                      first = true;
 			while (std::getline(in, line)) {
+				if (first && line.starts_with("\xEF\xBB\xBF")) {
+					line.erase(0, 3);  // a file saved "UTF-8 with BOM" would lose its first section, then be saved over
+				}
+				first = false;
 				const auto t = Trim(line);
 				if (t.empty() || t[0] == ';' || t[0] == '#') {
 					continue;
@@ -234,6 +239,58 @@ namespace Plugin
 		}
 	}
 
+	// ------------------------------------------------------------------ Dynamic Lighting: Off / Regular / Realistic
+	// the data's Dynamic Lighting (0 Off, 1 On) and the plugin's pulse pick (0 Regular, 1 Realistic) are one menu pick; under
+	// Realistic every light reads Dynamic Lighting as off (the steady twins hang) and our passes give it its kind's shape (Pulse.h)
+	namespace
+	{
+		constexpr std::string_view kDynamicId = "IlluminatedDynamicLighting";
+		constexpr std::string_view kPulseId = "IlluminatedPulseShapes";
+		constexpr std::size_t      kNoSetting = static_cast<std::size_t>(-1);
+		std::size_t                gDynamicAt = kNoSetting, gPulseAt = kNoSetting;
+
+		// the record route only for now: Light Placer's lights keep the Regular pulsing until our pass shapes them too
+		[[nodiscard]] bool Realistic()
+		{
+			return RecordRoute() && gDynamicAt < gSettings.size() && gPulseAt < gSettings.size() && gSettings[gDynamicAt].value.load() != 0 &&
+			       gSettings[gPulseAt].value.load() != 0;
+		}
+
+		// the value a light, a condition and the game's global read
+		[[nodiscard]] int Effective(std::size_t a_index)
+		{
+			return a_index == gDynamicAt && Realistic() ? 0 : gSettings[a_index].value.load();
+		}
+
+		// a new player starts on Realistic; one who saved Dynamic Lighting keeps it (On = Regular)
+		void PulseCarryOver()
+		{
+			const auto at = [](std::string_view a_id) {
+				const auto it = gIndex.find(Lower(a_id));
+				return it == gIndex.end() ? kNoSetting : it->second;
+			};
+			gDynamicAt = at(kDynamicId);
+			gPulseAt = at(kPulseId);
+			if (gDynamicAt == kNoSetting || gPulseAt == kNoSetting) {
+				return;
+			}
+			const auto ini = ReadIni();
+			const auto sec = ini.find(Lower(kSettingsSection));
+			const auto saved = [&](std::size_t a_index) { return sec != ini.end() && sec->second.contains(Lower(gSettings[a_index].ini)); };
+			if (saved(gPulseAt)) {
+				return;
+			}
+			if (saved(gDynamicAt)) {
+				gSettings[gPulseAt].value = 0;
+			} else {
+				gSettings[gDynamicAt].value = 1;
+				gSettings[gPulseAt].value = 1;
+			}
+		}
+	}
+
+	bool PulseRealistic() { return Realistic(); }
+
 	// ------------------------------------------------------------------ conditions
 	bool ConditionsHold(const std::vector<std::vector<Clause>>& a_tests)
 	{
@@ -242,7 +299,7 @@ namespace Plugin
 			for (const auto& c : test) {
 				const auto it = gIndex.find(c.global);
 				// a setting no settings file names: treat it as 0, which is what the game reads from a missing global
-				const int value = it == gIndex.end() ? 0 : gSettings[it->second].value.load();
+				const int value = it == gIndex.end() ? 0 : Effective(it->second);
 				if (value == c.value) {
 					any = true;
 					break;
@@ -309,6 +366,7 @@ namespace Plugin
 			gAvailable[i] = needs.empty() || std::ranges::any_of(needs, [](const std::string& p) { return Loaded(p); });
 		}
 		ApplyIni();
+		PulseCarryOver();
 		ApplyGlobals();
 		SaveSettings();  // so the file shows what the detected mods turned on
 		SKSE::log::info("settings: {} read from {} file(s), {} notes, {} spray markers, {} light copies; {} globals made in memory",
@@ -324,9 +382,9 @@ namespace Plugin
 	void ApplyGlobals()
 	{
 		std::lock_guard l{ gSettingsLock };
-		for (auto& s : gSettings) {
-			if (s.global) {
-				s.global->value = static_cast<float>(s.value);
+		for (std::size_t i = 0; i < gSettings.size(); ++i) {
+			if (gSettings[i].global) {
+				gSettings[i].global->value = static_cast<float>(Effective(i));
 			}
 		}
 		if (gRoute) {
@@ -472,7 +530,7 @@ namespace Plugin
 		}
 		std::ranges::transform(a_id, low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		const auto it = gIndex.find(std::string_view(low.data(), a_id.size()));
-		return it == gIndex.end() ? a_fallback : gSettings[it->second].value.load();
+		return it == gIndex.end() ? a_fallback : Effective(it->second);
 	}
 
 	bool LightsOff()

@@ -38,11 +38,9 @@ namespace Plugin
 
 	Family FamilyOf(std::string_view a_editorID, bool a_sparkStorm)
 	{
-		auto id = Lower(a_editorID);
-		for (auto at = id.find("voice"); at != std::string::npos; at = id.find("voice")) {
-			id.erase(at, 5);  // a shout's prefix: "voice" holds "ice"
-		}
-		if (Contains(id, "frost") || Contains(id, "ice")) {
+		const auto id = Lower(a_editorID);
+		// "ice" only as a word of its own: "Galvanic" + "Explosion", "MagicExplosion" and "Voice" hold it too
+		if (Contains(id, "frost") || ConfigText::HasWord(a_editorID, "ice")) {
 			return Family::kFrost;
 		}
 		if (Contains(id, "flame") || Contains(id, "fire")) {

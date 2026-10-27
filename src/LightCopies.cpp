@@ -401,7 +401,7 @@ namespace Plugin
 			};
 			const auto& lists = scene->GetRuntimeData();
 			look(lists.activeLights);
-			look(lists.lightQueueAdd);
+			look(QueuedLights(scene));
 			const bool  on = now != 0;
 			std::size_t swapped = 0;
 			const auto  draw = [](RE::NiPointLight& a_light, std::uint32_t a_bits) {
@@ -462,7 +462,7 @@ namespace Plugin
 			{
 				std::lock_guard l{ gFlickerLock };
 				VisitList(lights.activeLights, changed, ratio, moved);
-				VisitList(lights.lightQueueAdd, changed, ratio, moved);  // added before the next draw
+				VisitList(QueuedLights(scene), changed, ratio, moved);  // added before the next draw
 				if (!Scaling()) {
 					gFlickers.clear();  // Light Placer's own values stand from here on
 					Reindex();
@@ -658,13 +658,15 @@ namespace Plugin
 				}
 				family = it->second;
 			}
-			const auto color = family == Family::kNone ? std::nullopt : ArtHandColor(family);
-			const auto tinted = color ? PaintLightsUnder(root, *color) : 0;
+			const auto                  color = family == Family::kNone ? std::nullopt : ArtHandColor(family);
+			[[maybe_unused]] const auto tinted = color ? PaintLightsUnder(root, *color) : 0;
+#ifdef FADE_DEBUG_PAGE
 			if (static std::atomic<int> told = 0; family != Family::kNone && told < 12 && ++told) {
 				SKSE::log::info("[EXPLOSION-TINT] {} | model {} | family {} | color {} | {} light(s) tinted", Label(expl),
 					expl->GetModel() ? expl->GetModel() : "", static_cast<int>(family),
 					color ? std::format("{},{},{}", color->red, color->green, color->blue) : std::string("none"), tinted);
 			}
+#endif
 		}
 
 		// the element of a hazard a spell leaves, Family::kNone for a trap's or any other: the burning ground a spell explosion
@@ -730,10 +732,12 @@ namespace Plugin
 				own->GetLightRuntimeData().diffuse = { color->red / 255.0f, color->green / 255.0f, color->blue / 255.0f };
 			}
 			PaintLightsUnder(a_hazard->Get3D(), *color);
+#ifdef FADE_DEBUG_PAGE
 			if (static std::atomic<int> told = 0; told < 12 && ++told) {
 				SKSE::log::info("[HAZARD-TINT] {} | model {} | family {} | color {},{},{}", Label(form), form->GetModel(), static_cast<int>(family),
 					color->red, color->green, color->blue);
 			}
+#endif
 		}
 
 		// Without Light Placer an explosion's light is the game's own. On a model with no AttachLight node (the fire storms'
@@ -862,7 +866,7 @@ namespace Plugin
 					for (const auto& bs : rt.activeLights) {
 						active = active || (bs && bs->light.get() == light);
 					}
-					for (const auto& bs : rt.lightQueueAdd) {
+					for (const auto& bs : QueuedLights(scene)) {
 						queued = queued || (bs && bs->light.get() == light);
 					}
 				}
@@ -1058,7 +1062,12 @@ namespace Plugin
 		const float scale = static_cast<float>(brightness) / 100.0f * daylight;
 		const float stretch = static_cast<float>(reach) / 100.0f;
 		gBrightness = scale;
-		const bool  off = LightsOff();
+		const bool off = LightsOff();
+		// the look is put back only when "all lights off" turns: written on every daylight step it undid HoldFlicker's steady
+		// flags (the audit's M3)
+		static bool wasOff = false;
+		const bool  turned = off != wasOff;
+		wasOff = off;
 		std::size_t set = 0;
 		for (auto& c : LightCopies()) {
 			if (!c.form) {
@@ -1066,7 +1075,9 @@ namespace Plugin
 			}
 			if (c.original) {
 				// pass 0's copy of a game magic light: with every Illuminated light off it wears the game's own look
-				c.form->data = off ? c.original->data : c.madeData;
+				if (turned) {
+					c.form->data = off ? c.original->data : c.madeData;
+				}
 				if (off) {
 					c.form->fade = c.original->fade;
 					continue;

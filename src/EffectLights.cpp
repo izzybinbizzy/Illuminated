@@ -27,11 +27,11 @@ namespace Plugin
 
 		struct EffectTarget
 		{
-			RE::TESObjectLIGH** slot;  // the form's light
-			RE::TESObjectLIGH*  own;
+			RE::TESObjectLIGH** slot{ nullptr };  // the form's light
+			RE::TESObjectLIGH*  own{ nullptr };
 			std::string         model;
 			std::string         label;
-			bool                always;  // named or a poison spray: dark whatever the settings say
+			bool                always{ false };  // named or a poison spray: dark whatever the settings say
 		};
 		std::vector<EffectTarget> gEffectTargets;
 		const Coverage*           gEffectCoverage = nullptr;

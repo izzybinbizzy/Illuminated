@@ -238,6 +238,21 @@ namespace Plugin
 		}
 	}
 
+	std::vector<RE::NiPointer<RE::BSLight>> QueuedLights(RE::ShadowSceneNode* a_scene)
+	{
+		std::vector<RE::NiPointer<RE::BSLight>> out;
+		if (!a_scene) {
+			return out;
+		}
+		auto&               data = a_scene->GetRuntimeData();
+		RE::BSSpinLockGuard locker(data.lightQueueLock);
+		out.reserve(data.lightQueueAdd.size());
+		for (const auto& bs : data.lightQueueAdd) {
+			out.push_back(bs);
+		}
+		return out;
+	}
+
 	void KeepLightPlacerLights()
 	{
 		if (REL::Module::IsVR() || !REX::W32::GetModuleHandleA("po3_LightPlacer.dll")) {

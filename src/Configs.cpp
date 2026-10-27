@@ -51,6 +51,7 @@ namespace Plugin
 		// the beam rows Light Placer never sees (lagen move_beams, his rule "RELIGHT'S METHOD"): model -> its rows, read for their
 		// color by pass 6, which raises the beam's own light instead of hanging lights along it
 		std::unordered_map<std::string, std::vector<ConfigLight>> gStreamRows;
+		std::unordered_set<std::string>                           gCloudModels;  // Streams rows marked "cloud": a cone whose light stays where its cloud is
 		// our configs' "<config>|<light>" as Light Placer names a light (ConfigText.h TwinKey) -> the kinds of rows that name it
 		// (DynamicRow), so the Dynamic Lighting switch can swap each twin pair at once (LightCopies.cpp)
 		std::unordered_map<std::string, std::uint8_t> gTwinRows;
@@ -58,7 +59,7 @@ namespace Plugin
 		// each element's own hand art and the pick that recolors it: kept on every route, so a stream's lights match the hand
 		struct ArtHand
 		{
-			Family           family;
+			Family           family{ Family::kNone };
 			std::string_view model;
 			std::string_view global;  // lower case, as ParseConditions keeps it
 		};
@@ -181,10 +182,15 @@ namespace Plugin
 					}
 				}
 				if (a_stream) {
+					const auto* cloud = entry.Get("cloud");
+					const bool  isCloud = cloud && cloud->kind == Json::Kind::kBool && cloud->text == "true";
 					if (const auto* models = entry.Get("models"); models && models->kind == Json::Kind::kArray && !models->items.empty()) {
 						for (const auto& m : models->items) {
 							auto& to = gStreamRows[NormalPath(m.text)];
 							to.insert(to.end(), rows.begin(), rows.end());
+							if (isCloud) {
+								gCloudModels.insert(NormalPath(m.text));
+							}
 						}
 					} else {
 						// a beam row is keyed by its model (lagen move_beams); one claimed any other way would be lost here unseen
@@ -292,6 +298,7 @@ namespace Plugin
 		}
 		// the beam rows (lagen move_beams): Data\SKSE\Plugins\Illuminated\Streams, a folder Light Placer never reads
 		decltype(gStreamRows){}.swap(gStreamRows);
+		decltype(gCloudModels){}.swap(gCloudModels);
 		{
 			std::error_code ec;
 			const auto      dir = OurFolder() / "Streams";
@@ -326,6 +333,11 @@ namespace Plugin
 			}
 		}
 		return nullptr;
+	}
+
+	bool CloudModel(const std::string& a_model)
+	{
+		return gCloudModels.contains(a_model);
 	}
 
 	std::optional<RE::Color> ArtHandColor(Family a_family)

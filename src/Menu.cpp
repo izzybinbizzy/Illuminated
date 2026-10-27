@@ -111,11 +111,36 @@ namespace Plugin
 			}
 		}
 
+		void SetById(std::string_view a_id, int a_value);
+
+		constexpr std::string_view kDynamicLightingId = "IlluminatedDynamicLighting";
+		constexpr std::string_view kPulseShapesId = "IlluminatedPulseShapes";
+
+		// Dynamic Lighting as one pick of three: Off, Regular (the pulsing as before), Realistic (a shape per kind of spell)
+		void DrawDynamicLighting(const Setting& a_s)
+		{
+			const std::array<const char*, 3> items{ T("Off"), T("Regular"), T("Realistic") };
+			int                              v = a_s.value.load() == 0 ? 0 : SettingValue(kPulseShapesId, 0) != 0 ? 2 :
+			                                                                                                        1;
+			if (ImGuiMCP::Combo(T(a_s.label.c_str()), &v, items.data(), static_cast<int>(items.size()))) {
+				SetById(kPulseShapesId, v == 2 ? 1 : 0);
+				SetById(kDynamicLightingId, v == 0 ? 0 : 1);
+			}
+			MenuStyle::Tip(T("Off: steady lights. Regular: every light breathes the same way. Realistic: each kind of spell pulses in its own way - fire flickers, absorb spells beat like a heart, healing breathes slowly."));
+		}
+
 		void DrawSetting(std::size_t a_index, Setting& a_s)
 		{
 			ImGuiMCP::PushID(static_cast<int>(a_index));
 			if (!SettingAvailable(a_s)) {
 				ImGuiMCP::TextDisabled(T("%s - not installed"), T(a_s.label.c_str()));
+				ImGuiMCP::PopID();
+				return;
+			}
+			if (a_s.id == kPulseShapesId || (a_s.id == kDynamicLightingId && SettingValue(kPulseShapesId, -1) >= 0)) {
+				if (a_s.id == kDynamicLightingId) {
+					DrawDynamicLighting(a_s);
+				}
 				ImGuiMCP::PopID();
 				return;
 			}
@@ -195,7 +220,10 @@ namespace Plugin
 			std::vector<std::pair<std::string, UserPreset>> out;
 			std::ifstream                                   in(PresetsPath());
 			std::string                                     line;
-			while (std::getline(in, line)) {
+			for (bool first = true; std::getline(in, line); first = false) {
+				if (first && line.starts_with("\xEF\xBB\xBF")) {
+					line.erase(0, 3);  // a file saved "UTF-8 with BOM" would lose its first section
+				}
 				const auto t = Trim(line);
 				if (t.empty() || t[0] == ';' || t[0] == '#') {
 					continue;

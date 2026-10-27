@@ -427,6 +427,13 @@ namespace Plugin
 		// a steady one takes its record's fade too, so Brightness and Dim in daylight reach a hand already lit (run 9,
 		// the game set it once, when the spell was readied, and it never moved after); a flicker plays its keys
 		data.fade = RecordFadeNow(record, light);
+		if (PulseRealistic()) {
+			const auto* spell = a_caster->currentSpell;
+			const auto* item = spell ? spell->GetCostliestEffectItem() : nullptr;
+			const auto  kind = LightKit::PulseKindOf(item ? item->baseEffect : nullptr);
+			const auto  seed = static_cast<std::uint32_t>(std::hash<const void*>{}(light));
+			data.fade *= Pulse::Factor(kind, gClock.load(std::memory_order_relaxed), seed);
+		}
 		// on Community Shaders the cutoff the sliders gave the record reaches the lit hand too (LightKit.h's two words)
 		if (InverseSquare() && (record->data.flags.underlying() & LightKit::kRecordInverseSquare)) {
 			LightKit::Isl::SetCutoff(light, record->data.fallofExponent, 0.01f, 1.0f);

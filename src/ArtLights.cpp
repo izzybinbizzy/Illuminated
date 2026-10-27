@@ -34,13 +34,14 @@ namespace Plugin
 
 		struct Kept
 		{
-			RE::NiPointer<RE::NiRefObject>  owner;  // the art effect or the weapon part it is for (held: its address stays its own)
-			RE::NiPointer<RE::NiNode>       root;   // the model it hangs on
-			RE::NiPointer<RE::NiPointLight> light;
-			RE::NiPointer<RE::BSLight>      bs;
-			const RE::TESObjectLIGH*        record{ nullptr };
-			const RE::NiColor*              hue{ nullptr };  // FleshFX's hue for a flesh spell's light (LightKit.h), or none
-			bool                            seen{ false };
+			RE::NiPointer<RE::NiRefObject>   owner;  // the art effect or the weapon part it is for (held: its address stays its own)
+			RE::NiPointer<RE::NiNode>        root;   // the model it hangs on
+			RE::NiPointer<RE::NiPointLight>  light;
+			RE::NiPointer<RE::BSLight>       bs;
+			const RE::TESObjectLIGH*         record{ nullptr };
+			const RE::NiColor*               hue{ nullptr };     // FleshFX's hue for a flesh spell's light (LightKit.h), or none
+			const RE::ShaderReferenceEffect* shader{ nullptr };  // a body shader's effect, held by owner: FrozenFade reads its age
+			bool                             seen{ false };
 		};
 
 		std::unordered_map<const void*, Kept> gKept;  // main thread only
@@ -82,7 +83,7 @@ namespace Plugin
 			const auto&       c = a_kept.record->data.color;
 			const RE::NiColor own{ c.red / 255.0f, c.green / 255.0f, c.blue / 255.0f };
 			data.diffuse = a_kept.hue ? LightKit::FleshFx::Shown(*a_kept.hue, own) : own;
-			data.fade = RecordFadeNow(a_kept.record, a_kept.light.get());
+			data.fade = RecordFadeNow(a_kept.record, a_kept.light.get()) * FrozenFade(a_kept.shader);
 			const float radius = (std::max)(static_cast<float>(a_kept.record->data.radius), 1.0f);
 			if (data.radius.x != radius) {
 				data.radius = { radius, radius, LightKit::kLightSize };
@@ -125,7 +126,7 @@ namespace Plugin
 
 		// the light this owner wants on this model now (a_record nullptr: none)
 		void Keep(RE::NiRefObject* a_owner, RE::NiAVObject* a_model, const RE::TESObjectLIGH* a_record, RE::ShadowSceneNode* a_scene,
-			const RE::NiColor* a_hue = nullptr)
+			const RE::NiColor* a_hue = nullptr, const RE::ShaderReferenceEffect* a_shader = nullptr)
 		{
 			auto* root = a_model ? a_model->AsNode() : nullptr;
 			if (!a_owner || !root || !a_record) {
@@ -136,6 +137,7 @@ namespace Plugin
 				Drop(kept, a_scene);  // the model was rebuilt (a draw, a view change): a new one
 			}
 			kept.hue = a_hue;  // before Make, which draws the light's first color
+			kept.shader = a_shader;
 			if (!kept.light) {
 				kept.owner.reset(a_owner);
 				if (!Make(kept, root, a_record, a_scene)) {
@@ -147,12 +149,13 @@ namespace Plugin
 			Follow(kept);
 		}
 
-		// the five flesh shaders in this load order (LightKit::FleshFx::Resolved, found at data load) and the key their config
-		// rows are kept under (Configs.cpp: "formid:" + the editor ID the configs claim) - built on the first frame
+		// the body shaders followed here and the key their config rows are kept under (Configs.cpp: "formid:" + the editor ID
+		// the configs claim): the five flesh shaders in this load order (LightKit::FleshFx::Resolved) and FEC's lit ones
+		// (FleshLights.cpp NoteFecShaders), both found at data load - built on the first frame
 		const std::unordered_map<const RE::TESEffectShader*, std::string>& FleshShaders()
 		{
 			static const auto shaders = [] {
-				std::unordered_map<const RE::TESEffectShader*, std::string> out;
+				std::unordered_map<const RE::TESEffectShader*, std::string> out(FecShaders());
 				for (const auto& [shader, look] : LightKit::FleshFx::Resolved()) {
 					out.emplace(shader, FormKey(Lower(look->editorID)));
 				}
@@ -173,7 +176,7 @@ namespace Plugin
 			if (!root) {
 				return;
 			}
-			Keep(a_effect, root, record, a_scene, LightKit::FleshFx::HueOf(a_effect->effectData));
+			Keep(a_effect, root, record, a_scene, LightKit::FleshFx::HueOf(a_effect->effectData), a_effect);
 		}
 
 		// the weapon parts an art light already hangs under (measured on Vanilla: a bound sword's configs light both its

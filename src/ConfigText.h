@@ -280,11 +280,12 @@ namespace ConfigText
 		Json        value;
 	};
 
+	// the LAST of two equal keys, as a JSON reader keeps it (each one is read over the one before)
 	inline const Json* Json::Get(std::string_view a_key) const
 	{
-		for (const auto& [k, v] : fields) {
-			if (k == a_key) {
-				return &v;
+		for (auto it = fields.rbegin(); it != fields.rend(); ++it) {
+			if (it->key == a_key) {
+				return &it->value;
 			}
 		}
 		return nullptr;
@@ -409,6 +410,9 @@ namespace ConfigText
 				while (i < s.size() && s[i] != ',' && s[i] != ']' && s[i] != '}' && !IsSpace(s[i])) {
 					++i;
 				}
+				if (i == start) {
+					bad = true;  // no value where one belongs: "[1, ]", "[1,,2]", a key with nothing after its colon
+				}
 				v.text = s.substr(start, i - start);
 				v.kind = v.text == "true" || v.text == "false" ? Json::Kind::kBool : v.text == "null" ? Json::Kind::kNull :
 				                                                                                        Json::Kind::kNumber;
@@ -506,4 +510,30 @@ namespace ConfigText
 	// had: the raised one only while its own setting is on AND "all lights off" is not (his report 2026-10-20, "all lights off is
 	// clearly not turning off spray and stream lights" - pass 4's copies never read that switch). Off, the game's own light is back
 	[[nodiscard]] constexpr bool WearsRaised(bool a_settingOn, bool a_allLightsOff) noexcept { return a_settingOn && !a_allLightsOff; }
+
+	// whether an editor ID holds a_word (lower case) as a word of its own: at its start, after a non-letter, or as a capitalized
+	// part ("MAGIceSpike", "VoiceIceForm") - never inside another word ("Galvanic" + "Explosion", "Magic", "APPRENTICE")
+	[[nodiscard]] inline bool HasWord(std::string_view a_id, std::string_view a_word) noexcept
+	{
+		const auto letter = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); };
+		const auto lower = [](char c) { return c >= 'a' && c <= 'z'; };
+		if (a_word.empty() || a_id.size() < a_word.size()) {
+			return false;
+		}
+		for (std::size_t i = 0; i + a_word.size() <= a_id.size(); ++i) {
+			bool same = true;
+			for (std::size_t k = 0; k < a_word.size() && same; ++k) {
+				const char c = a_id[i + k];
+				same = (c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c) == a_word[k];
+			}
+			if (!same) {
+				continue;
+			}
+			const bool capital = a_id[i] >= 'A' && a_id[i] <= 'Z' && ((i > 0 && lower(a_id[i - 1])) || (i + 1 < a_id.size() && lower(a_id[i + 1])));
+			if (i == 0 || !letter(a_id[i - 1]) || capital) {
+				return true;
+			}
+		}
+		return false;
+	}
 }

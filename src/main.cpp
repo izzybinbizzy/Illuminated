@@ -85,6 +85,7 @@ namespace
 		const auto& cov = ReadCoverage();
 		SKSE::log::info("configs: {} file(s), {} lit model(s), {} shader name(s)", cov.files, cov.models.size(), cov.shaders.size());
 		LightKit::FleshFx::Find();  // which flesh spells wear FleshFX's look: their lights take its hue (FleshLights.cpp)
+		NoteFecShaders(cov);        // before the passes forget the editor IDs
 		NoteSpellHazards();
 		FindShadowSigns();  // once here, never on the first frame of play
 		if (record) {
@@ -149,6 +150,7 @@ namespace
 		case SKSE::MessagingInterface::kPreLoadGame:
 			DropArtLights();  // the art and weapons they hang on are the old game's
 			DropGroundLights();
+			DropStreamLights();
 			DropSneakFade();
 			Fade::OnGameLoading();
 			break;
@@ -161,6 +163,7 @@ namespace
 				// no kPreLoadGame comes before a new game: the last game's lights go here
 				DropArtLights();
 				DropGroundLights();
+				DropStreamLights();
 				DropSneakFade();
 				Fade::OnGameLoading();
 			}
