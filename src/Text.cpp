@@ -39,8 +39,8 @@ namespace Plugin
 	Family FamilyOf(std::string_view a_editorID, bool a_sparkStorm)
 	{
 		const auto id = Lower(a_editorID);
-		// "ice" only as a word of its own: "Galvanic" + "Explosion", "MagicExplosion" and "Voice" hold it too
-		if (Contains(id, "frost") || ConfigText::HasWord(a_editorID, "ice")) {
+		// "ice" only where it means ice: "Galvanic" + "Explosion", "MagicExplosion" and "Voice" hold it too (ConfigText::NamesIce)
+		if (Contains(id, "frost") || ConfigText::NamesIce(a_editorID)) {
 			return Family::kFrost;
 		}
 		if (Contains(id, "flame") || Contains(id, "fire")) {

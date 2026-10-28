@@ -20,6 +20,7 @@
 #include "LightMath.h"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -531,6 +532,48 @@ namespace ConfigText
 			}
 			const bool capital = a_id[i] >= 'A' && a_id[i] <= 'Z' && ((i > 0 && lower(a_id[i - 1])) || (i + 1 < a_id.size() && lower(a_id[i + 1])));
 			if (i == 0 || !letter(a_id[i - 1]) || capital) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// whether a name says "ice" (frost). A mixed-case editor ID: as a word of its own (HasWord). A name with no case to read (a
+	// model file such as "fxicecloak01", "APPRENTICE"): anywhere, except inside a word that merely holds it ("voice", "apprentice"
+	// ...) or across an "-ic" word's end ("magiceffect", "staticexplosion")
+	[[nodiscard]] inline bool NamesIce(std::string_view a_id) noexcept
+	{
+		const bool upper = std::ranges::any_of(a_id, [](char c) { return c >= 'A' && c <= 'Z'; });
+		const bool lower = std::ranges::any_of(a_id, [](char c) { return c >= 'a' && c <= 'z'; });
+		if (upper && lower) {
+			return HasWord(a_id, "ice");
+		}
+		constexpr std::array<std::string_view, 22> kHolders{ "voice", "practice", "apprentice", "sacrifice", "artifice", "officer", "oficer",
+			"office", "choice", "chalice", "cowardice", "justice", "service", "device", "notice", "police", "novice", "malice", "avarice",
+			"lattice", "accomplice", "precipice" };
+		constexpr std::array<std::string_view, 4>  kAfterIc{ "eff", "exp", "ench", "elem" };
+		const auto                                 at = [a_id](std::size_t a_from, std::string_view a_word) {
+			if (a_from + a_word.size() > a_id.size()) {
+				return false;
+			}
+			for (std::size_t k = 0; k < a_word.size(); ++k) {
+				const char c = a_id[a_from + k];
+				if ((c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c) != a_word[k]) {
+					return false;
+				}
+			}
+			return true;
+		};
+		for (std::size_t i = 0; i + 3 <= a_id.size(); ++i) {
+			if (!at(i, "ice")) {
+				continue;
+			}
+			const bool held = std::ranges::any_of(kHolders, [&](std::string_view w) {
+				const auto o = w.find("ice");
+				return i >= o && at(i - o, w);
+			});
+			const bool junction = std::ranges::any_of(kAfterIc, [&](std::string_view w) { return at(i + 2, w); });
+			if (!held && !junction) {
 				return true;
 			}
 		}

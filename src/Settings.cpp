@@ -241,7 +241,8 @@ namespace Plugin
 
 	// ------------------------------------------------------------------ Dynamic Lighting: Off / Regular / Realistic
 	// the data's Dynamic Lighting (0 Off, 1 On) and the plugin's pulse pick (0 Regular, 1 Realistic) are one menu pick; under
-	// Realistic every light reads Dynamic Lighting as off (the steady twins hang) and our passes give it its kind's shape (Pulse.h)
+	// Realistic the hand lights take their spell kind's shape (Pulse.h, RecordLights.cpp) and every other light keeps the
+	// Regular flicker, as in RELight
 	namespace
 	{
 		constexpr std::string_view kDynamicId = "IlluminatedDynamicLighting";
@@ -254,12 +255,6 @@ namespace Plugin
 		{
 			return RecordRoute() && gDynamicAt < gSettings.size() && gPulseAt < gSettings.size() && gSettings[gDynamicAt].value.load() != 0 &&
 			       gSettings[gPulseAt].value.load() != 0;
-		}
-
-		// the value a light, a condition and the game's global read
-		[[nodiscard]] int Effective(std::size_t a_index)
-		{
-			return a_index == gDynamicAt && Realistic() ? 0 : gSettings[a_index].value.load();
 		}
 
 		// a new player starts on Realistic; one who saved Dynamic Lighting keeps it (On = Regular)
@@ -299,7 +294,7 @@ namespace Plugin
 			for (const auto& c : test) {
 				const auto it = gIndex.find(c.global);
 				// a setting no settings file names: treat it as 0, which is what the game reads from a missing global
-				const int value = it == gIndex.end() ? 0 : Effective(it->second);
+				const int value = it == gIndex.end() ? 0 : gSettings[it->second].value.load();
 				if (value == c.value) {
 					any = true;
 					break;
@@ -382,9 +377,9 @@ namespace Plugin
 	void ApplyGlobals()
 	{
 		std::lock_guard l{ gSettingsLock };
-		for (std::size_t i = 0; i < gSettings.size(); ++i) {
-			if (gSettings[i].global) {
-				gSettings[i].global->value = static_cast<float>(Effective(i));
+		for (auto& s : gSettings) {
+			if (s.global) {
+				s.global->value = static_cast<float>(s.value);
 			}
 		}
 		if (gRoute) {
@@ -530,7 +525,7 @@ namespace Plugin
 		}
 		std::ranges::transform(a_id, low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		const auto it = gIndex.find(std::string_view(low.data(), a_id.size()));
-		return it == gIndex.end() ? a_fallback : Effective(it->second);
+		return it == gIndex.end() ? a_fallback : gSettings[it->second].value.load();
 	}
 
 	bool LightsOff()
