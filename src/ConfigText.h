@@ -548,9 +548,11 @@ namespace ConfigText
 		if (upper && lower) {
 			return HasWord(a_id, "ice");
 		}
-		constexpr std::array<std::string_view, 22> kHolders{ "voice", "practice", "apprentice", "sacrifice", "artifice", "officer", "oficer",
+		// the shortest such words (lice, dice, nice, vice) stay out: real ice names hold them ("bvliceprojectile")
+		constexpr std::array<std::string_view, 32> kHolders{ "voice", "practice", "apprentice", "sacrifice", "artifice", "officer", "oficer",
 			"office", "choice", "chalice", "cowardice", "justice", "service", "device", "notice", "police", "novice", "malice", "avarice",
-			"lattice", "accomplice", "precipice" };
+			"lattice", "accomplice", "precipice", "slice", "spice", "juice", "poultice", "solstice", "edifice", "crevice", "licence",
+			"price", "twice" };
 		constexpr std::array<std::string_view, 4>  kAfterIc{ "eff", "exp", "ench", "elem" };
 		const auto                                 at = [a_id](std::size_t a_from, std::string_view a_word) {
 			if (a_from + a_word.size() > a_id.size()) {
