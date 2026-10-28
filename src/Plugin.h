@@ -131,7 +131,7 @@ namespace Plugin
 	[[nodiscard]] int                             AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
 	[[nodiscard]] int                             SettingValue(std::string_view a_id, int a_fallback);
 	[[nodiscard]] bool                            LightsOff();        // Performance > all of Illuminated's lights off (his switch)
-	[[nodiscard]] bool                            PulseRealistic();   // Dynamic Lighting is Realistic: each light pulses in its kind's shape (Pulse.h)
+	[[nodiscard]] bool                            PulseRealistic();   // Dynamic Lighting is Realistic: hand lights and rows pulse in their kind's shape (Pulse.h)
 	[[nodiscard]] bool                            PerformanceMode();  // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
 	[[nodiscard]] bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();

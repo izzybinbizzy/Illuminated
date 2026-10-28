@@ -241,8 +241,8 @@ namespace Plugin
 
 	// ------------------------------------------------------------------ Dynamic Lighting: Off / Regular / Realistic
 	// the data's Dynamic Lighting (0 Off, 1 On) and the plugin's pulse pick (0 Regular, 1 Realistic) are one menu pick; under
-	// Realistic the hand lights take their spell kind's shape (Pulse.h, RecordLights.cpp) and every other light keeps the
-	// Regular flicker, as in RELight
+	// Realistic the hand lights and the rows along sprays, streams and bolts take their spell kind's shape (Pulse.h,
+	// RecordLights.cpp, StreamLights.cpp MoveRows) and every other light keeps the Regular flicker, as in RELight
 	namespace
 	{
 		constexpr std::string_view kDynamicId = "IlluminatedDynamicLighting";
