@@ -11,6 +11,7 @@ namespace Plugin
 	// ------------------------------------------------------------------ pass 3: the poison rune's casting art
 	constexpr std::string_view kPoisonRuneEffect = "DLC2PoisonRuneFFLocation";
 	constexpr std::string_view kPoisonRuneArtModel = "magic\\poisonrunefxhand01.nif";
+	constexpr RE::FormID       kGameRuneArt = 0x0006DE85;  // ParalyzeFXHand01 (Skyrim.esm), the art Dragonborn gives the rune
 
 	void PoisonRuneArt()
 	{
@@ -23,6 +24,11 @@ namespace Plugin
 		}
 		if (!rune) {
 			SKSE::log::info("poison rune: {} is not in this load order; nothing to do", kPoisonRuneEffect);
+			return;
+		}
+		// another mod's casting art on the rune is that mod's pick: replaced only while it is the game's own, or none (L7)
+		if (const auto* had = rune->data.castingArt; had && had->GetFormID() != kGameRuneArt) {
+			SKSE::log::info("poison rune: {} keeps its casting art {:08X}, set by another mod", Label(rune), had->GetFormID());
 			return;
 		}
 		auto* art = NewForm<RE::BGSArtObject>();

@@ -260,6 +260,9 @@ namespace Plugin
 		// each time, and it is the base that has to be capped
 		std::unordered_map<RE::FormID, std::size_t> gLiveCount;
 		std::mutex                                  gLiveLock;
+		// a projectile dropped under gLiveLock is let go only after it: its last reference running the game's release (our
+		// hooked Release3DRelatedData -> DropLights) inside the lock would take it again on the same thread (L12)
+		std::vector<RE::NiPointer<RE::TESObjectREFR>> gLetGo;
 		// what a loader thread built or released, waiting for the main thread (under gLiveLock). The reference and the 3D are
 		// held (refcounted) - never a handle made off the main thread (the fading module's rule; re-score issue 2), and a
 		// queued 3D's address is never another's when its turn comes (the cap's sweep may have let its entry go first)
@@ -299,7 +302,17 @@ namespace Plugin
 		};
 		std::vector<Cloud>    gClouds;
 		constexpr std::size_t kMostClouds = 8;
-		constexpr const char* kCloudName = "IlluminatedStreamCloud";
+		// a cone whose cloud light could not hang yet (its 3D not in the world when it loads): tried every frame for a while,
+		// as RELight's Rows.cpp does
+		struct CloudWait
+		{
+			RE::NiPointer<RE::TESObjectREFR> ref;
+			RE::FormID                       base{ 0 };
+			std::uint32_t                    frames{ 0 };
+		};
+		std::vector<CloudWait>  gCloudWait;
+		constexpr std::uint32_t kCloudTries = 600;  // about ten seconds of frames: a cone's cast and its cloud's life
+		constexpr const char*   kCloudName = "IlluminatedStreamCloud";
 
 		// every ward belongs to Dynamic Wards: when that mod is here, this pass does not light a ward
 		bool WardLightsOn()
@@ -310,11 +323,6 @@ namespace Plugin
 		float Percent(std::string_view a_id)
 		{
 			return static_cast<float>(SettingValue(a_id, 100)) / 100.0f;
-		}
-
-		RE::ShadowSceneNode* SceneNode()
-		{
-			return RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
 		}
 
 		bool OnMainThread()
@@ -359,23 +367,33 @@ namespace Plugin
 					}
 				}
 			}
+			if (it->second.beam) {
+				gLetGo.push_back(std::move(it->second.beam));
+			}
 			gLive.erase(it);  // the last reference to the projectile's 3D may go here, on the main thread
+		}
+
+		// every live 3D a test picks, let go: all collected first, as Forget erases from gLive. gLiveLock is held by the caller.
+		template <class Pick>
+		std::size_t ForgetIf(RE::ShadowSceneNode* a_scene, Pick a_pick)
+		{
+			std::vector<const RE::NiAVObject*> picked;
+			for (const auto& [root, live] : gLive) {
+				if (a_pick(live)) {
+					picked.push_back(root);
+				}
+			}
+			for (const auto* root : picked) {
+				Forget(root, a_scene);
+			}
+			return picked.size();
 		}
 
 		// the sweep: a projectile 3D the game has taken out of the world (no parent) is not live, whether or not its release
 		// reached this pass. gLiveLock is held by the caller.
 		std::size_t SweepGone(RE::ShadowSceneNode* a_scene)
 		{
-			std::vector<const RE::NiAVObject*> gone;
-			for (const auto& [root, live] : gLive) {
-				if (!live.root || !live.root->parent) {
-					gone.push_back(root);
-				}
-			}
-			for (const auto* root : gone) {
-				Forget(root, a_scene);
-			}
-			return gone.size();
+			return ForgetIf(a_scene, [](const Live& a_live) { return !a_live.root || !a_live.root->parent; });
 		}
 
 		// ------------------------------------------------------------------ the light on one live ward
@@ -419,7 +437,7 @@ namespace Plugin
 				LightKit::Isl::SetOwn(a_light);
 				LightKit::Isl::SetCutoff(a_light, kDrawnTimes * kK * data.fade / IslRoom(a_radius));
 			} else {
-				data.ambient = { a_color.red * 0.1f, a_color.green * 0.1f, a_color.blue * 0.1f };
+				data.ambient = LightKit::Tenth(a_color);
 			}
 		}
 
@@ -570,10 +588,11 @@ namespace Plugin
 					}
 				}
 				// under Realistic the row pulses in its spell's shape, as the hand casting it does (BeamRow::Pulsing)
-				const auto  kind = flickers && PulseRealistic() ? LightKit::PulseKindOfSpell(spell) : Pulse::Kind::kNone;
-				const auto  seed = static_cast<std::uint32_t>(std::hash<const void*>{}(live.root.get()));
-				const auto  toLocal = live.root->world.Invert();
-				const auto  row = BeamRow::Lay(length, static_cast<int>(live.lights.size()), rec->second.reach, kRowHeight);
+				const auto                        kind = flickers && PulseRealistic() ? LightKit::PulseKindOfSpell(spell) : Pulse::Kind::kNone;
+				const auto                        seed = static_cast<std::uint32_t>(std::hash<const void*>{}(live.root.get()));
+				const auto                        toLocal = live.root->world.Invert();
+				static std::vector<BeamRow::Spot> row;  // main thread; its storage kept from row to row and frame to frame
+				BeamRow::Lay(row, length, static_cast<int>(live.lights.size()), rec->second.reach, kRowHeight);
 				const float scale = live.root->world.scale > 0.0f ? live.root->world.scale : 1.0f;
 				for (std::size_t i = 0; i < live.lights.size(); ++i) {
 					auto* bs = live.lights[i].get();
@@ -626,30 +645,30 @@ namespace Plugin
 			}
 		}
 
-		// one light where a cone's cloud is, hung beside the cone and dark until MoveClouds places it. Main thread.
-		void HangCloud(RE::TESObjectREFR* a_ref, RE::NiNode* a_root, RE::FormID a_base)
+		// one light where a cone's cloud is, hung beside the cone and dark until MoveClouds places it; false: not now, try again
+		// (its 3D not in the world yet - a cone has no parent node when its 3D loads). Main thread.
+		[[nodiscard]] bool HangCloud(RE::TESObjectREFR* a_ref, RE::NiNode* a_root, RE::FormID a_base)
 		{
-			auto*      scene = SceneNode();
+			auto*      scene = LightKit::Scene();
 			auto*      holder = a_root->parent;
 			const bool listed = std::ranges::any_of(gClouds, [a_root](const Cloud& a_c) { return a_c.root.get() == a_root; });
-			if (!scene || !holder || listed || gClouds.size() >= kMostClouds || !CloudOn(a_base)) {
-				return;
+			if (listed) {
+				return true;
+			}
+			if (!scene || !holder || gClouds.size() >= kMostClouds || !CloudOn(a_base)) {
+				return false;
 			}
 			auto* light = LightKit::CloneLight();
 			if (!light) {
-				return;
+				return true;
 			}
 			light->name = kCloudName;
 			Dress(light, { 1.0f, 1.0f, 1.0f }, 0.0f, 1.0f, InverseSquare());
 			light->local.translate = holder->world.Invert() * a_ref->GetPosition();
 			light->local.scale = 1.0f;
-			holder->AttachChild(light, true);
-			RE::NiUpdateData update{};
-			light->Update(update);
-			auto* bs = LightKit::AddToScene(scene, light, 2.0f);
+			auto* bs = LightKit::Hang(holder, light, scene, 2.0f);
 			if (!bs) {
-				holder->DetachChild(light);
-				return;
+				return false;
 			}
 			const auto* proj = a_ref->As<RE::Projectile>();
 			const auto* spell = proj ? proj->GetProjectileRuntimeData().spell : nullptr;
@@ -661,6 +680,7 @@ namespace Plugin
 				SKSE::log::info("[STREAM-CLOUD] {} | one light where its cloud is, held {:.1f} s after the cone ends", Label(a_ref->GetBaseObject()),
 					BeamRow::kCloudLife);
 			}
+			return true;
 		}
 
 		// one cloud's light this frame: on its cone's path while the cone flies, then where it was, fading out over the cloud's
@@ -702,7 +722,7 @@ namespace Plugin
 
 		void MoveClouds()
 		{
-			auto*       scene = SceneNode();
+			auto*       scene = LightKit::Scene();
 			const float delta = std::clamp(RE::GetSecondsSinceLastFrame(), 0.0f, 0.25f);
 			for (auto it = gClouds.begin(); it != gClouds.end();) {
 				if (MoveCloud(*it, delta)) {
@@ -718,13 +738,16 @@ namespace Plugin
 		// Main thread.
 		void HangRow(RE::TESObjectREFR* a_ref, RE::NiNode* a_root, RE::FormID a_base, const RowRecipe& a_rec)
 		{
-			auto* scene = SceneNode();
+			auto* scene = LightKit::Scene();
 			auto* proj = a_ref->As<RE::Projectile>();
 			if (!scene || !proj) {
 				return;
 			}
 			if (a_rec.cloud) {
-				HangCloud(a_ref, a_root, a_base);  // one light where its cloud is, not a row along the cone
+				// one light where its cloud is, not a row along the cone; not hangable yet: tried every frame for a while
+				if (!HangCloud(a_ref, a_root, a_base) && gCloudWait.size() < kMostClouds * 4) {
+					gCloudWait.push_back({ RE::NiPointer<RE::TESObjectREFR>(a_ref), a_base });
+				}
 				return;
 			}
 			if (!RowOn(a_rec)) {
@@ -759,13 +782,8 @@ namespace Plugin
 				Dress(light, a_rec.color, 0.0f, 1.0f, isl);  // dark until MoveRows lays it out this frame
 				light->local.translate = {};
 				light->local.scale = 1.0f;
-				a_root->AttachChild(light, true);
-				RE::NiUpdateData update{};
-				light->Update(update);
-				if (auto* bs = LightKit::AddToScene(scene, light, 2.0f)) {
+				if (auto* bs = LightKit::Hang(a_root, light, scene, 2.0f)) {
 					made.emplace_back(bs);
-				} else {
-					a_root->DetachChild(light);
 				}
 			}
 			static std::size_t told = 0;
@@ -814,7 +832,7 @@ namespace Plugin
 				Told("its setting is off", a_ref);
 				return;
 			}
-			auto* scene = SceneNode();
+			auto* scene = LightKit::Scene();
 			if (!scene) {
 				Told("the game has no shadow scene node right now", a_ref);
 				return;
@@ -856,7 +874,7 @@ namespace Plugin
 				// without this a light has no attenuation of its own and never brightens anything (Light Placer does it too)
 				light->SetLightAttenuation(radius);
 				if (!isl) {  // after SetLightAttenuation, which writes the same two words
-					data.ambient = { r.color.red * 0.1f, r.color.green * 0.1f, r.color.blue * 0.1f };
+					data.ambient = LightKit::Tenth(r.color);
 				}
 				// inverse square flag and cutoff, after SetLightAttenuation - Community Shaders only
 				if (isl) {
@@ -865,14 +883,8 @@ namespace Plugin
 				}
 				light->local.translate = {};
 				light->local.scale = 1.0f;
-				parent->AttachChild(light, true);
-				// give it a world position now, rather than waiting for whatever updates the projectile next
-				RE::NiUpdateData update{};
-				light->Update(update);
-				if (auto* bs = LightKit::AddToScene(scene, light, r.falloff)) {
+				if (auto* bs = LightKit::Hang(parent, light, scene, r.falloff)) {
 					made.emplace_back(bs);
-				} else {
-					parent->DetachChild(light);
 				}
 			}
 			// the first few are logged, so the log says whether this pass is doing anything
@@ -907,7 +919,7 @@ namespace Plugin
 				return;
 			}
 			if (OnMainThread()) {
-				Forget(root, SceneNode());
+				Forget(root, LightKit::Scene());
 			} else {
 				gToDrop.emplace_back(root);
 			}
@@ -1136,27 +1148,40 @@ namespace Plugin
 	// once a frame, on the main thread - what the loader threads left to do
 	void DropStreamLights()
 	{
-		auto*                              scene = SceneNode();
-		std::lock_guard                    l{ gLiveLock };
-		std::vector<const RE::NiAVObject*> all;
-		for (const auto& [root, live] : gLive) {
-			all.push_back(root);
-		}
-		for (const auto* root : all) {
-			Forget(root, scene);
-		}
+		auto* scene = LightKit::Scene();
+		// every projectile this drops is let go after the lock: declared before it, so it goes last (L12)
+		std::vector<RE::NiPointer<RE::TESObjectREFR>> letGo;
+		std::lock_guard                               l{ gLiveLock };
+		ForgetIf(scene, [](const Live&) { return true; });
+		letGo.insert(letGo.end(), std::make_move_iterator(gToHang.begin()), std::make_move_iterator(gToHang.end()));
 		gToHang.clear();
 		gToDrop.clear();
 		for (auto& cloud : gClouds) {
 			DropCloud(cloud, scene);
+			letGo.push_back(std::move(cloud.ref));
 		}
 		gClouds.clear();
+		for (auto& wait : gCloudWait) {
+			letGo.push_back(std::move(wait.ref));
+		}
+		gCloudWait.clear();
+		letGo.insert(letGo.end(), std::make_move_iterator(gParkedRows.begin()), std::make_move_iterator(gParkedRows.end()));
 		gParkedRows.clear();
+		letGo.insert(letGo.end(), std::make_move_iterator(gLetGo.begin()), std::make_move_iterator(gLetGo.end()));
+		gLetGo.clear();
 		gRowLights = 0;
 	}
 
 	void StreamLightsFrame()
 	{
+		{
+			// what the last frame dropped under gLiveLock, let go here with the lock free (L12)
+			std::vector<RE::NiPointer<RE::TESObjectREFR>> letGo;
+			{
+				std::lock_guard l{ gLiveLock };
+				letGo.swap(gLetGo);
+			}
+		}
 		// a row its switch or the light cap held back: tried again while its projectile flies, let go when that ends
 		if (!gParkedRows.empty()) {
 			bool room = false;
@@ -1180,6 +1205,10 @@ namespace Plugin
 				}
 			}
 		}
+		std::erase_if(gCloudWait, [](CloudWait& a_w) {
+			auto* root = a_w.ref ? a_w.ref->Get3D() : nullptr;
+			return !root || !root->AsNode() || HangCloud(a_w.ref.get(), root->AsNode(), a_w.base) || ++a_w.frames >= kCloudTries;
+		});
 		if (!gClouds.empty()) {
 			MoveClouds();  // a cone's cloud light: on its path, then where the cloud is, fading out
 		}
@@ -1189,7 +1218,7 @@ namespace Plugin
 			// about every five seconds, the lights whose 3D is gone are let go even when no cap was reached
 			if (++gSweepClock >= 300 && !gLive.empty()) {
 				gSweepClock = 0;
-				SweepGone(SceneNode());
+				SweepGone(LightKit::Scene());
 			}
 			if (gRowLights) {
 				MoveRows();  // his checklist 140: every bolt's row follows its real length this frame
@@ -1197,7 +1226,7 @@ namespace Plugin
 			if (gToHang.empty() && gToDrop.empty()) {
 				return;
 			}
-			auto* scene = SceneNode();
+			auto* scene = LightKit::Scene();
 			for (const auto& root : gToDrop) {
 				Forget(root.get(), scene);
 			}
@@ -1300,36 +1329,24 @@ namespace Plugin
 		{
 			// a row goes with its switch (Streams, or Spray Lights for pass 4's sprays) and All lights off, at once (his
 			// 2026-10-20 report: All lights off left sprays lit)
-			auto*                              scene = SceneNode();
-			std::lock_guard                    l{ gLiveLock };
-			std::vector<const RE::NiAVObject*> rows;
-			for (const auto& [root, live] : gLive) {
-				if (const auto rec = gRows.find(live.base); live.beam && (rec == gRows.end() || !RowOn(rec->second))) {
-					rows.push_back(root);
-					if (rec != gRows.end()) {
-						ParkRow(live.beam.get());
-					}
+			auto*           scene = LightKit::Scene();
+			std::lock_guard l{ gLiveLock };
+			ForgetIf(scene, [](const Live& a_live) {
+				const auto rec = gRows.find(a_live.base);
+				const bool off = a_live.beam && (rec == gRows.end() || !RowOn(rec->second));
+				if (off && rec != gRows.end()) {
+					ParkRow(a_live.beam.get());
 				}
-			}
-			for (const auto* root : rows) {
-				Forget(root, scene);
-			}
+				return off;
+			});
 		}
 		if (!WardLightsOn()) {
 			// a ward's light switched off (or Dynamic Wards there) comes off the scene node now, with every map that counts it:
 			// a light only forgotten stays registered and keeps shining where its ward was, and a count left behind keeps the
 			// cap full so the pass never lights anything again
-			auto*                              scene = SceneNode();
-			std::lock_guard                    l{ gLiveLock };
-			std::vector<const RE::NiAVObject*> lit;
-			for (const auto& [root, live] : gLive) {
-				if (!live.beam) {  // a ward's - the rows answer to their own switches above
-					lit.push_back(root);
-				}
-			}
-			for (const auto* root : lit) {
-				Forget(root, scene);
-			}
+			auto*           scene = LightKit::Scene();
+			std::lock_guard l{ gLiveLock };
+			ForgetIf(scene, [](const Live& a_live) { return !a_live.beam; });  // a ward's: the rows answer to their own switches above
 		}
 	}
 }

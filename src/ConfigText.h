@@ -14,6 +14,7 @@
 //   Json, Reader, Number                the configs' JSON reader (never throws, depth capped)
 //   ReadFadeController                  a fadeController's keys: flicker or flash, its mean fade
 //   GroupedOrder                        a menu page's settings, a group's together, the groups where each first appears
+//   GlowWaits                           a glow on a person past the Performance cap waits (ArtLights.cpp)
 
 #pragma once
 
@@ -580,5 +581,12 @@ namespace ConfigText
 			}
 		}
 		return false;
+	}
+
+	// a glow light on a person (ArtLights.cpp): past the Performance cap a new one waits until a lit one goes out; the player's
+	// own never waits (RELight's body glow does the same)
+	[[nodiscard]] constexpr bool GlowWaits(std::size_t a_lit, std::size_t a_cap, bool a_hers) noexcept
+	{
+		return !a_hers && a_lit >= a_cap;
 	}
 }

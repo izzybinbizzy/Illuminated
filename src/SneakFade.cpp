@@ -152,7 +152,8 @@ namespace Plugin
 
 		void DimOne(Dimmed& a_d, float a_level)
 		{
-			auto& fade = a_d.hold->GetLightRuntimeData().fade;
+			const auto turn = LightKit::Turn();
+			auto&      fade = a_d.hold->GetLightRuntimeData().fade;
 			if (a_d.down && fade == a_d.wrote) {
 				return;
 			}
@@ -177,7 +178,8 @@ namespace Plugin
 			if (!a_d.down) {
 				return;
 			}
-			auto& fade = a_d.hold->GetLightRuntimeData().fade;
+			const auto turn = LightKit::Turn();
+			auto&      fade = a_d.hold->GetLightRuntimeData().fade;
 			if (fade == a_d.wrote) {
 				fade = a_d.pre;  // nobody wrote it since: back to what the others left it
 			}
@@ -303,7 +305,7 @@ namespace Plugin
 		// outside the lock: the scene's lists and the game's forms (the main thread)
 		static std::vector<Found> found;  // its storage kept between frames
 		found.clear();
-		if (auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0]) {
+		if (auto* scene = LightKit::Scene()) {
 			const auto walk = [&](const auto& a_list) {
 				for (const auto& bs : a_list) {
 					auto* light = bs ? bs->light.get() : nullptr;

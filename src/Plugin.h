@@ -139,6 +139,7 @@ namespace Plugin
 	[[nodiscard]] bool                            LightsOff();                         // Performance > all of Illuminated's lights off (his switch)
 	[[nodiscard]] bool                            PulseRealistic();                    // Dynamic Lighting is Realistic: hand lights and rows pulse in their kind's shape (Pulse.h)
 	[[nodiscard]] bool                            PerformanceMode();                   // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
+	[[nodiscard]] std::size_t                     GlowLimit();                         // Performance > Limit glows on people: the most glows on people lit at once (no limit: the type's max)
 	[[nodiscard]] bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
 	void                                          MakeLightCopies();   // LightCopies.cpp
@@ -147,18 +148,19 @@ namespace Plugin
 	// StreamLights.cpp: pass 6 - each spray, stream and bolt keeps its own light record and wears a row of small lights along it
 	// (his stream rule), and a ward dome's light when Dynamic Wards is not here
 	void               StreamLights();
-	[[nodiscard]] bool StreamLightsOn();                                                                // StreamLights.cpp: the setting
-	void               ApplyStreamLights(bool a_log);                                                   // StreamLights.cpp: the setting, on or off
-	void               DropStreamLights();                                                              // a game loads, or a new one starts: every row and ward light the old game had
-	void               StreamLightsFrame();                                                             // StreamLights.cpp: once a frame, what a loader thread left to do
-	void               ApplyLightStrength(bool a_log, bool a_quiet = false);                            // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn); a_quiet: a daylight step, no log line
-	void               RequestRefresh();                                                                // LightCopies.cpp: RefreshLights at the next frame, on the main thread
-	void               NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after);   // LightCopies.cpp: the fading module wrote it (never scaled twice)
-	void               NoteReachWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the same for the reach (nothing to do here)
-	void               RegisterMenu();                                                                  // Menu.cpp
-	void               RegisterMenuTail();                                                              // Menu.cpp: the last page, after the fading module's pages
-	void               OfferToDevBench();                                                               // DevBench.cpp: the settings and the light copies, for a test bench
-	void               RefreshLights();                                                                 // EffectLights.cpp: the sliders and passes 1, 2 and 6 again, for the settings as they are now
+	[[nodiscard]] bool StreamLightsOn();                                                                 // StreamLights.cpp: the setting
+	void               ApplyStreamLights(bool a_log);                                                    // StreamLights.cpp: the setting, on or off
+	void               DropStreamLights();                                                               // a game loads, or a new one starts: every row and ward light the old game had
+	void               StreamLightsFrame();                                                              // StreamLights.cpp: once a frame, what a loader thread left to do
+	void               ApplyLightStrength(bool a_log, bool a_quiet = false);                             // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn); a_quiet: a daylight step, no log line
+	void               RequestRefresh();                                                                 // LightCopies.cpp: RefreshLights at the next frame, on the main thread
+	void               NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after);    // LightCopies.cpp: the fading module wrote it (never scaled twice)
+	void               NoteReachWrite(const RE::NiPointLight* a_light, float a_before, float a_after);   // LightCopies.cpp: the same for the reach (nothing to do here)
+	void               NoteCutoffWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the same for the cutoff (nothing to do here)
+	void               RegisterMenu();                                                                   // Menu.cpp
+	void               RegisterMenuTail();                                                               // Menu.cpp: the last page, after the fading module's pages
+	void               OfferToDevBench();                                                                // DevBench.cpp: the settings and the light copies, for a test bench
+	void               RefreshLights();                                                                  // EffectLights.cpp: the sliders and passes 1, 2 and 6 again, for the settings as they are now
 
 	// ------------------------------------------------------------------ Configs.cpp: each config light, for the game's own light records
 	struct ConfigLight

@@ -115,6 +115,9 @@ namespace Plugin
 
 		constexpr std::string_view kDynamicLightingId = "IlluminatedDynamicLighting";
 		constexpr std::string_view kPulseShapesId = "IlluminatedPulseShapes";
+		// Performance > the glow cap (his checklist 336): the count is greyed while the cap is off, and drawn as a count
+		constexpr std::string_view kGlowLimitId = "IlluminatedGlowLimit";
+		constexpr std::string_view kGlowCountId = "IlluminatedGlowLimitCount";
 
 		// Dynamic Lighting as one pick of three: Off, Regular (the pulsing as before), Realistic (a shape per kind of spell)
 		void DrawDynamicLighting(const Setting& a_s)
@@ -146,13 +149,13 @@ namespace Plugin
 			}
 			// an art pick greys while its "Find my art pack" switch uses the pack it found (the pick stays the backup)
 			const bool foundInUse = a_s.found.load() >= 0 && a_s.autoSwitch < Settings().size() && Settings()[a_s.autoSwitch].value.load() != 0;
-			const bool greyed = (a_s.id == kYieldENBId && !EnbFound()) || foundInUse;
+			const bool greyed = (a_s.id == kYieldENBId && !EnbFound()) || foundInUse || (a_s.id == kGlowCountId && SettingValue(kGlowLimitId, 1) == 0);
 			ImGuiMCP::BeginDisabled(greyed);
 			if (a_s.isSlider) {
 				// live while it is dragged, on its step (his report: "the sliders also stopped working live during sliding and only
 				// work after the click is released") - SetSetting queues one task however many steps it moves
 				int v = a_s.value.load();
-				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, "%d%%");
+				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, a_s.id == kGlowCountId ? "%d" : "%d%%");
 				const bool released = ImGuiMCP::IsItemDeactivatedAfterEdit();
 				if (v = AllowedValue(a_s, v); v != a_s.value) {
 					SetSetting(a_index, v, false);  // applied at once, written when it is let go
@@ -471,7 +474,7 @@ namespace Plugin
 		template <std::size_t I>
 		void __stdcall Page()
 		{
-			DrawPage(I);
+			LightKit::Guarded("menu page", [] { DrawPage(I); });
 		}
 
 		constexpr SKSEMenuFramework::Model::RenderFunction kPageFunctions[kMaxPages] = {
@@ -571,8 +574,8 @@ namespace Plugin
 		// a name makes a submenu: Lights by Item holds Spell (Spells Without a Patch above the spell list) and the weapons' page
 		static const std::string kSpellPage = std::string(T("Lights by Item")) + "/" + T("Spell");
 		static const std::string kWeaponPage = std::string(T("Lights by Item")) + "/" + T("Weapons and Staves");
-		SKSEMenuFramework::AddSectionItem(kSpellPage.c_str(), ItemsPage);
-		SKSEMenuFramework::AddSectionItem(kWeaponPage.c_str(), Fade::Items::RenderWeapons);
+		SKSEMenuFramework::AddSectionItem(kSpellPage.c_str(), LightKit::GuardedDraw<ItemsPage>);
+		SKSEMenuFramework::AddSectionItem(kWeaponPage.c_str(), LightKit::GuardedDraw<Fade::Items::RenderWeapons>);
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
 			if (gPages[i] == kPerformancePage) {
 				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
@@ -580,7 +583,7 @@ namespace Plugin
 		}
 #ifdef FADE_DEBUG_PAGE
 		SKSEMenuFramework::SetSection(T(kSection.c_str()));
-		SKSEMenuFramework::AddSectionItem(T("Diagnostics"), RenderDiagnostics);
+		SKSEMenuFramework::AddSectionItem(T("Diagnostics"), LightKit::GuardedDraw<RenderDiagnostics>);
 #endif
 	}
 }
