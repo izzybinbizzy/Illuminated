@@ -582,10 +582,10 @@ namespace Plugin
 					}
 				}
 				// under Realistic the row pulses in its spell's shape, as the hand casting it does (BeamRow::Pulsing)
-				const auto                              kind = flickers && PulseRealistic() ? LightKit::PulseKindOfSpell(spell) : Pulse::Kind::kNone;
-				const auto                              seed = static_cast<std::uint32_t>(std::hash<const void*>{}(live.root.get()));
-				const auto                              toLocal = live.root->world.Invert();
-				thread_local std::vector<BeamRow::Spot> row;  // its storage kept from row to row and frame to frame
+				const auto                        kind = flickers && PulseRealistic() ? LightKit::PulseKindOfSpell(spell) : Pulse::Kind::kNone;
+				const auto                        seed = static_cast<std::uint32_t>(std::hash<const void*>{}(live.root.get()));
+				const auto                        toLocal = live.root->world.Invert();
+				static std::vector<BeamRow::Spot> row;  // main thread; its storage kept from row to row and frame to frame
 				BeamRow::Lay(row, length, static_cast<int>(live.lights.size()), rec->second.reach, kRowHeight);
 				const float scale = live.root->world.scale > 0.0f ? live.root->world.scale : 1.0f;
 				for (std::size_t i = 0; i < live.lights.size(); ++i) {
