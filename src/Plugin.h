@@ -139,6 +139,7 @@ namespace Plugin
 	[[nodiscard]] bool                            LightsOff();                         // Performance > all of Illuminated's lights off (his switch)
 	[[nodiscard]] bool                            PulseRealistic();                    // Dynamic Lighting is Realistic: hand lights and rows pulse in their kind's shape (Pulse.h)
 	[[nodiscard]] bool                            PerformanceMode();                   // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
+	[[nodiscard]] std::size_t                     GlowLimit();                         // Performance > Limit glows on people: the most glows on people lit at once (no limit: the type's max)
 	[[nodiscard]] bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
 	void                                          MakeLightCopies();   // LightCopies.cpp

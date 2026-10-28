@@ -58,6 +58,10 @@ namespace Plugin
 		std::unordered_map<const RE::TESForm*, ModelKeyOf> gModelKey;
 		std::atomic<std::size_t>                           gMade{ 0 };       // the testing DLL's Diagnostics page reads these two
 		std::atomic<std::size_t>                           gKeptCount{ 0 };  // from the render thread
+		// the Performance cap on glows on people (his checklist 336): how many of gKept are lit now, the cap this frame
+		std::size_t gLit{ 0 };
+		std::size_t gCap{ (std::numeric_limits<std::size_t>::max)() };
+		bool        gCapLogged{ false };
 
 		[[nodiscard]] const std::string& ModelKey(const RE::TESForm* a_form, const char* a_model)
 		{
@@ -72,6 +76,9 @@ namespace Plugin
 
 		void Drop(Kept& a_kept, RE::ShadowSceneNode* a_scene)
 		{
+			if (a_kept.light && gLit > 0) {
+				--gLit;
+			}
 			if (a_scene && a_kept.bs) {
 				a_scene->RemoveLight(a_kept.bs);
 			}
@@ -131,12 +138,13 @@ namespace Plugin
 			}
 			a_kept.bs.reset(bs);
 			++gMade;
+			++gLit;
 			return true;
 		}
 
-		// the light this owner wants on this model now (a_record nullptr: none)
+		// the light this owner wants on this model now (a_record nullptr: none); a_hers: on the player, never held back by the cap
 		void Keep(RE::NiRefObject* a_owner, RE::NiAVObject* a_model, const RE::TESObjectLIGH* a_record, RE::ShadowSceneNode* a_scene,
-			const RE::NiColor* a_hue = nullptr, const RE::ShaderReferenceEffect* a_shader = nullptr)
+			bool a_hers, const RE::NiColor* a_hue = nullptr, const RE::ShaderReferenceEffect* a_shader = nullptr)
 		{
 			auto* root = a_model ? a_model->AsNode() : nullptr;
 			if (!a_owner || !root || !a_record) {
@@ -152,6 +160,14 @@ namespace Plugin
 				if (kept.wait) {
 					--kept.wait;
 					kept.seen = true;  // kept while it waits, so the sweep does not start it over
+					return;
+				}
+				if (ConfigText::GlowWaits(gLit, gCap, a_hers)) {
+					// past the Performance cap: kept, waiting, until a lit one goes out
+					if (!std::exchange(gCapLogged, true)) {
+						SKSE::log::info("art lights: {} glows on people are lit, the most the Performance setting allows - the rest wait for one to go out", gCap);
+					}
+					kept.seen = true;
 					return;
 				}
 				kept.owner.reset(a_owner);
@@ -193,7 +209,7 @@ namespace Plugin
 			if (!root) {
 				return;
 			}
-			Keep(a_effect, root, record, a_scene, LightKit::FleshFx::HueOf(a_effect->effectData), a_effect);
+			Keep(a_effect, root, record, a_scene, ref.get() == RE::PlayerCharacter::GetSingleton(), LightKit::FleshFx::HueOf(a_effect->effectData), a_effect);
 		}
 
 		// the weapon parts an art light already hangs under (measured on Vanilla: a bound sword's configs light both its
@@ -357,7 +373,7 @@ namespace Plugin
 				if (part && !gArtUnder.contains(part) && !gArtUnder.contains(hand) && !gHandsOnBody.contains(hand)) {
 					const auto* camera = RE::PlayerCamera::GetSingleton();
 					const bool  firstPerson = a_actor->IsPlayerRef() && camera && camera->IsInFirstPerson();
-					Keep(part, firstPerson ? BodyNode(a_actor->Get3D(false)) : part, record, a_scene);
+					Keep(part, firstPerson ? BodyNode(a_actor->Get3D(false)) : part, record, a_scene, a_actor->IsPlayerRef());
 					if (firstPerson) {
 						gOnBody.push_back({ part, a_actor, left });
 					}
@@ -393,21 +409,24 @@ namespace Plugin
 			}
 			gKept.clear();
 			gKeptCount = 0;
+			gLit = 0;
 			return;
 		}
+		gCap = GlowLimit();
 		for (auto& [key, kept] : gKept) {
 			kept.seen = false;
 		}
 		gOnBody.clear();
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {
 			gHandsOnBody.clear();
+			auto* player = RE::PlayerCharacter::GetSingleton();
 			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
 				auto* art = a_effect ? netimmerse_cast<RE::ModelReferenceEffect*>(a_effect) : nullptr;
 				if (art && !art->finished && art->artObject && art->artObject3D) {
 					const auto& model = ModelKey(art->artObject, art->artObject->GetModel());
 					if (const auto* record = model.empty() ? nullptr : RecordLightFor(model)) {
 						const RE::NiAVObject* hand = nullptr;
-						Keep(art, ArtNode(art, hand), record, scene);
+						Keep(art, ArtNode(art, hand), record, scene, art->target.get().get() == player);
 						const auto  target = hand ? art->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
 						const auto* actor = target ? target->As<RE::Actor>() : nullptr;
 						if (actor) {
@@ -427,7 +446,6 @@ namespace Plugin
 					}
 				}
 			}
-			auto* player = RE::PlayerCharacter::GetSingleton();
 			VisitWeapons(player, scene);
 			for (auto& handle : lists->highActorHandles) {
 				if (auto actor = handle.get(); actor && actor.get() != player) {
@@ -460,6 +478,7 @@ namespace Plugin
 		}
 		gKept.clear();
 		gKeptCount = 0;
+		gLit = 0;
 		gModelKey.clear();  // keyed by form address: a form made in memory and freed could hand its address to another
 	}
 
