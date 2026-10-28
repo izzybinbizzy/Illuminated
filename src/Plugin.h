@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "ArtAuto.h"
 #include "ConfigText.h"
 #include "LightKit.h"
 
@@ -83,6 +84,9 @@ namespace Plugin
 		Relaxed<int>             value{ 0 };                                    // the menu (render thread) sets it, the main thread reads it
 		int                      minValue{ 0 }, maxValue{ 1 }, stepValue{ 1 };  // a slider's range and step (percent)
 		RE::TESGlobal*           global{ nullptr };
+		// an art pick (the Auto art picks): the choice its "Find my art pack" switch found at data load, -1 none - never saved
+		Relaxed<int> found{ -1 };
+		std::size_t  autoSwitch{ static_cast<std::size_t>(-1) };  // that switch's index, or none
 	};
 
 	struct MenuNote
@@ -130,9 +134,11 @@ namespace Plugin
 	[[nodiscard]] bool                            SettingAvailable(const Setting& a_setting);
 	[[nodiscard]] int                             AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
 	[[nodiscard]] int                             SettingValue(std::string_view a_id, int a_fallback);
-	[[nodiscard]] bool                            LightsOff();        // Performance > all of Illuminated's lights off (his switch)
-	[[nodiscard]] bool                            PulseRealistic();   // Dynamic Lighting is Realistic: hand lights and rows pulse in their kind's shape (Pulse.h)
-	[[nodiscard]] bool                            PerformanceMode();  // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
+	[[nodiscard]] int                             EffectiveValue(const Setting& a_s);  // an art pick: the pack found while its switch is on
+	[[nodiscard]] std::array<ArtAuto::Found, 4>   FindArtPacks();                      // ArtPacks.cpp: the art packs the game's files are
+	[[nodiscard]] bool                            LightsOff();                         // Performance > all of Illuminated's lights off (his switch)
+	[[nodiscard]] bool                            PulseRealistic();                    // Dynamic Lighting is Realistic: hand lights and rows pulse in their kind's shape (Pulse.h)
+	[[nodiscard]] bool                            PerformanceMode();                   // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
 	[[nodiscard]] bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
 	void                                          MakeLightCopies();   // LightCopies.cpp

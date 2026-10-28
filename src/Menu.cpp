@@ -144,7 +144,9 @@ namespace Plugin
 				ImGuiMCP::PopID();
 				return;
 			}
-			const bool greyed = a_s.id == kYieldENBId && !EnbFound();
+			// an art pick greys while its "Find my art pack" switch uses the pack it found (the pick stays the backup)
+			const bool foundInUse = a_s.found.load() >= 0 && a_s.autoSwitch < Settings().size() && Settings()[a_s.autoSwitch].value.load() != 0;
+			const bool greyed = (a_s.id == kYieldENBId && !EnbFound()) || foundInUse;
 			ImGuiMCP::BeginDisabled(greyed);
 			if (a_s.isSlider) {
 				// live while it is dragged, on its step (his report: "the sliders also stopped working live during sliding and only
@@ -173,8 +175,17 @@ namespace Plugin
 				const auto choice = static_cast<std::size_t>((std::max)(a_s.value.load(), 0));
 				SettingTip(a_s, choice < a_s.tips.size() && !a_s.tips[choice].empty() ? choice : 0);
 			} else {
-				bool on = a_s.value != 0;
-				if (ImGuiMCP::Checkbox(T(a_s.label.c_str()), &on)) {
+				bool        on = a_s.value != 0;
+				std::string label = T(a_s.label.c_str());
+				// a "Find my art pack" switch says what it found (no line of text under it - his rule for this page)
+				const auto& all = Settings();
+				if (const auto pick = std::ranges::find_if(all, [&](const Setting& p) { return p.autoSwitch == a_index; }); pick != all.end()) {
+					const int f = pick->found.load();
+					label += f >= 0 && f < static_cast<int>(pick->choices.size()) ?
+					             std::string(" (") + T("found:") + " " + T(pick->choices[static_cast<std::size_t>(f)].c_str()) + ")" :
+					             std::string(" (") + T("not recognised") + ")";
+				}
+				if (ImGuiMCP::Checkbox(label.c_str(), &on)) {
 					SetSetting(a_index, on ? 1 : 0);
 				}
 				SettingTip(a_s, 0);

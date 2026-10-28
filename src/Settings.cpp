@@ -40,6 +40,30 @@ namespace Plugin
 
 		[[nodiscard]] float RouteNow() { return LightsOff() ? 0.0f : gRouteValue; }
 
+		// the Auto art picks (his checklist 298, "auto, manual backup"), in ArtAuto::kElements' order; each one's switch is its
+		// id + "Auto" (lagen.py)
+		constexpr std::array<std::string_view, 4> kArtPicks{ "IlluminatedFireArt", "IlluminatedFrostArt", "IlluminatedShockArt",
+			"IlluminatedHealingArt" };
+
+		// each art pick paired with its switch and given the pack the game's own files are (read once: they do not change)
+		void NoteArtPacks()
+		{
+			static const auto found = FindArtPacks();
+			for (std::size_t e = 0; e < kArtPicks.size(); ++e) {
+				const auto pick = gIndex.find(Lower(kArtPicks[e]));
+				const auto sw = gIndex.find(Lower(kArtPicks[e]) + "auto");
+				if (pick == gIndex.end() || sw == gIndex.end()) {
+					continue;
+				}
+				auto&      s = gSettings[pick->second];
+				const auto f = found[e].pick.value_or(-1);
+				s.autoSwitch = sw->second;
+				s.found = f >= 0 && f < static_cast<int>(s.choices.size()) ? f : -1;
+				SKSE::log::info("[ART-PACK] {} | {} ({})", s.id, s.found >= 0 ? s.choices[static_cast<std::size_t>(s.found.load())] : "not recognised - the pick holds",
+					found[e].why);
+			}
+		}
+
 		constexpr std::string_view kSettingsSection = "Settings";
 		constexpr std::string_view kDetectedSection = "Detected";
 		constexpr std::string_view kDetectedKey = "sPlugins";
@@ -360,6 +384,7 @@ namespace Plugin
 			const auto& needs = gSettings[i].needs;
 			gAvailable[i] = needs.empty() || std::ranges::any_of(needs, [](const std::string& p) { return Loaded(p); });
 		}
+		NoteArtPacks();
 		ApplyIni();
 		PulseCarryOver();
 		ApplyGlobals();
@@ -371,6 +396,10 @@ namespace Plugin
 			SKSE::log::info("[SETTING] {} = {}{}", s.id, v,
 				s.isChoice && v >= 0 && v < static_cast<int>(s.choices.size()) ? " (" + s.choices[static_cast<std::size_t>(v)] + ")" : s.isSlider ? "%" :
 																																					"");
+			if (const int e = EffectiveValue(s); e != v && e >= 0 && e < static_cast<int>(s.choices.size())) {
+				SKSE::log::info("[SETTING] {} in use: {} ({}) - the art pack found, the pick above is the backup", s.id, e,
+					s.choices[static_cast<std::size_t>(e)]);
+			}
 		}
 	}
 
@@ -379,7 +408,7 @@ namespace Plugin
 		std::lock_guard l{ gSettingsLock };
 		for (auto& s : gSettings) {
 			if (s.global) {
-				s.global->value = static_cast<float>(s.value);
+				s.global->value = static_cast<float>(EffectiveValue(s));
 			}
 		}
 		if (gRoute) {
@@ -525,7 +554,14 @@ namespace Plugin
 		}
 		std::ranges::transform(a_id, low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		const auto it = gIndex.find(std::string_view(low.data(), a_id.size()));
-		return it == gIndex.end() ? a_fallback : gSettings[it->second].value.load();
+		return it == gIndex.end() ? a_fallback : EffectiveValue(gSettings[it->second]);
+	}
+
+	int EffectiveValue(const Setting& a_s)
+	{
+		const int  found = a_s.found.load();
+		const bool autoOn = found >= 0 && a_s.autoSwitch < gSettings.size() && gSettings[a_s.autoSwitch].value.load() != 0;
+		return autoOn ? found : a_s.value.load();
 	}
 
 	bool LightsOff()
