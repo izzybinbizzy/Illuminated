@@ -33,10 +33,11 @@
 //   a cell's animations      } their made-with strength.
 // Light Placer skips a culled or distant light, so a value it did not rewrite is never scaled twice. Nothing in this
 // part runs while Brightness is 100%, nor without Light Placer (the record route has no Light Placer light to scale).
-// The one exception: the hazard's update also places a hazard's own light on the record route (Vanilla / ENB, or no Light
-// Placer - RecordLights.cpp DecideRecordRoute; PlaceHazardLight) - the
-// game never places a light hung on a model's root (measured, the burning-ground fires); in VR that wrap is not made, so
-// there those fires keep the game's unplaced light.
+// Besides: on the record route (Vanilla / ENB, or no Light Placer - RecordLights.cpp DecideRecordRoute) the hazard's update
+// places a hazard's own light (PlaceHazardLight - the game never places a light hung on a model's root, measured on the
+// burning-ground fires) and the explosion's update lifts an explosion's light off its root (LiftExplosionLight); on every
+// route a spell's explosion and hazard take the art pick's hand color (TintUnder, TintHazard). In VR those wraps are not
+// made, so there those fires keep the game's unplaced light.
 // Every hook's own work runs inside LightKit::Guarded: no exception may leave into the game.
 //
 // The fading module (Fade*.cpp) scales some of the same lights by charge and magicka, in the same three places (the
@@ -89,6 +90,12 @@ namespace Plugin
 			}
 		}
 
+		// the casting lights the budget put out, by the fade they had: the game sets a steady one's fade once, when the spell
+		// is readied, so one left out keeps 0 until its caster is kept again (walks near) and it is given back
+		std::mutex                                    gBudgetLock;
+		std::unordered_map<const RE::NiLight*, float> gPutOut;
+		constexpr std::size_t                         kMostPutOut = 512;  // casters gone with their light out: dropped at this many
+
 		// the light budget: a hand light the Hand lights for choice leaves out is put out after the game wrote it this frame.
 		// HIS ANSWER 2026-10-13: only WITHOUT Light Placer (the record route), as its hover text says - with Light Placer the
 		// game's casting light on a far caster's unpatched spell is left as the game makes it
@@ -111,8 +118,21 @@ namespace Plugin
 			} else if (budget == 2) {
 				keep = actor->IsPlayerTeammate();
 			}
+			auto&            fade = light->GetLightRuntimeData().fade;
+			std::scoped_lock lock{ gBudgetLock };
 			if (!keep) {
-				light->GetLightRuntimeData().fade = 0.0f;
+				if (fade > 0.0f) {
+					if (gPutOut.size() >= kMostPutOut) {
+						gPutOut.clear();
+					}
+					gPutOut[light] = fade;  // what the game or RecordFlicker wrote this frame
+				}
+				fade = 0.0f;
+			} else if (const auto it = gPutOut.find(light); it != gPutOut.end()) {
+				if (fade == 0.0f) {
+					fade = it->second;  // nobody wrote it since we put it out
+				}
+				gPutOut.erase(it);
 			}
 		}
 
@@ -281,7 +301,8 @@ namespace Plugin
 					LightKit::Isl::SetCutoff(light, lit->cutoff, kLowestCutoff, kHighestCutoff);  // where Light Placer put it
 				}
 				if (!lit->flicker) {
-					if (a_changed) {
+					// a light both lit and queued is scaled once (only on the frame a slider moved - a short list)
+					if (a_changed && std::ranges::find(a_moved, light, &std::pair<RE::NiPointLight*, float>::first) == a_moved.end()) {
 						data.fade *= a_ratio;
 						a_moved.emplace_back(light, data.fade);
 					}
@@ -457,7 +478,7 @@ namespace Plugin
 				return;
 			}
 			const auto&                                      lights = scene->GetRuntimeData();
-			const float                                      ratio = gBrightness / before;
+			const float                                      ratio = before > 0.0f ? gBrightness / before : 1.0f;
 			std::vector<std::pair<RE::NiPointLight*, float>> moved;
 			{
 				std::lock_guard l{ gFlickerLock };
@@ -499,7 +520,10 @@ namespace Plugin
 					if (!RecordRoute()) {
 						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
 					}
-					Fade::UpdateHands(a_delta);
+					{
+						const SneakPause pause;  // the fading module reads the fades the others left, never our dimmed one
+						Fade::UpdateHands(a_delta);
+					}
 					SneakFrameEnd(a_delta);  // over every fade written above (SneakFade.cpp)
 					TickGroundLights();      // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
 #ifdef FADE_DEBUG_PAGE
@@ -522,8 +546,12 @@ namespace Plugin
 				func(a_this, a_delta);
 				LightKit::Guarded("caster update", [a_this]() {
 					{
-						const SneakPause pause{ a_this->GetCasterAsActor() };  // only this caster's lights
-						ScaleOwned(a_this->GetCasterAsActor());
+						auto*                     actor = a_this->GetCasterAsActor();
+						std::optional<SneakPause> pause;
+						if (actor) {
+							pause.emplace(actor);  // only this caster's lights
+						}
+						ScaleOwned(actor);
 						RecordFlicker(a_this);  // without Light Placer: the hand light's flicker (RecordLights.cpp), before the fading module scales it
 						ApplyHandBudget(a_this);
 						Fade::AfterCaster(a_this);  // Lights by Item over Light Placer's animation of the casting lights
@@ -546,11 +574,15 @@ namespace Plugin
 			{
 				func(a_this);
 				LightKit::Guarded("effect update", [a_this]() {
-					const SneakPause pause{ OwnerOf(a_this->Get3D()) };  // only the lights of the actor it is on
+					// the owner by the effect's own 3D, not its target handle: this hook runs off the main thread, where making or
+					// reading a handle is not ours to do (the fading module's rule; the re-score's Illuminated issue 2)
+					const auto*               owner = OwnerOf(a_this->Get3D());
+					std::optional<SneakPause> pause;
+					if (owner) {
+						pause.emplace(owner);  // only the lights of the actor it is on; an effect on nothing pauses none
+					}
 					if (Scaling()) {
-						// the owner by the effect's own 3D, not its target handle: this hook runs off the main thread, where making or
-						// reading a handle is not ours to do (the fading module's rule; the re-score's Illuminated issue 2)
-						ScaleOwned(OwnerOf(a_this->Get3D()));
+						ScaleOwned(owner);
 					}
 					if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
 						if (!RecordRoute()) {
@@ -734,7 +766,8 @@ namespace Plugin
 			PaintLightsUnder(a_hazard->Get3D(), *color);
 #ifdef FADE_DEBUG_PAGE
 			if (static std::atomic<int> told = 0; told < 12 && ++told) {
-				SKSE::log::info("[HAZARD-TINT] {} | model {} | family {} | color {},{},{}", Label(form), form->GetModel(), static_cast<int>(family),
+				const char* model = form->GetModel();
+				SKSE::log::info("[HAZARD-TINT] {} | model {} | family {} | color {},{},{}", Label(form), model ? model : "(none)", static_cast<int>(family),
 					color->red, color->green, color->blue);
 			}
 #endif
@@ -965,8 +998,38 @@ namespace Plugin
 		(void)HazardFamily(nullptr);  // builds the table now, not in the first hazard's update
 	}
 
+	// the configs find their lights by editor ID in the game's table, which only powerofthree's Tweaks fills for lights: without
+	// it (or with its Load EditorIDs off) the names our recorder kept go into that table once, as Tweaks would put them
+	namespace
+	{
+		void ShareLightNames()
+		{
+			if (Fade::TweaksKeepsEditorIDs()) {
+				return;
+			}
+			std::size_t shared = 0;
+			if (auto* data = RE::TESDataHandler::GetSingleton()) {
+				for (auto* form : data->GetFormArray(RE::FormType::Light)) {
+					if (auto* light = form ? form->As<RE::TESObjectLIGH>() : nullptr) {
+						if (const auto id = EditorID(light); !id.empty() && RegisterEditorID(light, id)) {
+							++shared;
+						}
+					}
+				}
+			}
+			SKSE::log::info("light names: {} given to the game's editor ID table (powerofthree's Tweaks keeps none)", shared);
+		}
+	}
+
+	void DropHandBudget()
+	{
+		std::scoped_lock lock{ gBudgetLock };
+		gPutOut.clear();
+	}
+
 	void MakeLightCopies()
 	{
+		ShareLightNames();
 		std::size_t made = 0, flickers = 0, missing = 0, failed = 0, plained = 0;
 		for (auto& c : LightCopies()) {
 			if (c.form) {
@@ -1060,7 +1123,7 @@ namespace Plugin
 		gDaylight = DaylightFactor();
 		const float daylight = gDaylight.load();
 		const float scale = static_cast<float>(brightness) / 100.0f * daylight;
-		const float stretch = static_cast<float>(reach) / 100.0f;
+		const float stretch = (std::max)(static_cast<float>(reach) / 100.0f, 0.01f);
 		gBrightness = scale;
 		const bool off = LightsOff();
 		// the look is put back only when "all lights off" turns: written on every daylight step it undid HoldFlicker's steady

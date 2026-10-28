@@ -121,7 +121,7 @@ namespace Plugin
 						s.tips.push_back(Unescape(block["tip" + std::to_string(i)]));
 					}
 					const bool shapeOk = s.isChoice ? s.choices.size() >= 2 :
-					                     s.isSlider ? s.stepValue > 0 && s.minValue < s.maxValue && (s.maxValue - s.minValue) % s.stepValue == 0 :
+					                     s.isSlider ? s.stepValue > 0 && s.minValue < s.maxValue && (std::int64_t{ s.maxValue } - s.minValue) % s.stepValue == 0 :
 					                                  true;
 					if (!s.id.empty() && !gIndex.contains(Lower(s.id)) && shapeOk) {
 						s.value = s.defaultValue;
@@ -516,11 +516,13 @@ namespace Plugin
 		}
 		const auto apply = [] {
 			queued = false;
-			ApplyGlobals();
-			if (saveWanted.exchange(false)) {
-				SaveSettings();
-			}
-			RequestRefresh();
+			LightKit::Guarded("setting change", []() {
+				ApplyGlobals();
+				if (saveWanted.exchange(false)) {
+					SaveSettings();
+				}
+				RequestRefresh();
+			});
 		};
 		if (auto* tasks = SKSE::GetTaskInterface()) {
 			tasks->AddTask(apply);
@@ -535,11 +537,12 @@ namespace Plugin
 	int AllowedValue(const Setting& a_setting, int a_value)
 	{
 		if (a_setting.isSlider) {
-			const int step = (std::max)(a_setting.stepValue, 1);
-			const int v = std::clamp(a_value, a_setting.minValue, a_setting.maxValue);
-			// a value between steps (an INI edited by hand) goes to the nearest step: the configs only name the steps
-			const int k = (v - a_setting.minValue + step / 2) / step;
-			return std::clamp(a_setting.minValue + k * step, a_setting.minValue, a_setting.maxValue);
+			const std::int64_t step = (std::max)(a_setting.stepValue, 1);
+			const std::int64_t v = std::clamp(a_value, a_setting.minValue, a_setting.maxValue);
+			// a value between steps (an INI edited by hand) goes to the nearest step: the configs only name the steps (64-bit: a
+			// hand-typed range may be any int)
+			const std::int64_t k = (v - a_setting.minValue + step / 2) / step;
+			return static_cast<int>(std::clamp<std::int64_t>(a_setting.minValue + k * step, a_setting.minValue, a_setting.maxValue));
 		}
 		const int top = a_setting.isChoice ? static_cast<int>(a_setting.choices.size()) - 1 : 1;
 		return std::clamp(a_value, 0, top);

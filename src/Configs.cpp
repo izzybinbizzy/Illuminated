@@ -121,7 +121,7 @@ namespace Plugin
 			in.seekg(0);
 			in.read(text.data(), static_cast<std::streamsize>(size));
 			text.resize(static_cast<std::size_t>((std::max)(std::streamsize{ 0 }, in.gcount())));
-			if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF) {
+			if (text.starts_with("\xEF\xBB\xBF")) {
 				text.erase(0, 3);  // a byte order mark
 			}
 			const auto t1 = Clock::now();

@@ -14,12 +14,13 @@
 //      projectiles (sprays, streams and bolts), which keep their light for pass 6, and poison sprays, which lose it
 //      whether lit or not;
 //   3. the Dragonborn poison rune gets the casting art its lit hand needs (before pass 1, which then follows it);
-//   4. with the Spray Lights setting on, each spray projectile gets a private copy of its own
-//      light, stretched to cover the spray and colored from the settings' markers;
+//   4. with the Spray Lights setting on, each spray projectile gets a private copy of its own light that carries the
+//      color (the settings' markers, the art pick) its row of lights wears; the spray keeps its own light;
 //   5. (retired 2026-10-16 on his yes: it swapped every lit enchantment shader but the one the game shows for an unlit copy,
 //      and the E2 test showed nothing changes without it - Chillrend, the Nightingale Blade and Dawnbreaker kept one blade
 //      light with it on or off, because the game plays only the costliest effect's shader anyway);
-//   6. a spray, stream or bolt is lit by its own light record made bigger and brighter (his stream rule).
+//   6. a spray, stream or bolt keeps its own light record and wears a row of small lights along its length (his stream
+//      rule and his checklist 140 fallback); a cone the data lights as a cloud, one light where its cloud is.
 // Every choice is a setting in the menu (SKSE Menu Framework - the only menu this mod has); the few values the menu does
 // not show are in the one advanced settings file (Fade::Tuning, registered below).
 // Passes 1, 2 and 6 follow the settings live; pass 4 reads them when the game loads. The
@@ -96,7 +97,7 @@ namespace
 			SKSE::log::warn(
 				"no Illuminated configs were found under Data\\LightPlacer: passes 1 to 4 skipped (pass 0, VAER, the wards and "
 				"pass 6 still run)");
-			StreamLights();  // pass 6: a spray's or bolt's own light raised, and the ward dome's two hooks
+			StreamLights();  // pass 6: the rows along sprays and bolts, and the ward dome's two hooks
 			RecordTablesReady();
 			Fade::ForgetPassEditorIDs();  // only the fading module's three kept types stay, as on the full path
 			LoadVfxPacks();               // after every pass: the VFX switcher dresses the spell forms
@@ -109,7 +110,7 @@ namespace
 		EffectLights<RE::BGSHazard>(cov, "hazard");
 		ApplyEffectLights(true);
 		SprayLights();
-		StreamLights();               // pass 6, after pass 4 (a spray's own light is its stretched copy by now); it sets the sliders on every copy
+		StreamLights();               // pass 6, after pass 4 (a spray's color copy is made by now); it sets the sliders on every copy
 		RecordTablesReady();          // last: the hooks installed earlier may read the record tables from here on
 		Fade::ForgetPassEditorIDs();  // the passes have run: only the fading module's three kept types stay
 		LoadVfxPacks();               // after every pass (they matched the forms' own models): the VFX switcher dresses the spell forms
@@ -152,6 +153,8 @@ namespace
 			DropGroundLights();
 			DropStreamLights();
 			DropSneakFade();
+			DropCastingLights();
+			DropHandBudget();
 			Fade::OnGameLoading();
 			break;
 		case SKSE::MessagingInterface::kPostLoadGame:

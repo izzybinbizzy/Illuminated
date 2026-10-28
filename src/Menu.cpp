@@ -288,7 +288,7 @@ namespace Plugin
 		void WritePresetsSoon()
 		{
 			if (auto* tasks = SKSE::GetTaskInterface()) {
-				tasks->AddTask([all = gPresets]() { WritePresets(all); });
+				tasks->AddTask([all = gPresets]() { LightKit::Guarded("presets save", [&all]() { WritePresets(all); }); });
 			}
 		}
 

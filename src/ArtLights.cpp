@@ -52,7 +52,8 @@ namespace Plugin
 			std::string model, key;
 		};
 		std::unordered_map<const RE::TESForm*, ModelKeyOf> gModelKey;
-		std::size_t                                        gMade = 0;
+		std::atomic<std::size_t>                           gMade{ 0 };       // the testing DLL's Diagnostics page reads these two
+		std::atomic<std::size_t>                           gKeptCount{ 0 };  // from the render thread
 
 		[[nodiscard]] const std::string& ModelKey(const RE::TESForm* a_form, const char* a_model)
 		{
@@ -90,9 +91,12 @@ namespace Plugin
 				a_kept.light->SetLightAttenuation(radius);
 			}
 			if (InverseSquare()) {
-				// after SetLightAttenuation, which writes the same two words: a light of our own, its words written whole (LightKit.h)
+				// after SetLightAttenuation, which writes the same two words: a light of our own, its words written whole (LightKit.h);
+				// the record's cutoff when it is an inverse-square light, else the cutoff that reaches its radius at this fade (a
+				// plain record's falloff exponent is no cutoff)
+				const bool isl = (a_kept.record->data.flags.underlying() & LightKit::kRecordInverseSquare) != 0;
 				LightKit::Isl::SetOwn(a_kept.light.get());
-				LightKit::Isl::SetCutoff(a_kept.light.get(), a_kept.record->data.fallofExponent, 0.01f, 1.0f);
+				LightKit::Isl::SetCutoff(a_kept.light.get(), isl ? a_kept.record->data.fallofExponent : LightKit::CutoffFor(data.fade, radius), 0.01f, 1.0f);
 			} else {
 				data.ambient = { data.diffuse.red * kAmbient, data.diffuse.green * kAmbient, data.diffuse.blue * kAmbient };
 			}
@@ -105,6 +109,7 @@ namespace Plugin
 				return false;
 			}
 			light->name = kName;
+			light->GetLightRuntimeData().radius.x = -1.0f;  // the clone's own may equal the record's: Follow attenuates it at once
 			a_root->AttachChild(light, true);
 			a_kept.light.reset(light);
 			a_kept.root.reset(a_root);
@@ -199,7 +204,8 @@ namespace Plugin
 		// on the spine does light it (a first-person cloak +41), so a light for what she holds hangs there in first person.
 		[[nodiscard]] RE::NiAVObject* BodyNode(RE::NiAVObject* a_third)
 		{
-			auto* node = a_third ? a_third->GetObjectByName("MagicEffectsNode") : nullptr;
+			static const RE::BSFixedString kEffectsNode{ "MagicEffectsNode" };
+			auto*                          node = a_third ? a_third->GetObjectByName(kEffectsNode) : nullptr;
 			return node ? node : a_third;
 		}
 
@@ -353,6 +359,7 @@ namespace Plugin
 				Drop(kept, scene);  // with a scene, each light leaves its lists too (CodeRabbit, Illuminated #6)
 			}
 			gKept.clear();
+			gKeptCount = 0;
 			return;
 		}
 		for (auto& [key, kept] : gKept) {
@@ -395,6 +402,7 @@ namespace Plugin
 			}
 			return false;
 		});
+		gKeptCount = gKept.size();
 	}
 
 	void DropArtLights()
@@ -404,9 +412,10 @@ namespace Plugin
 			Drop(kept, scene);
 		}
 		gKept.clear();
+		gKeptCount = 0;
 		gModelKey.clear();  // keyed by form address: a form made in memory and freed could hand its address to another
 	}
 
-	std::size_t ArtLightCount() { return gKept.size(); }
-	std::size_t ArtLightsMade() { return gMade; }
+	std::size_t ArtLightCount() { return gKeptCount.load(); }
+	std::size_t ArtLightsMade() { return gMade.load(); }
 }

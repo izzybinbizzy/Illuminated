@@ -120,7 +120,7 @@ namespace ConfigText
 			while (fn != words.end() && Lower(*fn) != "getglobalvalue") {
 				++fn;
 			}
-			if (fn != words.end() && std::distance(fn, words.end()) >= 5 && *(fn + 2) == "NONE" && *(fn + 3) == "==") {
+			if (fn != words.end() && std::distance(fn, words.end()) >= 5 && LightKit::SameText(*(fn + 2), "NONE") && *(fn + 3) == "==") {
 				int v = 0;
 				if (ParseInt(*(fn + 4), v)) {
 					// a route clause is left out: alone, its run is empty and so no test (the gate); in an OR run the other items decide

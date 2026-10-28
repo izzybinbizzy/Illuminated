@@ -6,8 +6,8 @@
 // menu's settings keep that model lit. Each one's own light is remembered, so switching an option off gives it back.
 // Without Light Placer (RecordLights.cpp) each is pointed at the record light made for its model instead, and one that
 // had no light gets one.
-// Sprays, streams and bolts (flame, cone and beam projectiles) are never touched here: pass 6 lights each by its own light
-// record made bigger and brighter (his stream rule - never take the projectile's own light off).
+// Sprays, streams and bolts (flame, cone and beam projectiles) are never touched here: pass 6 keeps each one's own light
+// record and lights its length with a row (his stream rule - never take the projectile's own light off).
 // Also RefreshLights, which runs passes 1, 2 and 6 again (and puts the sliders onto the lights) whenever a setting changes.
 
 #include "Plugin.h"
@@ -225,7 +225,7 @@ namespace Plugin
 	void RefreshLights()
 	{
 		const auto started = std::chrono::steady_clock::now();
-		ApplyLightStrength(false);
+		ApplyLightStrength(false, true);  // a held slider refreshes every step: no strength line per step
 		// passes 1, 2 and 6 write different forms (pass 2 leaves every spray, stream and bolt to pass 6), so their order is free
 		ApplyCastingLights(false);
 		ApplyEffectLights(false);

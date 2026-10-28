@@ -12,6 +12,8 @@
 //   "Runes" says they stay lit
 //   the game's own casting light on the record route (Vanilla / ENB, or no Light Placer), by its caster - SneakDim from the
 //   caster's update, after every other pass wrote it
+//   the lights StreamLights.cpp hangs on a projectile (a bolt's row, the ward dome) by its shooter; a cone's cloud light is
+//   dimmed where it is moved (SneakDim)
 // Our write is the last word on a dimmed light and never a base for anyone else's: each light remembers the fade the others
 // left it (`pre`) and what we wrote over it. At the start of the player update, and around a pass of ours that writes fades
 // later in the frame (SneakPause: a caster's update, an effect's, the cell's animations), the light gets its `pre` back if
@@ -29,6 +31,9 @@ namespace Plugin
 		constexpr std::string_view kInvisible = "IlluminatedWhileInvisible";  // 0 fade out (the default), 1 stay on
 		constexpr std::string_view kRunes = "IlluminatedSneakingRunes";       // 0 fade with their caster (the default), 1 stay lit
 		constexpr std::string_view kArtLight = "IlluminatedArtLight";         // ArtLights.cpp
+		constexpr std::string_view kRowLight = "IlluminatedStreamRow";        // StreamLights.cpp: a bolt's row
+		constexpr std::string_view kWardLight = "IlluminatedStream";          // StreamLights.cpp: the ward dome
+		constexpr float            kTopCutoff = 1.0f;                         // the highest cutoff Light Placer and our lights write
 		constexpr float            kFadeSeconds = 0.5f;
 		constexpr std::uint32_t    kForgetFrames = 3;
 
@@ -92,7 +97,8 @@ namespace Plugin
 						const auto* point = a_entry && a_entry->GetType() == RE::PERK_ENTRY_TYPE::kEntryPoint ?
 						                        static_cast<const RE::BGSEntryPointPerkEntry*>(a_entry) :
 						                        nullptr;
-						return point && std::ranges::any_of(point->conditions, ReadsLightLevel);
+						// the perk owner's own tab only (the first): an entry point's other tabs ask about a target or a weapon
+						return point && point->conditions.size() > 0 && ReadsLightLevel(point->conditions[0]);
 					}));
 					if (reads) {
 						found.perks.push_back(perk);
@@ -154,12 +160,13 @@ namespace Plugin
 			a_d.wrote = fade * a_level;
 			fade = a_d.wrote;
 			// Community Shaders works an inverse-square light's reach out of its fade and its cutoff, so a dimmer fade alone also
-			// pulls the light in (measured: 30 % on the record lit 7 % of the ground). The cutoff moves with it, as Brightness does
+			// pulls the light in (measured: 30 % on the record lit 7 % of the ground). The cutoff moves with it, as Brightness does.
+			// Off Community Shaders those two words are the ambient color, never touched
 			auto* light = a_d.hold.get();
-			a_d.inverseSquare = LightKit::Isl::On(light);
+			a_d.inverseSquare = InverseSquare() && LightKit::Isl::On(light);
 			if (a_d.inverseSquare) {
 				a_d.preCutoff = LightKit::Isl::Cutoff(light);
-				LightKit::Isl::SetCutoff(light, a_d.preCutoff * a_level);
+				LightKit::Isl::SetCutoff(light, a_d.preCutoff * a_level, 0.01f, kTopCutoff);
 				a_d.wroteCutoff = LightKit::Isl::Cutoff(light);
 			}
 			a_d.down = true;
@@ -176,7 +183,7 @@ namespace Plugin
 			}
 			auto* light = a_d.hold.get();
 			if (a_d.inverseSquare && LightKit::Isl::On(light) && LightKit::Isl::Cutoff(light) == a_d.wroteCutoff) {
-				LightKit::Isl::SetCutoff(light, a_d.preCutoff);
+				LightKit::Isl::SetCutoff(light, a_d.preCutoff, 0.01f, kTopCutoff);
 			}
 			a_d.down = false;
 		}
@@ -204,9 +211,9 @@ namespace Plugin
 			float      target{ 1.0f };  // TargetOf
 		};
 
-		// the caster a light of ours fades with: the actor it hangs on, or the one who laid a rune (its shooter, else whoever set
-		// the chain off) - an enemy's rune or a trap's (laid by nobody) never fades because she sneaks, and with Runes on "Stay lit"
-		// none does
+		// the caster a light of ours fades with: the actor it hangs on, the shooter of the projectile a row or ward light of ours
+		// hangs on, or the one who laid a rune (its shooter, else whoever set the chain off) - an enemy's rune or a trap's (laid by
+		// nobody) never fades because she sneaks, and with Runes on "Stay lit" none does
 		[[nodiscard]] std::optional<Caster> CasterOf(const RE::NiLight& a_light, float a_low, bool a_runesFade)
 		{
 			const auto of = [a_low](const RE::Actor* a_actor) {
@@ -220,14 +227,20 @@ namespace Plugin
 				return of(actor);
 			}
 			const auto* projectile = ref->As<RE::Projectile>();
-			const auto* base = projectile ? ref->GetBaseObject() : nullptr;
-			const auto* data = base ? base->As<RE::BGSProjectile>() : nullptr;
-			if (!data || !data->IsGrenade() || !projectile->GetProjectileRuntimeData().spell) {
+			if (!projectile) {
 				return std::nullopt;
 			}
-			// a rune proper is set off by someone coming near (its proximity trigger); a timed burst or a bloom has none
-			if (!a_runesFade && data->data.explosionProximity > 0.0f) {
-				return std::nullopt;
+			const std::string_view name = a_light.name.c_str();
+			if (name != kRowLight && name != kWardLight) {
+				const auto* base = ref->GetBaseObject();
+				const auto* data = base ? base->As<RE::BGSProjectile>() : nullptr;
+				if (!data || !data->IsGrenade() || !projectile->GetProjectileRuntimeData().spell) {
+					return std::nullopt;
+				}
+				// a rune proper is set off by someone coming near (its proximity trigger); a timed burst or a bloom has none
+				if (!a_runesFade && data->data.explosionProximity > 0.0f) {
+					return std::nullopt;
+				}
 			}
 			if (const auto shooter = projectile->GetProjectileRuntimeData().shooter.get()) {
 				return of(shooter->As<RE::Actor>());
@@ -240,7 +253,11 @@ namespace Plugin
 		[[nodiscard]] bool Ours(RE::NiLight* a_light)
 		{
 			auto* point = a_light ? netimmerse_cast<RE::NiPointLight*>(a_light) : nullptr;
-			return point && (std::string_view(point->name.c_str()) == kArtLight || IsOurLightPlacerLight(*point));
+			if (!point) {
+				return false;
+			}
+			const std::string_view name = point->name.c_str();
+			return name == kArtLight || name == kRowLight || name == kWardLight || IsOurLightPlacerLight(*point);
 		}
 
 		struct Found

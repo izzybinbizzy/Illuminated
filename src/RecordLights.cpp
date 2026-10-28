@@ -423,6 +423,12 @@ namespace Plugin
 		const float radius = static_cast<float>(record->data.radius);
 		if (radius > 0.0f && data.radius.x != radius) {
 			data.radius = RE::NiPoint3{ radius, radius, data.radius.z };  // z is the light's size: the game's, kept
+			if (auto* point = InverseSquare() ? nullptr : netimmerse_cast<RE::NiPointLight*>(light)) {
+				// the drawn reach too, ground twin or not; the call writes the two words that are the ambient color off Community Shaders
+				const auto ambient = LightKit::Isl::Read(point);
+				point->SetLightAttenuation(radius);
+				LightKit::Isl::Write(point, ambient);
+			}
 		}
 		// a steady one takes its record's fade too, so Brightness and Dim in daylight reach a hand already lit (run 9,
 		// the game set it once, when the spell was readied, and it never moved after); a flicker plays its keys

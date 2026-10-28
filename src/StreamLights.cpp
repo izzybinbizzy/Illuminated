@@ -4,20 +4,15 @@
 //
 // Pass 6: the light of a spray, a stream or a bolt - and a ward dome's light.
 //
-// HIS RULE (Illuminated's CLAUDE.md, "RELIGHT'S METHOD"): a spray, stream or bolt is lit by the PROJECTILE'S OWN LIGHT RECORD,
-// made bigger and brighter - one light per projectile, the way RE::Light lights them in RELight - Spell Addon (its spray
-// configs: the record's own light, brightness 1.72 at size 2.5, reach the whole length plus 15%, bounded by one light's
-// reach) - and never dimmer than the light it was raised from (his answer 2026-10-13, LightKit::NeverDimmer). So this pass
-// gives each cone, beam and flamethrower projectile an in-memory copy of its own light raised that way, worn while the
-// "Streams" setting is on, its own light when it is off. A spray model pass 4 already raised (the Spray Lights setting) keeps
-// pass 4's copy and is left to that setting alone - his answer 2026-10-13: Streams off does not touch the sprays Spray Lights
-// brightens, two settings, each doing one thing. The Brightness and Reach sliders reach the copies (LightCopies). Colors, picked again on every settings refresh: a
-// BEAM's row in the Streams folder whose settings hold (the data's color - the build moves every beam row out of Light Placer,
-// lagen move_beams, because on Community Shaders the data's six points stopped half way along Sparks, measured 2026-10-13),
-// else the spray markers (frost, shock), else the record's own; a beam with no light of its own wears a raised copy of its
-// row's light (the row that held when the game loaded). ⛔ No light of ours is hung on a spray, stream or
-// bolt; `PC Runner\stream rule check.py` fails a build that does (it took several rounds of ladders before his word was read
-// right).
+// HIS RULE (Illuminated's CLAUDE.md, "RELIGHT'S METHOD"): a spray, stream or bolt keeps the PROJECTILE'S OWN LIGHT RECORD;
+// his checklist 140 fallback (below) adds a row of small lights along its length. Each cone, beam and flamethrower projectile
+// keeps its own light, Streams on or off; an in-memory copy of that light carries the color its row wears, picked again on
+// every settings refresh: a BEAM's row in the Streams folder whose settings hold (the data's color - the build moves every beam
+// row out of Light Placer, lagen move_beams, because on Community Shaders the data's six points stopped half way along Sparks,
+// measured 2026-10-13), else the spray markers (frost, shock), else the record's own; a beam with no light of its own wears
+// its row's light. A spray model pass 4 copied (the Spray Lights setting) is left to that setting alone - his answer
+// 2026-10-13: Streams off does not touch the sprays Spray Lights lights, two settings, each doing one thing.
+// `PC Runner\stream rule check.py` fails a build that hangs lights on these projectiles anywhere but beside BeamRow::Lay.
 //
 // A ward dome (Dynamic Wards absent) is the one projectile this pass still hangs a light on: its Load3D / Release3D hooks,
 // the live list and the main-thread queue below are for that. CREDIT: how that light is made and registered follows ReLight
@@ -32,12 +27,11 @@
 
 // 🔁 HIS ANSWER 2026-10-20 (checklist 140): one light stretched along the beam - and "if you plain out cannot make part 1 of
 // 140 to happen then revert to this as a backup plan", a row of lights. One stretched light cannot be drawn inside our mods
-// (his research page, part 8), so a BOLT (beam projectile) now wears a ROW of small lights spread over its real length every
-// frame (BeamRow.h: no two farther apart than 125, spots under 5 %, the light staying near the beam), and its own light at its
-// own size - no more one light raised to the whole length (the flood he reported). It lifts the 2026-10-13 rule above for
-// beams only (`stream rule check.py` allows a beam hook only beside BeamRow::Lay). Flame sprays and cones keep the raised own
-// light until their row is built. The row's moving parts are the old ladder's (local branch beam-ladder): lights hung off the
-// projectile's root along its path (PathOf: a bolt straight to what it hit), the length its newest impact or else its range.
+// (his research page, part 8), so a bolt, a flame spray and a cone wear a ROW of small lights spread over their real length
+// every frame (BeamRow.h: no two farther apart than BeamRow::kSpacing, spots under 5 %, the light staying near the beam), beside
+// their own light at its own size; a cone the data lights as a cloud gets one light where its cloud is (HangCloud). The row's
+// moving parts are the old ladder's (local branch beam-ladder): lights hung off the projectile's root along its path (PathOf: a
+// bolt straight to what it hit), as long as its drawn art, never past its newest impact or its range.
 
 namespace Plugin
 {
@@ -1012,7 +1006,7 @@ namespace Plugin
 			if (!proj) {
 				continue;
 			}
-			// a flamethrower, cone or beam projectile: one light, its own, raised
+			// a flamethrower, cone or beam projectile: its own light, and a row of ours along it
 			const bool flame = proj->data.types.any(RE::BGSProjectileData::Type::kFlamethrower);
 			const bool cone = !flame && proj->data.types.any(RE::BGSProjectileData::Type::kCone);
 			const bool beam = !flame && !cone && proj->data.types.any(RE::BGSProjectileData::Type::kBeam);
@@ -1033,10 +1027,8 @@ namespace Plugin
 				++skipped;
 				continue;
 			}
-			// HIS RULE (CLAUDE.md, "RELIGHT'S METHOD"): the projectile's OWN light record, a bigger and brighter copy - one light
-			// per spray / stream / bolt, as RE::Light's isPluginLight configs do (RELight - Spell Addon's spray configs: the record's
-			// copy, brightness 1.72 at size 2.5, reach from the hand to the end plus 15%, bounded by one light's reach). No light
-			// of ours is hung on it. A projectile with no light of its own is left as it is.
+			// HIS RULE (CLAUDE.md, "RELIGHT'S METHOD"): the projectile keeps its OWN light record; its length is lit by a row of
+			// small lights (HangRow, his checklist 140 fallback). One with neither a light of its own nor a row light is left as it is.
 			// a beam whose rows the build moved out of Light Placer (lagen move_beams): the data's color for it, and its light when
 			// the projectile has none of its own (taken again on every settings refresh - ApplyStreamLights)
 			// a cone the data lights as a cloud (a Streams row marked "cloud", lagen): its row's light on every route, held where
@@ -1059,7 +1051,8 @@ namespace Plugin
 				// (BeamRow.h) under that setting, matched to its ORIGINAL light, and the original light itself (SprayLights.cpp)
 				const auto* original = SprayOriginal(proj);
 				const auto* tint = SprayCopyOf(proj);
-				gRows[proj->GetFormID()] = { ColorOf(tint ? tint : original), original->fade, static_cast<float>(original->data.radius), false, true, tint };
+				const auto [fade, reach] = StartOf(original);  // before the sliders: MoveRows puts them on
+				gRows[proj->GetFormID()] = { ColorOf(tint ? tint : original), fade, reach, false, true, tint };
 				++kept;
 				continue;
 			}
@@ -1079,7 +1072,8 @@ namespace Plugin
 			// steps and walls, his "reach the entire universe"
 			// (and since his 2026-10-20 "Do the flame sprays and cones in Illuminated first", a flame spray and a cone the same way,
 			// along their aim)
-			gRows[proj->GetFormID()] = { ColorOf(copy), base->fade, static_cast<float>(base->data.radius), beam, false, nullptr, cloud };
+			const auto [baseFade, baseReach] = StartOf(base);  // before the sliders: MoveRows puts them on
+			gRows[proj->GetFormID()] = { ColorOf(copy), baseFade, baseReach, beam, false, nullptr, cloud };
 			// the sliders reach it like every copy (LightCopies.cpp ApplyLightStrength): the cutoff too, so Reach moves an inverse-square
 			// stream's reach (it is Community Shaders' only lever)
 			LightCopies().push_back({ .id = "stream " + id,
@@ -1253,8 +1247,9 @@ namespace Plugin
 			if (const auto row = gRows.find(formID); row != gRows.end()) {
 				row->second.color = ColorOf(copy->second);  // the row takes the color the settings pick now
 				if (c.borrowed) {                           // and a borrowed light's own strength and reach (the code review)
-					row->second.fade = c.borrowed->fade;
-					row->second.reach = static_cast<float>(c.borrowed->data.radius);
+					const auto [fade, reach] = StartOf(c.borrowed);
+					row->second.fade = fade;
+					row->second.reach = reach;
 				}
 				// a cloud takes its Streams row's light as the settings pick it now, at that light's own numbers
 				if (const auto* now = c.cloud ? RowLight(StreamRowFor(c.model)) : nullptr) {

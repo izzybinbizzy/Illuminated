@@ -144,8 +144,8 @@ namespace Plugin
 	void                                          MakeLightCopies();   // LightCopies.cpp
 	void                                          NoteSpellHazards();  // LightCopies.cpp: the hazard tint's tables, while editor IDs are kept
 	[[nodiscard]] float                           BrightnessNow();     // LightCopies.cpp: Brightness x Dim in daylight, as the copies take it
-	// StreamLights.cpp: pass 6 - each spray, stream and bolt lit by its own light record made bigger and brighter (his stream
-	// rule), and a ward dome's light when Dynamic Wards is not here
+	// StreamLights.cpp: pass 6 - each spray, stream and bolt keeps its own light record and wears a row of small lights along it
+	// (his stream rule), and a ward dome's light when Dynamic Wards is not here
 	void               StreamLights();
 	[[nodiscard]] bool StreamLightsOn();                                                                // StreamLights.cpp: the setting
 	void               ApplyStreamLights(bool a_log);                                                   // StreamLights.cpp: the setting, on or off
@@ -196,6 +196,8 @@ namespace Plugin
 	[[nodiscard]] std::vector<RE::NiPointer<RE::BSLight>> QueuedLights(RE::ShadowSceneNode* a_scene);
 	void                                                  KeepLightPlacerLights();  // at data load, after Light Placer hooked the resume when it loaded
 	void                                                  KeepCastingLights();      // once a frame, main thread: the casting art's Light Placer lights after a cell change
+	void                                                  DropCastingLights();      // a game loads: those lights and the last place seen are the old game's
+	void                                                  DropHandBudget();         // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
 
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
 	void                             DecideRecordRoute();  // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer
@@ -304,8 +306,8 @@ namespace Plugin
 	};
 
 	[[nodiscard]] SprayChoice ReadSprayChoice();
-	void                      ApplySprayColors();  // SprayLights.cpp: the raised sprays' colors for the settings as they are now
-	// SprayLights.cpp: the light a spray projectile had before pass 4 stretched a copy of it onto it, or nullptr
+	void                      ApplySprayColors();  // SprayLights.cpp: the sprays' row colors for the settings as they are now
+	// SprayLights.cpp: the light a spray projectile had before pass 4 made its color copy, or nullptr
 	[[nodiscard]] RE::TESObjectLIGH* SprayOriginal(const RE::BGSProjectile* a_projectile);
 	// SprayLights.cpp: pass 4's copy of a spray's light, recolored on every refresh - the color its row wears - or nullptr
 	[[nodiscard]] const RE::TESObjectLIGH* SprayCopyOf(const RE::BGSProjectile* a_projectile);

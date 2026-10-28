@@ -106,7 +106,7 @@ namespace Plugin
 					if (!v) {
 						return DevBenchGlue::Refusal("setting needs value: a whole number");
 					}
-					SetSetting(i, static_cast<int>(std::lround(*v)));
+					SetSetting(i, static_cast<int>(std::lround(std::clamp(*v, -1.0e9, 1.0e9))));  // a hostile number never overflows the int
 					const auto now = SettingJson(settings[i]);
 					DevBenchGlue::Emit("illuminated.settingChanged", json{ { "id", settings[i].id }, { "ini", settings[i].ini }, { "value", settings[i].value.load() } });
 					return json{ { "ok", true }, { "setting", now }, { "note", "applied to the lights at the next frame" } };

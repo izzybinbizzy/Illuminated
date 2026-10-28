@@ -3,8 +3,9 @@
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
 // Pass 4: with the Spray Lights setting on (its marker row in the settings file, SprayMarkers.cpp), each spray projectile gets a
-// stretched copy of its light. It answers to that setting only: his answer 2026-10-13 - Streams off does not touch the sprays
-// Spray Lights brightens, two settings, each doing one thing (pass 6, StreamLights.cpp, leaves these copies alone).
+// copy of its light that carries the color its row of lights wears (StreamLights.cpp lights the length); the spray itself wears
+// its own light, or that light in the art pick's color (ApplySprayColors). It answers to that setting only: his answer
+// 2026-10-13 - Streams off does not touch the sprays Spray Lights lights, two settings, each doing one thing.
 
 #include "Plugin.h"
 
@@ -116,13 +117,14 @@ namespace Plugin
 				++noLight;
 				continue;
 			}
-			const int range = static_cast<int>(std::lround(proj->data.range));
+			const int range = static_cast<int>(std::lround(std::clamp(proj->data.range, 0.0f, 1.0e7f)));
 			if (range <= 0) {
 				++failed;
 				SKSE::log::warn("[SPRAY-FAILED] {} | could not read its range", Label(proj));
 				continue;
 			}
-			const int  radius = sc.radiusAbs > 0 ? sc.radiusAbs : static_cast<int>(std::lround(range * sc.radiusPc / 100.0));
+			const int  radius = sc.radiusAbs > 0 ? sc.radiusAbs :
+			                                       static_cast<int>(std::lround(std::clamp(static_cast<double>(range) * sc.radiusPc / 100.0, 0.0, 1.0e7)));
 			const auto family = FamilyOf(id, false);
 			auto*      copy = CopyLight(bulb);
 			if (!copy) {
@@ -186,9 +188,10 @@ namespace Plugin
 				s.proj->data.light = s.original;
 			}
 		}
+#ifdef FADE_DEBUG_PAGE
 		// a held Frostbite after a Frost Art switch still wore the old pick's color in game while every refresh ran: one line
 		// per family says what its copies hold now, so the log tells "the copy did not change" from "the game did not take
-		// the copy's new color"
+		// the copy's new color" (the testing DLL: every slider step refreshes)
 		for (const auto family : { Family::kFire, Family::kFrost, Family::kShock }) {
 			const auto first = std::ranges::find(gCopies, family, &SprayCopy::family);
 			if (first == gCopies.end()) {
@@ -201,6 +204,7 @@ namespace Plugin
 			SKSE::log::info("[SPRAY-COLOR] {} | {} copies | now {},{},{} | own {},{},{} | marker {}", FamilyName(family), n, c.red,
 				c.green, c.blue, first->own.red, first->own.green, first->own.blue, held ? "holds" : "does not hold");
 		}
+#endif
 	}
 
 	RE::TESObjectLIGH* SprayOriginal(const RE::BGSProjectile* a_projectile)
