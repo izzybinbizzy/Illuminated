@@ -10,8 +10,9 @@
 // model a config row lights now (RecordLightFor - the settings' tests), and every drawn weapon whose own model one lights, gets
 // a light of ours on that model - in the record light's color, at its strength and reach (so the sliders, daylight and the
 // flicker reach it), made the way Dynamic Wards and GroundLights.cpp make theirs (land lighting on). The light hangs under the
-// art's or the weapon's 3D, so the fading module finds and fades it like any other weapon light (a bound weapon over the last
-// seconds of its spell). It goes when the art or the weapon goes, or a setting stops lighting its model.
+// art's or the weapon's 3D - in first person on the body node, noted as that hand's (Fade::NoteHandLight) - so the fading
+// module and Lights by Item reach it like any other weapon light (a bound weapon over the last seconds of its spell). It goes
+// when the art or the weapon goes, or a setting stops lighting its model.
 // The flesh spells the same way: their configs light an effect SHADER on the caster's body (Oakflesh ... Dragonhide, LightMath.h
 // kFleshLooks), which has no light record slot either, and without Light Placer nothing lit them. Each flesh shader effect
 // gets its row's light on the body (the effect's own attach root, the third-person one - a light under the first-person
@@ -80,6 +81,7 @@ namespace Plugin
 		// this frame's numbers of the record onto our light
 		void Follow(Kept& a_kept)
 		{
+			const auto        turn = LightKit::Turn();
 			auto&             data = a_kept.light->GetLightRuntimeData();
 			const auto&       c = a_kept.record->data.color;
 			const RE::NiColor own{ c.red / 255.0f, c.green / 255.0f, c.blue / 255.0f };
@@ -212,12 +214,28 @@ namespace Plugin
 		// the third-person hands whose art light went to the body this frame: their weapon is lit already
 		std::unordered_set<const RE::NiAVObject*> gHandsOnBody;
 
+		// a light that went to the body node for a hand: for the fading module, once the effects' walk is done (never under
+		// the game's effect lock)
+		struct OnBody
+		{
+			const void*      owner{ nullptr };
+			const RE::Actor* actor{ nullptr };
+			bool             left{ false };
+		};
+		std::vector<OnBody> gOnBody;
+
+		[[nodiscard]] bool LeftHand(const RE::NiAVObject* a_hand)
+		{
+			return a_hand && std::string_view(a_hand->name.c_str()).find("L Hand") != std::string_view::npos;
+		}
+
 		// The node an art light hangs on: the art's own model, or - when the game put the art on an actor's first-person
 		// skeleton (the player in first person: a cloak, a bound weapon's art) - the third-person node of the same name as the
 		// one the art hangs under, as RELight's body lights do (the body node for one on an arm). A light under the first-person
 		// skeleton lights nothing in the world (Dynamic Wards 3.1), so in first person those lights were dark while third person lit.
-		[[nodiscard]] RE::NiAVObject* ArtNode(RE::ModelReferenceEffect* a_art)
+		[[nodiscard]] RE::NiAVObject* ArtNode(RE::ModelReferenceEffect* a_art, const RE::NiAVObject*& a_hand)
 		{
+			a_hand = nullptr;
 			auto*       art = a_art->artObject3D.get();
 			const auto  ref = a_art->target.get();
 			auto* const actor = ref ? ref->As<RE::Actor>() : nullptr;
@@ -239,6 +257,7 @@ namespace Plugin
 					return art;
 				}
 				gHandsOnBody.insert(hand);
+				a_hand = hand;
 				return BodyNode(third);
 			}
 			auto*       attach = art->parent;
@@ -253,6 +272,7 @@ namespace Plugin
 			}
 			if (hand) {
 				gHandsOnBody.insert(hand);
+				a_hand = hand;
 				return BodyNode(third);
 			}
 			return same ? same : third;
@@ -328,6 +348,9 @@ namespace Plugin
 					const auto* camera = RE::PlayerCamera::GetSingleton();
 					const bool  firstPerson = a_actor->IsPlayerRef() && camera && camera->IsInFirstPerson();
 					Keep(part, firstPerson ? BodyNode(a_actor->Get3D(false)) : part, record, a_scene);
+					if (firstPerson) {
+						gOnBody.push_back({ part, a_actor, left });
+					}
 				}
 			}
 		}
@@ -353,7 +376,7 @@ namespace Plugin
 		if (!RecordRoute()) {
 			return;
 		}
-		auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+		auto* scene = LightKit::Scene();
 		if (!scene || gArtLightsOn.load(std::memory_order_relaxed) < 0.5f || LightsOff()) {  // switched off (advanced settings file, or all lights off)
 			for (auto& [key, kept] : gKept) {
 				Drop(kept, scene);  // with a scene, each light leaves its lists too (CodeRabbit, Illuminated #6)
@@ -365,6 +388,7 @@ namespace Plugin
 		for (auto& [key, kept] : gKept) {
 			kept.seen = false;
 		}
+		gOnBody.clear();
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {
 			gHandsOnBody.clear();
 			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
@@ -372,7 +396,13 @@ namespace Plugin
 				if (art && !art->finished && art->artObject && art->artObject3D) {
 					const auto& model = ModelKey(art->artObject, art->artObject->GetModel());
 					if (const auto* record = model.empty() ? nullptr : RecordLightFor(model)) {
-						Keep(art, ArtNode(art), record, scene);
+						const RE::NiAVObject* hand = nullptr;
+						Keep(art, ArtNode(art, hand), record, scene);
+						const auto  target = hand ? art->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
+						const auto* actor = target ? target->As<RE::Actor>() : nullptr;
+						if (actor) {
+							gOnBody.push_back({ art, actor, LeftHand(hand) });
+						}
 					}
 				} else if (auto* shader = art ? nullptr : netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect); shader && !shader->finished) {
 					KeepFlesh(shader, scene);
@@ -403,11 +433,18 @@ namespace Plugin
 			return false;
 		});
 		gKeptCount = gKept.size();
+		// the lights that went to the body for a hand, now that the walk is over: the fading module and Lights by Item reach
+		// them as that hand's (both run after this in the player update)
+		for (const auto& b : gOnBody) {
+			if (const auto it = gKept.find(b.owner); it != gKept.end() && it->second.light) {
+				Fade::NoteHandLight(b.actor, b.left, it->second.light.get());
+			}
+		}
 	}
 
 	void DropArtLights()
 	{
-		auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+		auto* scene = LightKit::Scene();
 		for (auto& [key, kept] : gKept) {
 			Drop(kept, scene);
 		}

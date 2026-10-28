@@ -173,6 +173,7 @@ namespace Plugin
 		const float   frozen = frozenShader ? FrozenFade(a_effect) : 1.0f;
 		std::uint32_t matched = 0;
 		{
+			const auto       turn = LightKit::Turn();  // before gRootLock (LightKit.h's order)
 			std::scoped_lock lock{ gRootLock };
 			const auto       it = gRoots.find(a_effect);
 			if (it == gRoots.end() || it->second.effectID != a_effect->effectID) {

@@ -63,10 +63,10 @@ namespace Plugin
 			std::string_view model;
 			std::string_view global;  // lower case, as ParseConditions keeps it
 		};
-		constexpr std::array<ArtHand, 3>                          kArtHands{ { { Family::kShock, "magic\\shockhandeffects.nif", "illuminatedshockart" },
+		constexpr std::array<ArtHand, 3>          kArtHands{ { { Family::kShock, "magic\\shockhandeffects.nif", "illuminatedshockart" },
 			{ Family::kFire, "magic\\fireball01handeffects.nif", "illuminatedfireart" },
 			{ Family::kFrost, "magic\\frostbolthandfx01.nif", "illuminatedfrostart" } } };
-		std::unordered_map<std::string, std::vector<ConfigLight>> gArtHandRows;
+		Fade::StringMap<std::vector<ConfigLight>> gArtHandRows;  // found by a model's text with no string made (every hazard update asks)
 
 		[[nodiscard]] bool IsArtHand(std::string_view a_model)
 		{
@@ -346,7 +346,7 @@ namespace Plugin
 		if (hand == kArtHands.end()) {
 			return std::nullopt;
 		}
-		const auto rows = gArtHandRows.find(std::string(hand->model));
+		const auto rows = gArtHandRows.find(hand->model);
 		if (rows == gArtHandRows.end()) {
 			return std::nullopt;
 		}

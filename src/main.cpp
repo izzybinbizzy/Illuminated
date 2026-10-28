@@ -52,6 +52,7 @@
 
 #include "Fade.h"
 #include "Plugin.h"
+#include "RuntimeGuard.h"
 
 using namespace Plugin;
 
@@ -132,6 +133,18 @@ namespace
 		}
 	}
 
+	// the old game's lights and the art and weapons they hang on let go: at a load, and at a new game (it has no kPreLoadGame)
+	void ForgetOldGame()
+	{
+		DropArtLights();
+		DropGroundLights();
+		DropStreamLights();
+		DropSneakFade();
+		DropCastingLights();
+		DropHandBudget();
+		Fade::OnGameLoading();
+	}
+
 	void Handle(SKSE::MessagingInterface::Message* a_msg)
 	{
 		switch (a_msg->type) {
@@ -149,13 +162,7 @@ namespace
 			OnDataLoaded();
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
-			DropArtLights();  // the art and weapons they hang on are the old game's
-			DropGroundLights();
-			DropStreamLights();
-			DropSneakFade();
-			DropCastingLights();
-			DropHandBudget();
-			Fade::OnGameLoading();
+			ForgetOldGame();
 			break;
 		case SKSE::MessagingInterface::kPostLoadGame:
 		case SKSE::MessagingInterface::kNewGame:
@@ -163,14 +170,7 @@ namespace
 			ApplyGlobals();
 			WatchBlocking();  // the player's animation graph is new after a load: the shield's ward watch goes on it again
 			if (a_msg->type == SKSE::MessagingInterface::kNewGame) {
-				// no kPreLoadGame comes before a new game: the last game's lights go here
-				DropArtLights();
-				DropGroundLights();
-				DropStreamLights();
-				DropSneakFade();
-				DropCastingLights();
-				DropHandBudget();
-				Fade::OnGameLoading();
+				ForgetOldGame();
 			}
 			break;
 		default:
@@ -190,6 +190,10 @@ namespace
 SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
 	SKSE::Init(a_skse, { .trampoline = true, .trampolineSize = 128 });
+	// the wrong game: loaded but idle - a false here makes SKSE add its own "exit game?" box over the guard's
+	if (!RuntimeGuard::RightGame("Illuminated", "Illuminated - Spell Lighting NG", "Illuminated - VR")) {
+		return true;
+	}
 	// the editor-ID recorders are installed at SKSE's post-load (OnMessage), still before the game reads its plugins
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
 	SKSE::log::info("Illuminated plugin loaded; waiting for the game's data");

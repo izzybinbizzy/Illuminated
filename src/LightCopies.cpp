@@ -118,6 +118,7 @@ namespace Plugin
 			} else if (budget == 2) {
 				keep = actor->IsPlayerTeammate();
 			}
+			const auto       turn = LightKit::Turn();  // before gBudgetLock (LightKit.h's order)
 			auto&            fade = light->GetLightRuntimeData().fade;
 			std::scoped_lock lock{ gBudgetLock };
 			if (!keep) {
@@ -154,12 +155,7 @@ namespace Plugin
 			bool  flicker{ false };
 			float cutoff{ 0.0f };  // 0: not an inverse-square light
 		};
-		struct NameHash
-		{
-			using is_transparent = void;
-			std::size_t operator()(std::string_view a_name) const noexcept { return std::hash<std::string_view>{}(a_name); }
-		};
-		std::unordered_map<std::string, Lit, NameHash, std::equal_to<>> gLit;
+		Fade::StringMap<Lit> gLit;
 
 		// the flickering lights lit now. The light is held, so its address is never another light's while it is listed.
 		struct Flicker
@@ -237,29 +233,29 @@ namespace Plugin
 		}
 
 		// straight after Light Placer wrote the lights of one reference, or of one cell
-		void ScaleOwned(const RE::TESObjectREFR* a_owner)
+		template <class Map, class Key>
+		void ScaleIn(const Map& a_map, const Key& a_key)
 		{
-			if (!a_owner || !Scaling()) {
-				return;
-			}
+			const auto      turn = LightKit::Turn();
 			std::lock_guard l{ gFlickerLock };
-			if (const auto it = gByOwner.find(a_owner->GetFormID()); it != gByOwner.end()) {
+			if (const auto it = a_map.find(a_key); it != a_map.end()) {
 				for (auto* flicker : it->second) {
 					Scale(*flicker);
 				}
 			}
 		}
 
+		void ScaleOwned(const RE::TESObjectREFR* a_owner)
+		{
+			if (a_owner && Scaling()) {
+				ScaleIn(gByOwner, a_owner->GetFormID());
+			}
+		}
+
 		void ScaleCell(const RE::TESObjectCELL* a_cell)
 		{
-			if (!a_cell || !Scaling()) {
-				return;
-			}
-			std::lock_guard l{ gFlickerLock };
-			if (const auto it = gByCell.find(a_cell); it != gByCell.end()) {
-				for (auto* flicker : it->second) {
-					Scale(*flicker);
-				}
+			if (a_cell && Scaling()) {
+				ScaleIn(gByCell, a_cell);
 			}
 		}
 
@@ -270,6 +266,7 @@ namespace Plugin
 			if (!root) {
 				return;
 			}
+			const auto      turn = LightKit::Turn();
 			std::lock_guard l{ gFlickerLock };
 			RE::BSVisit::TraverseScenegraphLights(root, [&](RE::NiPointLight* a_light) {
 				if (const auto* lit = a_light ? LitOf(*a_light) : nullptr; lit && lit->flicker) {
@@ -385,7 +382,7 @@ namespace Plugin
 		{
 			const int now = SettingValue(kDynamicLighting, 1);
 			const int before = std::exchange(gDynamicSeen, now);
-			auto*     scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+			auto*     scene = LightKit::Scene();
 			if (before < 0 || before == now || RecordRoute() || !scene) {
 				return;
 			}
@@ -473,17 +470,20 @@ namespace Plugin
 				ApplyLightStrength(false, true);  // the daylight moved: the copies at the new Brightness x daylight, no log line
 			}
 			StreamLightsFrame();
-			auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+			auto* scene = LightKit::Scene();
 			if (!scene || (!changed && !Scaling())) {
 				return;
 			}
 			const auto&                                      lights = scene->GetRuntimeData();
 			const float                                      ratio = before > 0.0f ? gBrightness / before : 1.0f;
 			std::vector<std::pair<RE::NiPointLight*, float>> moved;
+			// copied under the game's queue lock BEFORE the turn: inside a turn nothing waits on a game lock (LightKit.h)
+			const auto queued = QueuedLights(scene);
 			{
+				const auto      turn = LightKit::Turn();  // let go at the brace, before Fade::Rebase (the fading lock comes before the turn)
 				std::lock_guard l{ gFlickerLock };
 				VisitList(lights.activeLights, changed, ratio, moved);
-				VisitList(QueuedLights(scene), changed, ratio, moved);  // added before the next draw
+				VisitList(queued, changed, ratio, moved);  // added before the next draw
 				if (!Scaling()) {
 					gFlickers.clear();  // Light Placer's own values stand from here on
 					Reindex();
@@ -586,8 +586,9 @@ namespace Plugin
 					}
 					if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
 						if (!RecordRoute()) {
-							std::lock_guard l{ gFlickerLock };  // the slider pass writes the same fade
-							FleshLightPlacer(a_this);           // a flesh spell under FleshFX: Light Placer's light just written takes its hue
+							const auto      turn = LightKit::Turn();  // before gFlickerLock (LightKit.h's order)
+							std::lock_guard l{ gFlickerLock };        // the slider pass writes the same fade
+							FleshLightPlacer(a_this);                 // a flesh spell under FleshFX: Light Placer's light just written takes its hue
 						}
 					}
 					Fade::AfterReferenceEffect(a_this, std::is_same_v<T, RE::ModelReferenceEffect>);  // an art model, not a shader's actor
@@ -659,6 +660,7 @@ namespace Plugin
 		{
 			const RE::NiColor diffuse{ a_color.red / 255.0f, a_color.green / 255.0f, a_color.blue / 255.0f };
 			std::size_t       painted = 0;
+			const auto        turn = LightKit::Turn();
 			if (a_root) {
 				RE::BSVisit::TraverseScenegraphLights(a_root, [&](RE::NiPointLight* a_light) {
 					if (a_light) {
@@ -755,6 +757,7 @@ namespace Plugin
 				if (form->data.light) {
 					const auto& record = form->data.light->data.color;
 					if (own) {
+						const auto turn = LightKit::Turn();
 						own->GetLightRuntimeData().diffuse = { record.red / 255.0f, record.green / 255.0f, record.blue / 255.0f };
 					}
 					PaintLightsUnder(a_hazard->Get3D(), record);
@@ -762,6 +765,7 @@ namespace Plugin
 				return;
 			}
 			if (own) {
+				const auto turn = LightKit::Turn();
 				own->GetLightRuntimeData().diffuse = { color->red / 255.0f, color->green / 255.0f, color->blue / 255.0f };
 			}
 			PaintLightsUnder(a_hazard->Get3D(), *color);
@@ -891,7 +895,7 @@ namespace Plugin
 			if (due.empty()) {
 				return;
 			}
-			auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+			auto* scene = LightKit::Scene();
 			for (const auto& w : due) {
 				auto* light = w.light.get();
 				bool  active = false, queued = false;
@@ -1107,6 +1111,7 @@ namespace Plugin
 	// so the two never compound; here Reach moves the light records' radius once (ApplyLightStrength), never a light in the
 	// scene, so there is nothing to note
 	void NoteReachWrite(const RE::NiPointLight*, float, float) {}
+	void NoteCutoffWrite(const RE::NiPointLight*, float, float) {}  // no pass here takes a cutoff it did not write for its base
 
 	bool FlickerOn()
 	{

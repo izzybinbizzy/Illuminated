@@ -410,7 +410,8 @@ namespace Plugin
 		if (!record) {
 			return;
 		}
-		auto& data = light->GetLightRuntimeData();
+		const auto turn = LightKit::Turn();
+		auto&      data = light->GetLightRuntimeData();
 		if (!hand.matched) {
 			// a setting pointed the effect at another light since this one was lit: the hand takes its look now (his report
 			// "configs for spell art don't change until unequip/re equip, needs to be live")

@@ -81,7 +81,7 @@ namespace Plugin
 		{
 			static void thunk(RE::ShaderReferenceEffect* a_this)
 			{
-				auto*  scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+				auto*  scene = LightKit::Scene();
 				Queued before;
 				if (scene) {
 					LightKit::Guarded("effect resume queues", [scene, &before]() { before = QueuedNow(scene); });
@@ -271,7 +271,7 @@ namespace Plugin
 
 	void DropCastingLights()
 	{
-		auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+		auto* scene = LightKit::Scene();
 		for (const auto& r : gReadded) {
 			if (scene && r.bs) {
 				scene->RemoveLight(r.bs);
@@ -289,7 +289,7 @@ namespace Plugin
 		if (!gCellWatchOn) {
 			return;
 		}
-		auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+		auto* scene = LightKit::Scene();
 		auto* player = RE::PlayerCharacter::GetSingleton();
 		if (!scene || !player) {
 			return;

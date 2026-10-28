@@ -313,22 +313,12 @@ namespace Plugin
 	// ------------------------------------------------------------------ conditions
 	bool ConditionsHold(const std::vector<std::vector<Clause>>& a_tests)
 	{
-		for (const auto& test : a_tests) {
-			bool any = false;
-			for (const auto& c : test) {
-				const auto it = gIndex.find(c.global);
-				// a setting no settings file names: treat it as 0, which is what the game reads from a missing global
-				const int value = it == gIndex.end() ? 0 : EffectiveValue(gSettings[it->second]);  // an art pick: the pack it found
-				if (value == c.value) {
-					any = true;
-					break;
-				}
-			}
-			if (!any) {
-				return false;
-			}
-		}
-		return true;
+		// a setting no settings file names reads 0, as the game reads a missing global; an art pick reads the pack it found
+		const auto holds = [](const Clause& a_c) {
+			const auto it = gIndex.find(a_c.global);
+			return (it == gIndex.end() ? 0 : EffectiveValue(gSettings[it->second])) == a_c.value;
+		};
+		return std::ranges::all_of(a_tests, [&](const std::vector<Clause>& a_test) { return std::ranges::any_of(a_test, holds); });
 	}
 
 	// ------------------------------------------------------------------ loading
