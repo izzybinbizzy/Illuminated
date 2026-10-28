@@ -59,8 +59,8 @@ namespace Plugin
 		// (`wardgen.py warddomes`), in art forms of their own, so the cast wards keep theirs.
 		struct WornRow
 		{
-			const char* plugin;
-			RE::FormID  id;
+			const char* plugin{ nullptr };
+			RE::FormID  id{ 0 };
 		};
 		constexpr WornRow kWorn[] = {
 			{ "Skyrim.esm", 0x07DCDB },                        // Spellbreaker's Ward - Deflection
@@ -159,8 +159,8 @@ namespace Plugin
 		struct StrangePick
 		{
 			RE::NiColor base;
-			const char* name;
-			bool        tinted;  // our ward light takes its color; the Blue pick keeps the vanilla blue-white
+			const char* name{ nullptr };
+			bool        tinted{ false };  // our ward light takes its color; the Blue pick keeps the vanilla blue-white
 		};
 		constexpr std::array kStrangePicks{ StrangePick{ { 0.098f, 0.592f, 0.902f }, "the Blue pick", false },
 			StrangePick{ { 0.886f, 0.345f, 0.133f }, "the Amber pick", true },

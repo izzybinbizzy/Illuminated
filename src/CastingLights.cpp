@@ -46,8 +46,8 @@ namespace Plugin
 
 		struct CastingTarget
 		{
-			RE::EffectSetting* effect;
-			RE::TESObjectLIGH* own;  // the light the effect had before this plugin touched it (after pass 0)
+			RE::EffectSetting* effect{ nullptr };
+			RE::TESObjectLIGH* own{ nullptr };  // the light the effect had before this plugin touched it (after pass 0)
 			std::string        model;
 			RE::TESObjectLIGH* autoLight{ nullptr };  // no config lights its art: the automatic light it gets while the setting is on
 			bool               enbLight{ false };     // ENB Light changed the effect or its casting art: it steps aside on ENB

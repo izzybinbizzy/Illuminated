@@ -131,7 +131,8 @@ namespace Plugin
 		CellWatch gCellWatch;
 
 		// the Light Placer lights under the player's casting art - the art itself, and in first person the third-person node of
-		// the magic node's name, where Light Placer hangs them then (ours are named Illuminated..., never touched here)
+		// the magic node's name, where Light Placer hangs them then; only Light Placer's own (named LP_Light[...]) - the game's
+		// casting light, ours and another mod's are never touched here
 		[[nodiscard]] std::vector<RE::NiPointLight*> CastingArtLights(RE::PlayerCharacter* a_player)
 		{
 			std::vector<RE::NiPointLight*> out;
@@ -143,7 +144,7 @@ namespace Plugin
 				RE::BSVisit::TraverseScenegraphObjects(a_root, [&out](RE::NiAVObject* a_object) {
 					auto*                  light = netimmerse_cast<RE::NiPointLight*>(a_object);
 					const std::string_view name = light ? light->name.c_str() : "";
-					if (light && !name.starts_with("Illuminated") && !std::ranges::contains(out, light)) {
+					if (light && name.starts_with("LP_Light[") && !std::ranges::contains(out, light)) {
 						out.push_back(light);
 					}
 					return RE::BSVisit::BSVisitControl::kContinue;
@@ -238,6 +239,21 @@ namespace Plugin
 		}
 	}
 
+	std::vector<RE::NiPointer<RE::BSLight>> QueuedLights(RE::ShadowSceneNode* a_scene)
+	{
+		std::vector<RE::NiPointer<RE::BSLight>> out;
+		if (!a_scene) {
+			return out;
+		}
+		auto&               data = a_scene->GetRuntimeData();
+		RE::BSSpinLockGuard locker(data.lightQueueLock);
+		out.reserve(data.lightQueueAdd.size());
+		for (const auto& bs : data.lightQueueAdd) {
+			out.push_back(bs);
+		}
+		return out;
+	}
+
 	void KeepLightPlacerLights()
 	{
 		if (REL::Module::IsVR() || !REX::W32::GetModuleHandleA("po3_LightPlacer.dll")) {
@@ -251,6 +267,21 @@ namespace Plugin
 			gCellWatchOn = true;
 			SKSE::log::info("light placer: the casting art's lights are registered again after a cell change");
 		}
+	}
+
+	void DropCastingLights()
+	{
+		auto* scene = RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0];
+		for (const auto& r : gReadded) {
+			if (scene && r.bs) {
+				scene->RemoveLight(r.bs);
+			}
+		}
+		gReadded.clear();
+		gCellSince.reset();
+		gNextLook = kLookAt.size();
+		gLastSpace = nullptr;  // the first cell of the loaded game came through a loading screen
+		gLastInside = false;
 	}
 
 	void KeepCastingLights()

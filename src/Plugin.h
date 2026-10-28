@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "ArtAuto.h"
 #include "ConfigText.h"
 #include "LightKit.h"
 
@@ -83,6 +84,9 @@ namespace Plugin
 		Relaxed<int>             value{ 0 };                                    // the menu (render thread) sets it, the main thread reads it
 		int                      minValue{ 0 }, maxValue{ 1 }, stepValue{ 1 };  // a slider's range and step (percent)
 		RE::TESGlobal*           global{ nullptr };
+		// an art pick (the Auto art picks): the choice its "Find my art pack" switch found at data load, -1 none - never saved
+		Relaxed<int> found{ -1 };
+		std::size_t  autoSwitch{ static_cast<std::size_t>(-1) };  // that switch's index, or none
 	};
 
 	struct MenuNote
@@ -130,18 +134,22 @@ namespace Plugin
 	[[nodiscard]] bool                            SettingAvailable(const Setting& a_setting);
 	[[nodiscard]] int                             AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
 	[[nodiscard]] int                             SettingValue(std::string_view a_id, int a_fallback);
-	[[nodiscard]] bool                            LightsOff();        // Performance > all of Illuminated's lights off (his switch)
-	[[nodiscard]] bool                            PerformanceMode();  // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
+	[[nodiscard]] int                             EffectiveValue(const Setting& a_s);  // an art pick: the pack found while its switch is on
+	[[nodiscard]] std::array<ArtAuto::Found, 4>   FindArtPacks();                      // ArtPacks.cpp: the art packs the game's files are
+	[[nodiscard]] bool                            LightsOff();                         // Performance > all of Illuminated's lights off (his switch)
+	[[nodiscard]] bool                            PulseRealistic();                    // Dynamic Lighting is Realistic: hand lights and rows pulse in their kind's shape (Pulse.h)
+	[[nodiscard]] bool                            PerformanceMode();                   // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
 	[[nodiscard]] bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
 	void                                          MakeLightCopies();   // LightCopies.cpp
 	void                                          NoteSpellHazards();  // LightCopies.cpp: the hazard tint's tables, while editor IDs are kept
 	[[nodiscard]] float                           BrightnessNow();     // LightCopies.cpp: Brightness x Dim in daylight, as the copies take it
-	// StreamLights.cpp: pass 6 - each spray, stream and bolt lit by its own light record made bigger and brighter (his stream
-	// rule), and a ward dome's light when Dynamic Wards is not here
+	// StreamLights.cpp: pass 6 - each spray, stream and bolt keeps its own light record and wears a row of small lights along it
+	// (his stream rule), and a ward dome's light when Dynamic Wards is not here
 	void               StreamLights();
 	[[nodiscard]] bool StreamLightsOn();                                                                // StreamLights.cpp: the setting
 	void               ApplyStreamLights(bool a_log);                                                   // StreamLights.cpp: the setting, on or off
+	void               DropStreamLights();                                                              // a game loads, or a new one starts: every row and ward light the old game had
 	void               StreamLightsFrame();                                                             // StreamLights.cpp: once a frame, what a loader thread left to do
 	void               ApplyLightStrength(bool a_log, bool a_quiet = false);                            // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn); a_quiet: a daylight step, no log line
 	void               RequestRefresh();                                                                // LightCopies.cpp: RefreshLights at the next frame, on the main thread
@@ -173,6 +181,8 @@ namespace Plugin
 	void                                DropConfigLights();  // once the record lights are made
 	// a beam's row out of the Streams folder whose settings hold now (lagen move_beams), or nullptr - pass 6's color for it
 	[[nodiscard]] const ConfigLight* StreamRowFor(const std::string& a_model);
+	// a cone whose Streams row is marked "cloud" (lagen): pass 6 holds its one light where the cloud is, after the cone too
+	[[nodiscard]] bool CloudModel(const std::string& a_model);
 	// the color an element's own hand light wears for its art pick as the settings hold now, or none
 	[[nodiscard]] std::optional<RE::Color> ArtHandColor(Family a_family);
 	// a model one of the game's own projectiles or explosions uses (a_hazard: one of its hazards): the art the spell art picks recolor
@@ -182,8 +192,12 @@ namespace Plugin
 	[[nodiscard]] ConfigText::Twin DynamicTwinOf(const std::string& a_configAndLight);
 
 	// ------------------------------------------------------------------ LightPlacerQueue.cpp: Light Placer's light put back on a resume stays
-	void KeepLightPlacerLights();  // at data load, after Light Placer hooked the resume when it loaded
-	void KeepCastingLights();      // once a frame, main thread: the casting art's Light Placer lights after a cell change
+	// the scene's lights waiting to be added, copied under the scene's queue lock (the game and Light Placer add to it)
+	[[nodiscard]] std::vector<RE::NiPointer<RE::BSLight>> QueuedLights(RE::ShadowSceneNode* a_scene);
+	void                                                  KeepLightPlacerLights();  // at data load, after Light Placer hooked the resume when it loaded
+	void                                                  KeepCastingLights();      // once a frame, main thread: the casting art's Light Placer lights after a cell change
+	void                                                  DropCastingLights();      // a game loads: those lights and the last place seen are the old game's
+	void                                                  DropHandBudget();         // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
 
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
 	void                             DecideRecordRoute();  // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer
@@ -207,6 +221,11 @@ namespace Plugin
 	// FleshFX's hue right after Light Placer wrote it (the effect's update, any thread); without it ArtLights.cpp does
 	void FleshLightPlacer(RE::ShaderReferenceEffect* a_effect);
 	void NoteFleshRoots();  // main thread, once a frame: where each flesh effect's lights hang (FleshLightPlacer only reads it)
+	// Frozen Electrocuted Combustion's shaders a config row lights (gen.FEC), found at data load while editor IDs are known
+	struct Coverage;
+	void                                                                             NoteFecShaders(const Coverage& a_cov);
+	[[nodiscard]] const std::unordered_map<const RE::TESEffectShader*, std::string>& FecShaders();                                           // shader -> its rows' key
+	[[nodiscard]] float                                                              FrozenFade(const RE::ShaderReferenceEffect* a_effect);  // 1, or the frozen body's fade-out now
 	// the third-person node of the same name as a_root, where Light Placer and ArtLights.cpp hang a body light (main thread)
 	[[nodiscard]] RE::NiAVObject* FleshBodyNode(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_root);
 	// GroundLights.cpp (his report: no light on the ground on Vanilla): a twin of each hand's casting light, made the
@@ -287,8 +306,8 @@ namespace Plugin
 	};
 
 	[[nodiscard]] SprayChoice ReadSprayChoice();
-	void                      ApplySprayColors();  // SprayLights.cpp: the raised sprays' colors for the settings as they are now
-	// SprayLights.cpp: the light a spray projectile had before pass 4 stretched a copy of it onto it, or nullptr
+	void                      ApplySprayColors();  // SprayLights.cpp: the sprays' row colors for the settings as they are now
+	// SprayLights.cpp: the light a spray projectile had before pass 4 made its color copy, or nullptr
 	[[nodiscard]] RE::TESObjectLIGH* SprayOriginal(const RE::BGSProjectile* a_projectile);
 	// SprayLights.cpp: pass 4's copy of a spray's light, recolored on every refresh - the color its row wears - or nullptr
 	[[nodiscard]] const RE::TESObjectLIGH* SprayCopyOf(const RE::BGSProjectile* a_projectile);

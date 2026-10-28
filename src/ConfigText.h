@@ -20,6 +20,7 @@
 #include "LightMath.h"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -119,7 +120,7 @@ namespace ConfigText
 			while (fn != words.end() && Lower(*fn) != "getglobalvalue") {
 				++fn;
 			}
-			if (fn != words.end() && std::distance(fn, words.end()) >= 5 && *(fn + 2) == "NONE" && *(fn + 3) == "==") {
+			if (fn != words.end() && std::distance(fn, words.end()) >= 5 && LightKit::SameText(*(fn + 2), "NONE") && *(fn + 3) == "==") {
 				int v = 0;
 				if (ParseInt(*(fn + 4), v)) {
 					// a route clause is left out: alone, its run is empty and so no test (the gate); in an OR run the other items decide
@@ -280,11 +281,12 @@ namespace ConfigText
 		Json        value;
 	};
 
+	// the LAST of two equal keys, as a JSON reader keeps it (each one is read over the one before)
 	inline const Json* Json::Get(std::string_view a_key) const
 	{
-		for (const auto& [k, v] : fields) {
-			if (k == a_key) {
-				return &v;
+		for (auto it = fields.rbegin(); it != fields.rend(); ++it) {
+			if (it->key == a_key) {
+				return &it->value;
 			}
 		}
 		return nullptr;
@@ -409,6 +411,9 @@ namespace ConfigText
 				while (i < s.size() && s[i] != ',' && s[i] != ']' && s[i] != '}' && !IsSpace(s[i])) {
 					++i;
 				}
+				if (i == start) {
+					bad = true;  // no value where one belongs: "[1, ]", "[1,,2]", a key with nothing after its colon
+				}
 				v.text = s.substr(start, i - start);
 				v.kind = v.text == "true" || v.text == "false" ? Json::Kind::kBool : v.text == "null" ? Json::Kind::kNull :
 				                                                                                        Json::Kind::kNumber;
@@ -506,4 +511,74 @@ namespace ConfigText
 	// had: the raised one only while its own setting is on AND "all lights off" is not (his report 2026-10-20, "all lights off is
 	// clearly not turning off spray and stream lights" - pass 4's copies never read that switch). Off, the game's own light is back
 	[[nodiscard]] constexpr bool WearsRaised(bool a_settingOn, bool a_allLightsOff) noexcept { return a_settingOn && !a_allLightsOff; }
+
+	// whether an editor ID holds a_word (lower case) as a word of its own: at its start, after a non-letter, or as a capitalized
+	// part ("MAGIceSpike", "VoiceIceForm") - never inside another word ("Galvanic" + "Explosion", "Magic", "APPRENTICE")
+	[[nodiscard]] inline bool HasWord(std::string_view a_id, std::string_view a_word) noexcept
+	{
+		const auto letter = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); };
+		const auto lower = [](char c) { return c >= 'a' && c <= 'z'; };
+		if (a_word.empty() || a_id.size() < a_word.size()) {
+			return false;
+		}
+		for (std::size_t i = 0; i + a_word.size() <= a_id.size(); ++i) {
+			bool same = true;
+			for (std::size_t k = 0; k < a_word.size() && same; ++k) {
+				const char c = a_id[i + k];
+				same = (c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c) == a_word[k];
+			}
+			if (!same) {
+				continue;
+			}
+			const bool capital = a_id[i] >= 'A' && a_id[i] <= 'Z' && ((i > 0 && lower(a_id[i - 1])) || (i + 1 < a_id.size() && lower(a_id[i + 1])));
+			if (i == 0 || !letter(a_id[i - 1]) || capital) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// whether a name says "ice" (frost). A mixed-case editor ID: as a word of its own (HasWord). A name with no case to read (a
+	// model file such as "fxicecloak01", "APPRENTICE"): anywhere, except inside a word that merely holds it ("voice", "apprentice"
+	// ...) or across an "-ic" word's end ("magiceffect", "staticexplosion")
+	[[nodiscard]] inline bool NamesIce(std::string_view a_id) noexcept
+	{
+		const bool upper = std::ranges::any_of(a_id, [](char c) { return c >= 'A' && c <= 'Z'; });
+		const bool lower = std::ranges::any_of(a_id, [](char c) { return c >= 'a' && c <= 'z'; });
+		if (upper && lower) {
+			return HasWord(a_id, "ice");
+		}
+		// the shortest such words (lice, dice, nice, vice) stay out: real ice names hold them ("bvliceprojectile")
+		constexpr std::array<std::string_view, 32> kHolders{ "voice", "practice", "apprentice", "sacrifice", "artifice", "officer", "oficer",
+			"office", "choice", "chalice", "cowardice", "justice", "service", "device", "notice", "police", "novice", "malice", "avarice",
+			"lattice", "accomplice", "precipice", "slice", "spice", "juice", "poultice", "solstice", "edifice", "crevice", "licence",
+			"price", "twice" };
+		constexpr std::array<std::string_view, 4>  kAfterIc{ "eff", "exp", "ench", "elem" };
+		const auto                                 at = [a_id](std::size_t a_from, std::string_view a_word) {
+			if (a_from + a_word.size() > a_id.size()) {
+				return false;
+			}
+			for (std::size_t k = 0; k < a_word.size(); ++k) {
+				const char c = a_id[a_from + k];
+				if ((c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c) != a_word[k]) {
+					return false;
+				}
+			}
+			return true;
+		};
+		for (std::size_t i = 0; i + 3 <= a_id.size(); ++i) {
+			if (!at(i, "ice")) {
+				continue;
+			}
+			const bool held = std::ranges::any_of(kHolders, [&](std::string_view w) {
+				const auto o = w.find("ice");
+				return i >= o && at(i - o, w);
+			});
+			const bool junction = std::ranges::any_of(kAfterIc, [&](std::string_view w) { return at(i + 2, w); });
+			if (!held && !junction) {
+				return true;
+			}
+		}
+		return false;
+	}
 }

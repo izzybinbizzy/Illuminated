@@ -40,6 +40,30 @@ namespace Plugin
 
 		[[nodiscard]] float RouteNow() { return LightsOff() ? 0.0f : gRouteValue; }
 
+		// the Auto art picks (his checklist 298, "auto, manual backup"), in ArtAuto::kElements' order; each one's switch is its
+		// id + "Auto" (lagen.py)
+		constexpr std::array<std::string_view, 4> kArtPicks{ "IlluminatedFireArt", "IlluminatedFrostArt", "IlluminatedShockArt",
+			"IlluminatedHealingArt" };
+
+		// each art pick paired with its switch and given the pack the game's own files are (read once: they do not change)
+		void NoteArtPacks()
+		{
+			static const auto found = FindArtPacks();
+			for (std::size_t e = 0; e < kArtPicks.size(); ++e) {
+				const auto pick = gIndex.find(Lower(kArtPicks[e]));
+				const auto sw = gIndex.find(Lower(kArtPicks[e]) + "auto");
+				if (pick == gIndex.end() || sw == gIndex.end()) {
+					continue;
+				}
+				auto&      s = gSettings[pick->second];
+				const auto f = found[e].pick.value_or(-1);
+				s.autoSwitch = sw->second;
+				s.found = f >= 0 && f < static_cast<int>(s.choices.size()) ? f : -1;
+				SKSE::log::info("[ART-PACK] {} | {} ({})", s.id, s.found >= 0 ? s.choices[static_cast<std::size_t>(s.found.load())] : "not recognised - the pick holds",
+					found[e].why);
+			}
+		}
+
 		constexpr std::string_view kSettingsSection = "Settings";
 		constexpr std::string_view kDetectedSection = "Detected";
 		constexpr std::string_view kDetectedKey = "sPlugins";
@@ -97,7 +121,7 @@ namespace Plugin
 						s.tips.push_back(Unescape(block["tip" + std::to_string(i)]));
 					}
 					const bool shapeOk = s.isChoice ? s.choices.size() >= 2 :
-					                     s.isSlider ? s.stepValue > 0 && s.minValue < s.maxValue && (s.maxValue - s.minValue) % s.stepValue == 0 :
+					                     s.isSlider ? s.stepValue > 0 && s.minValue < s.maxValue && (std::int64_t{ s.maxValue } - s.minValue) % s.stepValue == 0 :
 					                                  true;
 					if (!s.id.empty() && !gIndex.contains(Lower(s.id)) && shapeOk) {
 						s.value = s.defaultValue;
@@ -171,7 +195,12 @@ namespace Plugin
 			std::map<std::string, std::map<std::string, std::string>> out;
 			std::ifstream                                             in(IniPath());
 			std::string                                               line, section;
+			bool                                                      first = true;
 			while (std::getline(in, line)) {
+				if (first && line.starts_with("\xEF\xBB\xBF")) {
+					line.erase(0, 3);  // a file saved "UTF-8 with BOM" would lose its first section, then be saved over
+				}
+				first = false;
 				const auto t = Trim(line);
 				if (t.empty() || t[0] == ';' || t[0] == '#') {
 					continue;
@@ -234,6 +263,53 @@ namespace Plugin
 		}
 	}
 
+	// ------------------------------------------------------------------ Dynamic Lighting: Off / Regular / Realistic
+	// the data's Dynamic Lighting (0 Off, 1 On) and the plugin's pulse pick (0 Regular, 1 Realistic) are one menu pick; under
+	// Realistic the hand lights and the rows along sprays, streams and bolts take their spell kind's shape (Pulse.h,
+	// RecordLights.cpp, StreamLights.cpp MoveRows) and every other light keeps the Regular flicker, as in RELight
+	namespace
+	{
+		constexpr std::string_view kDynamicId = "IlluminatedDynamicLighting";
+		constexpr std::string_view kPulseId = "IlluminatedPulseShapes";
+		constexpr std::size_t      kNoSetting = static_cast<std::size_t>(-1);
+		std::size_t                gDynamicAt = kNoSetting, gPulseAt = kNoSetting;
+
+		// the record route only for now: Light Placer's lights keep the Regular pulsing until our pass shapes them too
+		[[nodiscard]] bool Realistic()
+		{
+			return RecordRoute() && gDynamicAt < gSettings.size() && gPulseAt < gSettings.size() && gSettings[gDynamicAt].value.load() != 0 &&
+			       gSettings[gPulseAt].value.load() != 0;
+		}
+
+		// a new player starts on Realistic; one who saved Dynamic Lighting keeps it (On = Regular)
+		void PulseCarryOver()
+		{
+			const auto at = [](std::string_view a_id) {
+				const auto it = gIndex.find(Lower(a_id));
+				return it == gIndex.end() ? kNoSetting : it->second;
+			};
+			gDynamicAt = at(kDynamicId);
+			gPulseAt = at(kPulseId);
+			if (gDynamicAt == kNoSetting || gPulseAt == kNoSetting) {
+				return;
+			}
+			const auto ini = ReadIni();
+			const auto sec = ini.find(Lower(kSettingsSection));
+			const auto saved = [&](std::size_t a_index) { return sec != ini.end() && sec->second.contains(Lower(gSettings[a_index].ini)); };
+			if (saved(gPulseAt)) {
+				return;
+			}
+			if (saved(gDynamicAt)) {
+				gSettings[gPulseAt].value = 0;
+			} else {
+				gSettings[gDynamicAt].value = 1;
+				gSettings[gPulseAt].value = 1;
+			}
+		}
+	}
+
+	bool PulseRealistic() { return Realistic(); }
+
 	// ------------------------------------------------------------------ conditions
 	bool ConditionsHold(const std::vector<std::vector<Clause>>& a_tests)
 	{
@@ -242,7 +318,7 @@ namespace Plugin
 			for (const auto& c : test) {
 				const auto it = gIndex.find(c.global);
 				// a setting no settings file names: treat it as 0, which is what the game reads from a missing global
-				const int value = it == gIndex.end() ? 0 : gSettings[it->second].value.load();
+				const int value = it == gIndex.end() ? 0 : EffectiveValue(gSettings[it->second]);  // an art pick: the pack it found
 				if (value == c.value) {
 					any = true;
 					break;
@@ -308,7 +384,9 @@ namespace Plugin
 			const auto& needs = gSettings[i].needs;
 			gAvailable[i] = needs.empty() || std::ranges::any_of(needs, [](const std::string& p) { return Loaded(p); });
 		}
+		NoteArtPacks();
 		ApplyIni();
+		PulseCarryOver();
 		ApplyGlobals();
 		SaveSettings();  // so the file shows what the detected mods turned on
 		SKSE::log::info("settings: {} read from {} file(s), {} notes, {} spray markers, {} light copies; {} globals made in memory",
@@ -318,6 +396,10 @@ namespace Plugin
 			SKSE::log::info("[SETTING] {} = {}{}", s.id, v,
 				s.isChoice && v >= 0 && v < static_cast<int>(s.choices.size()) ? " (" + s.choices[static_cast<std::size_t>(v)] + ")" : s.isSlider ? "%" :
 																																					"");
+			if (const int e = EffectiveValue(s); e != v && e >= 0 && e < static_cast<int>(s.choices.size())) {
+				SKSE::log::info("[SETTING] {} in use: {} ({}) - the art pack found, the pick above is the backup", s.id, e,
+					s.choices[static_cast<std::size_t>(e)]);
+			}
 		}
 	}
 
@@ -326,7 +408,7 @@ namespace Plugin
 		std::lock_guard l{ gSettingsLock };
 		for (auto& s : gSettings) {
 			if (s.global) {
-				s.global->value = static_cast<float>(s.value);
+				s.global->value = static_cast<float>(EffectiveValue(s));
 			}
 		}
 		if (gRoute) {
@@ -434,11 +516,13 @@ namespace Plugin
 		}
 		const auto apply = [] {
 			queued = false;
-			ApplyGlobals();
-			if (saveWanted.exchange(false)) {
-				SaveSettings();
-			}
-			RequestRefresh();
+			LightKit::Guarded("setting change", []() {
+				ApplyGlobals();
+				if (saveWanted.exchange(false)) {
+					SaveSettings();
+				}
+				RequestRefresh();
+			});
 		};
 		if (auto* tasks = SKSE::GetTaskInterface()) {
 			tasks->AddTask(apply);
@@ -453,11 +537,12 @@ namespace Plugin
 	int AllowedValue(const Setting& a_setting, int a_value)
 	{
 		if (a_setting.isSlider) {
-			const int step = (std::max)(a_setting.stepValue, 1);
-			const int v = std::clamp(a_value, a_setting.minValue, a_setting.maxValue);
-			// a value between steps (an INI edited by hand) goes to the nearest step: the configs only name the steps
-			const int k = (v - a_setting.minValue + step / 2) / step;
-			return std::clamp(a_setting.minValue + k * step, a_setting.minValue, a_setting.maxValue);
+			const std::int64_t step = (std::max)(a_setting.stepValue, 1);
+			const std::int64_t v = std::clamp(a_value, a_setting.minValue, a_setting.maxValue);
+			// a value between steps (an INI edited by hand) goes to the nearest step: the configs only name the steps (64-bit: a
+			// hand-typed range may be any int)
+			const std::int64_t k = (v - a_setting.minValue + step / 2) / step;
+			return static_cast<int>(std::clamp<std::int64_t>(a_setting.minValue + k * step, a_setting.minValue, a_setting.maxValue));
 		}
 		const int top = a_setting.isChoice ? static_cast<int>(a_setting.choices.size()) - 1 : 1;
 		return std::clamp(a_value, 0, top);
@@ -472,7 +557,14 @@ namespace Plugin
 		}
 		std::ranges::transform(a_id, low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		const auto it = gIndex.find(std::string_view(low.data(), a_id.size()));
-		return it == gIndex.end() ? a_fallback : gSettings[it->second].value.load();
+		return it == gIndex.end() ? a_fallback : EffectiveValue(gSettings[it->second]);
+	}
+
+	int EffectiveValue(const Setting& a_s)
+	{
+		const int  found = a_s.found.load();
+		const bool autoOn = found >= 0 && a_s.autoSwitch < gSettings.size() && gSettings[a_s.autoSwitch].value.load() != 0;
+		return autoOn ? found : a_s.value.load();
 	}
 
 	bool LightsOff()

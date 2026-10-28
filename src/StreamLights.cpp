@@ -4,20 +4,15 @@
 //
 // Pass 6: the light of a spray, a stream or a bolt - and a ward dome's light.
 //
-// HIS RULE (Illuminated's CLAUDE.md, "RELIGHT'S METHOD"): a spray, stream or bolt is lit by the PROJECTILE'S OWN LIGHT RECORD,
-// made bigger and brighter - one light per projectile, the way RE::Light lights them in RELight - Spell Addon (its spray
-// configs: the record's own light, brightness 1.72 at size 2.5, reach the whole length plus 15%, bounded by one light's
-// reach) - and never dimmer than the light it was raised from (his answer 2026-10-13, LightKit::NeverDimmer). So this pass
-// gives each cone, beam and flamethrower projectile an in-memory copy of its own light raised that way, worn while the
-// "Streams" setting is on, its own light when it is off. A spray model pass 4 already raised (the Spray Lights setting) keeps
-// pass 4's copy and is left to that setting alone - his answer 2026-10-13: Streams off does not touch the sprays Spray Lights
-// brightens, two settings, each doing one thing. The Brightness and Reach sliders reach the copies (LightCopies). Colors, picked again on every settings refresh: a
-// BEAM's row in the Streams folder whose settings hold (the data's color - the build moves every beam row out of Light Placer,
-// lagen move_beams, because on Community Shaders the data's six points stopped half way along Sparks, measured 2026-10-13),
-// else the spray markers (frost, shock), else the record's own; a beam with no light of its own wears a raised copy of its
-// row's light (the row that held when the game loaded). ⛔ No light of ours is hung on a spray, stream or
-// bolt; `PC Runner\stream rule check.py` fails a build that does (it took several rounds of ladders before his word was read
-// right).
+// HIS RULE (Illuminated's CLAUDE.md, "RELIGHT'S METHOD"): a spray, stream or bolt keeps the PROJECTILE'S OWN LIGHT RECORD;
+// his checklist 140 fallback (below) adds a row of small lights along its length. Each cone, beam and flamethrower projectile
+// keeps its own light, Streams on or off; an in-memory copy of that light carries the color its row wears, picked again on
+// every settings refresh: a BEAM's row in the Streams folder whose settings hold (the data's color - the build moves every beam
+// row out of Light Placer, lagen move_beams, because on Community Shaders the data's six points stopped half way along Sparks,
+// measured 2026-10-13), else the spray markers (frost, shock), else the record's own; a beam with no light of its own wears
+// its row's light. A spray model pass 4 copied (the Spray Lights setting) is left to that setting alone - his answer
+// 2026-10-13: Streams off does not touch the sprays Spray Lights lights, two settings, each doing one thing.
+// `PC Runner\stream rule check.py` fails a build that hangs lights on these projectiles anywhere but beside BeamRow::Lay.
 //
 // A ward dome (Dynamic Wards absent) is the one projectile this pass still hangs a light on: its Load3D / Release3D hooks,
 // the live list and the main-thread queue below are for that. CREDIT: how that light is made and registered follows ReLight
@@ -32,12 +27,11 @@
 
 // 🔁 HIS ANSWER 2026-10-20 (checklist 140): one light stretched along the beam - and "if you plain out cannot make part 1 of
 // 140 to happen then revert to this as a backup plan", a row of lights. One stretched light cannot be drawn inside our mods
-// (his research page, part 8), so a BOLT (beam projectile) now wears a ROW of small lights spread over its real length every
-// frame (BeamRow.h: no two farther apart than 125, spots under 5 %, the light staying near the beam), and its own light at its
-// own size - no more one light raised to the whole length (the flood he reported). It lifts the 2026-10-13 rule above for
-// beams only (`stream rule check.py` allows a beam hook only beside BeamRow::Lay). Flame sprays and cones keep the raised own
-// light until their row is built. The row's moving parts are the old ladder's (local branch beam-ladder): lights hung off the
-// projectile's root along its path (PathOf: a bolt straight to what it hit), the length its newest impact or else its range.
+// (his research page, part 8), so a bolt, a flame spray and a cone wear a ROW of small lights spread over their real length
+// every frame (BeamRow.h: no two farther apart than BeamRow::kSpacing, spots under 5 %, the light staying near the beam), beside
+// their own light at its own size; a cone the data lights as a cloud gets one light where its cloud is (HangCloud). The row's
+// moving parts are the old ladder's (local branch beam-ladder): lights hung off the projectile's root along its path (PathOf: a
+// bolt straight to what it hit), as long as its drawn art, never past its newest impact or its range.
 
 namespace Plugin
 {
@@ -86,6 +80,7 @@ namespace Plugin
 			const RE::TESObjectLIGH* borrowed{ nullptr };  // a beam with no light of its own: the row's light it was raised from
 			float                    range{ 0.0f };        // the projectile's range (the raised reach follows it)
 			bool                     vanillaArt{ false };  // the game's own art, which the art picks recolor
+			bool                     cloud{ false };       // a cone the data lights as a cloud (CloudModel): its Streams row, on every route
 		};
 		std::unordered_map<RE::FormID, StreamColor> gStreamColor;  // only copies this pass made (pass 4's keep their own)
 		// a copy of a projectile's own light in the color its art pick gives - worn in place of the record, whose color is vanilla
@@ -108,7 +103,7 @@ namespace Plugin
 					return *hand;
 				}
 			}
-			const auto* row = a_c.beam ? StreamRowFor(a_c.model) : nullptr;
+			const auto* row = a_c.beam || a_c.cloud ? StreamRowFor(a_c.model) : nullptr;
 			const auto  rgb = [](const Rgb& a_m) {
 				return RE::Color(static_cast<std::uint8_t>(std::clamp(a_m.r, 0, 255)), static_cast<std::uint8_t>(std::clamp(a_m.g, 0, 255)),
 					static_cast<std::uint8_t>(std::clamp(a_m.b, 0, 255)), 0);
@@ -150,6 +145,15 @@ namespace Plugin
 			}
 			const auto copy = std::ranges::find(LightCopies(), borrowed, &LightCopy::form);
 			return copy != LightCopies().end() ? copy->form : RE::TESForm::LookupByID<RE::TESObjectLIGH>(borrowed->GetFormID());
+		}
+
+		// a light's own fade and reach before the sliders: one of our copies' start (ApplyLightStrength scales the copy itself),
+		// else the record's
+		std::pair<float, float> StartOf(const RE::TESObjectLIGH* a_light)
+		{
+			const auto c = std::ranges::find(LightCopies(), a_light, &LightCopy::form);
+			return c != LightCopies().end() ? std::pair{ c->startFade, static_cast<float>(c->startRadius) } :
+			                                  std::pair{ a_light->fade, static_cast<float>(a_light->data.radius) };
 		}
 
 		struct Raised
@@ -203,6 +207,7 @@ namespace Plugin
 			bool                     beam{ true };          // a bolt (along its model) - else a flame spray or cone (along its aim)
 			bool                     spray{ false };        // a spray pass 4 raised: its row answers to the Spray Lights setting
 			const RE::TESObjectLIGH* colorFrom{ nullptr };  // pass 4's copy, recolored on every refresh: the row wears its color
+			bool                     cloud{ false };        // a cone's cloud: one light on its path, held where the cloud is after the cone ends (MoveClouds)
 		};
 		std::unordered_map<RE::FormID, RowRecipe> gRows;                // beam base form -> its row
 		constexpr std::size_t                     kMostRowLights = 64;  // every row light in the scene together
@@ -276,6 +281,25 @@ namespace Plugin
 				gParkedRows.emplace_back(a_ref);
 			}
 		}
+
+		// a cone's cloud (his checklist 235): its art leaves world-space particles along the path, so its one light hangs in the
+		// node the cone hangs in - which stays when the cone's 3D goes - and is moved there every frame (main thread)
+		struct Cloud
+		{
+			RE::NiPointer<RE::NiAVObject>    root;  // the cone's 3D, while it flies
+			RE::NiPointer<RE::TESObjectREFR> ref;
+			RE::NiPointer<RE::NiNode>        holder;  // the node the cone hung in, which holds the light
+			RE::NiPointer<RE::BSLight>       light;
+			RE::FormID                       base{ 0 };
+			RE::FormID                       spell{ 0 };  // its Lights by Item color, read after the cone is gone too
+			RE::ObjectRefHandle              caster;      // whose sneak fade it follows
+			RE::NiPoint3                     launch;
+			RE::NiPoint3                     spot;
+			float                            sinceEnd{ -1.0f };  // seconds since the cone ended; below 0 while it flies
+		};
+		std::vector<Cloud>    gClouds;
+		constexpr std::size_t kMostClouds = 8;
+		constexpr const char* kCloudName = "IlluminatedStreamCloud";
 
 		// every ward belongs to Dynamic Wards: when that mod is here, this pass does not light a ward
 		bool WardLightsOn()
@@ -472,6 +496,31 @@ namespace Plugin
 			return path;
 		}
 
+		// a concentration stream whose caster no longer casts it (a weapon equipped mid-cast leaves the spray behind): its row
+		// rests dark. A fire-and-forget bolt outlives its cast and is never cut. Main thread.
+		[[nodiscard]] bool CasterStopped(RE::TESObjectREFR* a_ref)
+		{
+			auto* proj = a_ref ? a_ref->As<RE::Projectile>() : nullptr;
+			if (!proj) {
+				return false;
+			}
+			auto& rt = proj->GetProjectileRuntimeData();
+			if (!rt.spell || rt.spell->GetCastingType() != RE::MagicSystem::CastingType::kConcentration) {
+				return false;
+			}
+			// only a hand's cast is judged: a scripted cast goes through the instant caster, which never holds the spell
+			if (rt.castingSource != RE::MagicSystem::CastingSource::kLeftHand && rt.castingSource != RE::MagicSystem::CastingSource::kRightHand) {
+				return false;
+			}
+			const auto shooter = rt.shooter.get();
+			auto*      actor = shooter ? shooter->As<RE::Actor>() : nullptr;
+			if (!actor) {
+				return false;
+			}
+			auto* caster = actor->GetMagicCaster(rt.castingSource);
+			return !caster || caster->state.get() == RE::MagicCaster::State::kNone || caster->currentSpell != rt.spell;
+		}
+
 		// every bolt's row spread over its length, strength and reach laid again for that length (BeamRow::Lay), once a frame.
 		// Main thread, gLiveLock held by the caller.
 		void MoveRows()
@@ -479,7 +528,7 @@ namespace Plugin
 			const bool  isl = InverseSquare();
 			const float bright = BrightnessNow() * RowStrengthFor(LightingFound()), reachPct = Percent("IlluminatedReach");
 			// a spray's own light is steady and Light Placer's hand lights are separate objects, so the row flickers by itself
-			// while the Flicker switch is on
+			// while the Flicker switch is on - in its spell's shape under Realistic
 			static const auto start = std::chrono::steady_clock::now();
 			const double      seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 			const bool        flickers = FlickerOn();
@@ -496,21 +545,33 @@ namespace Plugin
 				const auto  path = PathOf(live.beam.get(), live.root.get(), beam);
 				const auto& axis = path.axis;
 				const float length = path.length;
-				if (length <= 1.0f) {
+				if (length <= 1.0f || CasterStopped(live.beam.get())) {  // nothing drawn, or no one casting it: the row rests dark
+					for (auto& bs : live.lights) {
+						if (auto* light = bs ? netimmerse_cast<RE::NiPointLight*>(bs->light.get()) : nullptr) {
+							Dress(light, rec->second.color, 0.0f, 1.0f, isl);
+						}
+					}
 					continue;
 				}
+#ifdef FADE_DEBUG_PAGE
 				if (static std::uint32_t frames = 0; ++frames % 30 == 0 && frames <= 30 * 60) {
 					SKSE::log::info("[STREAM-ROW-LENGTH] {} | drawn art reaches {:.0f} | length used {:.0f} | start {:.0f} from its root | path . root +Y {:.2f} | start {:.0f},{:.0f},{:.0f} end {:.0f},{:.0f},{:.0f}",
 						beam ? "bolt" : "spray", DrawnLength(live.root.get(), axis), length, axis.start.GetDistance(live.root->world.translate),
 						axis.dir.Dot(live.root->world.rotate * RE::NiPoint3{ 0.0f, 1.0f, 0.0f }), axis.start.x, axis.start.y, axis.start.z,
 						axis.start.x + axis.dir.x * length, axis.start.y + axis.dir.y * length, axis.start.z + axis.dir.z * length);
 				}
+#endif
 				RE::NiColor color = rec->second.colorFrom ? ColorOf(rec->second.colorFrom) : rec->second.color;
-				if (auto* fired = live.beam ? live.beam->As<RE::Projectile>() : nullptr; fired && fired->GetProjectileRuntimeData().spell) {
-					if (const auto own = Fade::Items::ChoiceColor(fired->GetProjectileRuntimeData().spell->GetFormID())) {
+				auto*       fired = live.beam ? live.beam->As<RE::Projectile>() : nullptr;
+				auto*       spell = fired ? fired->GetProjectileRuntimeData().spell : nullptr;
+				if (spell) {
+					if (const auto own = Fade::Items::ChoiceColor(spell->GetFormID())) {
 						color = *own;  // the spell's Lights by Item color reaches its row too
 					}
 				}
+				// under Realistic the row pulses in its spell's shape, as the hand casting it does (BeamRow::Pulsing)
+				const auto  kind = flickers && PulseRealistic() ? LightKit::PulseKindOfSpell(spell) : Pulse::Kind::kNone;
+				const auto  seed = static_cast<std::uint32_t>(std::hash<const void*>{}(live.root.get()));
 				const auto  toLocal = live.root->world.Invert();
 				const auto  row = BeamRow::Lay(length, static_cast<int>(live.lights.size()), rec->second.reach, kRowHeight);
 				const float scale = live.root->world.scale > 0.0f ? live.root->world.scale : 1.0f;
@@ -532,7 +593,7 @@ namespace Plugin
 					const float want = rec->second.fade * s.strength * bright * (isl ? 1.0f : kRowPlain);
 					// a dimmer Brightness or daylight lowers the cap too, so the sliders still reach a capped row
 					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow(), 1.0f) : 0.0f);
-					Dress(light, color, steady * (flickers ? BeamRow::Flicker(seconds, i) : 1.0f), reach, isl);
+					Dress(light, color, steady * (flickers ? BeamRow::Pulsing(kind, seconds, i, seed) : 1.0f), reach, isl);
 					light->local.translate = toLocal * (axis.start + axis.dir * (s.along * length));  // on the path, in the root's units
 					if (static std::size_t told = 0; told < 6) {
 						++told;
@@ -544,6 +605,115 @@ namespace Plugin
 			}
 		}
 
+		// a cloud's light follows its Streams row's settings (its patch's switch) and All lights off - not Performance nor Streams:
+		// it is the spell's one light, the one Light Placer hung on the cone before
+		bool CloudOn(RE::FormID a_base)
+		{
+			const auto c = gStreamColor.find(a_base);
+			return !LightsOff() && c != gStreamColor.end() && StreamRowFor(c->second.model);
+		}
+
+		void DropCloud(Cloud& a_cloud, RE::ShadowSceneNode* a_scene)
+		{
+			if (!a_cloud.light) {
+				return;
+			}
+			if (a_scene) {
+				a_scene->RemoveLight(a_cloud.light);
+			}
+			if (auto* light = a_cloud.light->light.get(); light && light->parent) {
+				light->parent->DetachChild(light);
+			}
+		}
+
+		// one light where a cone's cloud is, hung beside the cone and dark until MoveClouds places it. Main thread.
+		void HangCloud(RE::TESObjectREFR* a_ref, RE::NiNode* a_root, RE::FormID a_base)
+		{
+			auto*      scene = SceneNode();
+			auto*      holder = a_root->parent;
+			const bool listed = std::ranges::any_of(gClouds, [a_root](const Cloud& a_c) { return a_c.root.get() == a_root; });
+			if (!scene || !holder || listed || gClouds.size() >= kMostClouds || !CloudOn(a_base)) {
+				return;
+			}
+			auto* light = LightKit::CloneLight();
+			if (!light) {
+				return;
+			}
+			light->name = kCloudName;
+			Dress(light, { 1.0f, 1.0f, 1.0f }, 0.0f, 1.0f, InverseSquare());
+			light->local.translate = holder->world.Invert() * a_ref->GetPosition();
+			light->local.scale = 1.0f;
+			holder->AttachChild(light, true);
+			RE::NiUpdateData update{};
+			light->Update(update);
+			auto* bs = LightKit::AddToScene(scene, light, 2.0f);
+			if (!bs) {
+				holder->DetachChild(light);
+				return;
+			}
+			const auto* proj = a_ref->As<RE::Projectile>();
+			const auto* spell = proj ? proj->GetProjectileRuntimeData().spell : nullptr;
+			gClouds.push_back({ RE::NiPointer<RE::NiAVObject>(a_root), RE::NiPointer<RE::TESObjectREFR>(a_ref), RE::NiPointer<RE::NiNode>(holder),
+				RE::NiPointer<RE::BSLight>(bs), a_base, spell ? spell->GetFormID() : 0, proj ? proj->GetProjectileRuntimeData().shooter : RE::ObjectRefHandle{},
+				a_ref->GetPosition(), a_ref->GetPosition() });
+			if (static std::size_t told = 0; told < 6) {
+				++told;
+				SKSE::log::info("[STREAM-CLOUD] {} | one light where its cloud is, held {:.1f} s after the cone ends", Label(a_ref->GetBaseObject()),
+					BeamRow::kCloudLife);
+			}
+		}
+
+		// one cloud's light this frame: on its cone's path while the cone flies, then where it was, fading out over the cloud's
+		// life; false once it has faded, its switch is off or the node holding it left the world
+		[[nodiscard]] bool MoveCloud(Cloud& a_c, float a_delta)
+		{
+			if (a_c.root && a_c.root->parent && a_c.ref && a_c.ref->Get3D() == a_c.root.get()) {
+				a_c.spot = a_c.launch + (a_c.ref->GetPosition() - a_c.launch) * BeamRow::kCloudAlong;
+			} else if (a_c.sinceEnd < 0.0f) {
+				a_c.sinceEnd = 0.0f;
+				a_c.root.reset();  // the cone is let go: only where its cloud is stays
+				a_c.ref.reset();
+			} else {
+				a_c.sinceEnd += a_delta;
+			}
+			auto*       light = a_c.light ? netimmerse_cast<RE::NiPointLight*>(a_c.light->light.get()) : nullptr;
+			const auto  rec = gRows.find(a_c.base);
+			const float left = BeamRow::CloudFade(a_c.sinceEnd, BeamRow::kCloudLife);
+			if (!light || !a_c.holder || !a_c.holder->parent || rec == gRows.end() || left <= 0.0f || !CloudOn(a_c.base)) {
+				return false;
+			}
+			const bool  isl = InverseSquare();
+			const float reach = rec->second.reach * Percent("IlluminatedReach") * RowReachFor(LightingFound());
+			const float want = rec->second.fade * BrightnessNow() * RowStrengthFor(LightingFound());
+			const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow(), 1.0f) : 0.0f);
+			RE::NiColor color = rec->second.color;
+			if (const auto own = a_c.spell ? Fade::Items::ChoiceColor(a_c.spell) : std::nullopt) {
+				color = *own;  // the spell's Lights by Item color
+			}
+			Dress(light, color, steady * left, reach, isl);
+			if (const auto who = a_c.caster.get(); who && who->As<RE::Actor>()) {
+				SneakDim(light, who->As<RE::Actor>());  // its caster's sneak fade, as every other light of theirs
+			}
+			light->local.translate = a_c.holder->world.Invert() * a_c.spot;
+			RE::NiUpdateData update{};
+			light->Update(update);
+			return true;
+		}
+
+		void MoveClouds()
+		{
+			auto*       scene = SceneNode();
+			const float delta = std::clamp(RE::GetSecondsSinceLastFrame(), 0.0f, 0.25f);
+			for (auto it = gClouds.begin(); it != gClouds.end();) {
+				if (MoveCloud(*it, delta)) {
+					++it;
+				} else {
+					DropCloud(*it, scene);
+					it = gClouds.erase(it);
+				}
+			}
+		}
+
 		// a bolt's row: as many small lights as its range needs (BeamRow::Lay), hung off its root, within the scene's budget.
 		// Main thread.
 		void HangRow(RE::TESObjectREFR* a_ref, RE::NiNode* a_root, RE::FormID a_base, const RowRecipe& a_rec)
@@ -551,6 +721,10 @@ namespace Plugin
 			auto* scene = SceneNode();
 			auto* proj = a_ref->As<RE::Projectile>();
 			if (!scene || !proj) {
+				return;
+			}
+			if (a_rec.cloud) {
+				HangCloud(a_ref, a_root, a_base);  // one light where its cloud is, not a row along the cone
 				return;
 			}
 			if (!RowOn(a_rec)) {
@@ -832,7 +1006,7 @@ namespace Plugin
 			if (!proj) {
 				continue;
 			}
-			// a flamethrower, cone or beam projectile: one light, its own, raised
+			// a flamethrower, cone or beam projectile: its own light, and a row of ours along it
 			const bool flame = proj->data.types.any(RE::BGSProjectileData::Type::kFlamethrower);
 			const bool cone = !flame && proj->data.types.any(RE::BGSProjectileData::Type::kCone);
 			const bool beam = !flame && !cone && proj->data.types.any(RE::BGSProjectileData::Type::kBeam);
@@ -853,15 +1027,17 @@ namespace Plugin
 				++skipped;
 				continue;
 			}
-			// HIS RULE (CLAUDE.md, "RELIGHT'S METHOD"): the projectile's OWN light record, a bigger and brighter copy - one light
-			// per spray / stream / bolt, as RE::Light's isPluginLight configs do (RELight - Spell Addon's spray configs: the record's
-			// copy, brightness 1.72 at size 2.5, reach from the hand to the end plus 15%, bounded by one light's reach). No light
-			// of ours is hung on it. A projectile with no light of its own is left as it is.
+			// HIS RULE (CLAUDE.md, "RELIGHT'S METHOD"): the projectile keeps its OWN light record; its length is lit by a row of
+			// small lights (HangRow, his checklist 140 fallback). One with neither a light of its own nor a row light is left as it is.
 			// a beam whose rows the build moved out of Light Placer (lagen move_beams): the data's color for it, and its light when
 			// the projectile has none of its own (taken again on every settings refresh - ApplyStreamLights)
-			const auto* row = beam ? StreamRowFor(model) : nullptr;
+			// a cone the data lights as a cloud (a Streams row marked "cloud", lagen): its row's light on every route, held where
+			// the cloud is (HangCloud) - not the cone's own faint light raised
+			const bool  cloud = cone && CloudModel(model);
+			const auto* row = beam || cloud ? StreamRowFor(model) : nullptr;
 			auto*       own = proj->data.light;
-			const auto* base = own ? own : RowLight(row);
+			const auto* data = cloud ? RowLight(row) : nullptr;  // a cloud wears its row's light, though it has a faint one of its own
+			const auto* base = data ? data : (own ? own : RowLight(row));
 			if (!base) {
 				++skipped;
 				continue;
@@ -875,7 +1051,8 @@ namespace Plugin
 				// (BeamRow.h) under that setting, matched to its ORIGINAL light, and the original light itself (SprayLights.cpp)
 				const auto* original = SprayOriginal(proj);
 				const auto* tint = SprayCopyOf(proj);
-				gRows[proj->GetFormID()] = { ColorOf(tint ? tint : original), original->fade, static_cast<float>(original->data.radius), false, true, tint };
+				const auto [fade, reach] = StartOf(original);  // before the sliders: MoveRows puts them on
+				gRows[proj->GetFormID()] = { ColorOf(tint ? tint : original), fade, reach, false, true, tint };
 				++kept;
 				continue;
 			}
@@ -888,14 +1065,15 @@ namespace Plugin
 			const Raised raised = Raise(copy, base, range);
 			const float  reach = raised.reach, fade = raised.fade, cutoff = raised.cutoff;
 			const auto&  color = gStreamColor[proj->GetFormID()] = { model, family, beam, base->data.color, own ? nullptr : base, range,
-				VanillaArtModel(model) };
+				VanillaArtModel(model), cloud };
 			PickColor(color, copy, sc);  // and again on every refresh (ApplyStreamLights)
 			// his checklist 140: a bolt wears a row of lights (BeamRow.h) whose middle glows as its OWN light would right under
 			// it - never the raised copy's numbers: matched to those (run cs 2026-10-20 16:59) the row lit the whole courtyard,
 			// steps and walls, his "reach the entire universe"
 			// (and since his 2026-10-20 "Do the flame sprays and cones in Illuminated first", a flame spray and a cone the same way,
 			// along their aim)
-			gRows[proj->GetFormID()] = { ColorOf(copy), base->fade, static_cast<float>(base->data.radius), beam };
+			const auto [baseFade, baseReach] = StartOf(base);  // before the sliders: MoveRows puts them on
+			gRows[proj->GetFormID()] = { ColorOf(copy), baseFade, baseReach, beam, false, nullptr, cloud };
 			// the sliders reach it like every copy (LightCopies.cpp ApplyLightStrength): the cutoff too, so Reach moves an inverse-square
 			// stream's reach (it is Community Shaders' only lever)
 			LightCopies().push_back({ .id = "stream " + id,
@@ -956,6 +1134,27 @@ namespace Plugin
 	}
 
 	// once a frame, on the main thread - what the loader threads left to do
+	void DropStreamLights()
+	{
+		auto*                              scene = SceneNode();
+		std::lock_guard                    l{ gLiveLock };
+		std::vector<const RE::NiAVObject*> all;
+		for (const auto& [root, live] : gLive) {
+			all.push_back(root);
+		}
+		for (const auto* root : all) {
+			Forget(root, scene);
+		}
+		gToHang.clear();
+		gToDrop.clear();
+		for (auto& cloud : gClouds) {
+			DropCloud(cloud, scene);
+		}
+		gClouds.clear();
+		gParkedRows.clear();
+		gRowLights = 0;
+	}
+
 	void StreamLightsFrame()
 	{
 		// a row its switch or the light cap held back: tried again while its projectile flies, let go when that ends
@@ -980,6 +1179,9 @@ namespace Plugin
 					gParkedRows.push_back(ref);
 				}
 			}
+		}
+		if (!gClouds.empty()) {
+			MoveClouds();  // a cone's cloud light: on its path, then where the cloud is, fading out
 		}
 		std::vector<RE::NiPointer<RE::TESObjectREFR>> hang;
 		{
@@ -1045,8 +1247,15 @@ namespace Plugin
 			if (const auto row = gRows.find(formID); row != gRows.end()) {
 				row->second.color = ColorOf(copy->second);  // the row takes the color the settings pick now
 				if (c.borrowed) {                           // and a borrowed light's own strength and reach (the code review)
-					row->second.fade = c.borrowed->fade;
-					row->second.reach = static_cast<float>(c.borrowed->data.radius);
+					const auto [fade, reach] = StartOf(c.borrowed);
+					row->second.fade = fade;
+					row->second.reach = reach;
+				}
+				// a cloud takes its Streams row's light as the settings pick it now, at that light's own numbers
+				if (const auto* now = c.cloud ? RowLight(StreamRowFor(c.model)) : nullptr) {
+					const auto [fade, reach] = StartOf(now);
+					row->second.fade = fade;
+					row->second.reach = reach;
 				}
 			}
 		}

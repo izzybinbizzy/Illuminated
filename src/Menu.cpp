@@ -111,6 +111,24 @@ namespace Plugin
 			}
 		}
 
+		void SetById(std::string_view a_id, int a_value);
+
+		constexpr std::string_view kDynamicLightingId = "IlluminatedDynamicLighting";
+		constexpr std::string_view kPulseShapesId = "IlluminatedPulseShapes";
+
+		// Dynamic Lighting as one pick of three: Off, Regular (the pulsing as before), Realistic (a shape per kind of spell)
+		void DrawDynamicLighting(const Setting& a_s)
+		{
+			const std::array<const char*, 3> items{ T("Off"), T("Regular"), T("Realistic") };
+			int                              v = a_s.value.load() == 0 ? 0 : SettingValue(kPulseShapesId, 0) != 0 ? 2 :
+			                                                                                                        1;
+			if (ImGuiMCP::Combo(T(a_s.label.c_str()), &v, items.data(), static_cast<int>(items.size()))) {
+				SetById(kPulseShapesId, v == 2 ? 1 : 0);
+				SetById(kDynamicLightingId, v == 0 ? 0 : 1);
+			}
+			MenuStyle::Tip(T("Off: steady lights. Regular: every light breathes the same way. Realistic: each kind of spell pulses in its own way - fire flickers, absorb spells beat like a heart, healing breathes slowly. With Light Placer it pulses like Regular for now."));
+		}
+
 		void DrawSetting(std::size_t a_index, Setting& a_s)
 		{
 			ImGuiMCP::PushID(static_cast<int>(a_index));
@@ -119,7 +137,16 @@ namespace Plugin
 				ImGuiMCP::PopID();
 				return;
 			}
-			const bool greyed = a_s.id == kYieldENBId && !EnbFound();
+			if (a_s.id == kPulseShapesId || (a_s.id == kDynamicLightingId && SettingValue(kPulseShapesId, -1) >= 0)) {
+				if (a_s.id == kDynamicLightingId) {
+					DrawDynamicLighting(a_s);
+				}
+				ImGuiMCP::PopID();
+				return;
+			}
+			// an art pick greys while its "Find my art pack" switch uses the pack it found (the pick stays the backup)
+			const bool foundInUse = a_s.found.load() >= 0 && a_s.autoSwitch < Settings().size() && Settings()[a_s.autoSwitch].value.load() != 0;
+			const bool greyed = (a_s.id == kYieldENBId && !EnbFound()) || foundInUse;
 			ImGuiMCP::BeginDisabled(greyed);
 			if (a_s.isSlider) {
 				// live while it is dragged, on its step (his report: "the sliders also stopped working live during sliding and only
@@ -148,8 +175,17 @@ namespace Plugin
 				const auto choice = static_cast<std::size_t>((std::max)(a_s.value.load(), 0));
 				SettingTip(a_s, choice < a_s.tips.size() && !a_s.tips[choice].empty() ? choice : 0);
 			} else {
-				bool on = a_s.value != 0;
-				if (ImGuiMCP::Checkbox(T(a_s.label.c_str()), &on)) {
+				bool        on = a_s.value != 0;
+				std::string label = T(a_s.label.c_str());
+				// a "Find my art pack" switch says what it found (no line of text under it - his rule for this page)
+				const auto& all = Settings();
+				if (const auto pick = std::ranges::find_if(all, [&](const Setting& p) { return p.autoSwitch == a_index; }); pick != all.end()) {
+					const int f = pick->found.load();
+					label += f >= 0 && f < static_cast<int>(pick->choices.size()) ?
+					             std::string(" (") + T("found:") + " " + T(pick->choices[static_cast<std::size_t>(f)].c_str()) + ")" :
+					             std::string(" (") + T("not recognised") + ")";
+				}
+				if (ImGuiMCP::Checkbox(label.c_str(), &on)) {
 					SetSetting(a_index, on ? 1 : 0);
 				}
 				SettingTip(a_s, 0);
@@ -195,7 +231,10 @@ namespace Plugin
 			std::vector<std::pair<std::string, UserPreset>> out;
 			std::ifstream                                   in(PresetsPath());
 			std::string                                     line;
-			while (std::getline(in, line)) {
+			for (bool first = true; std::getline(in, line); first = false) {
+				if (first && line.starts_with("\xEF\xBB\xBF")) {
+					line.erase(0, 3);  // a file saved "UTF-8 with BOM" would lose its first section
+				}
 				const auto t = Trim(line);
 				if (t.empty() || t[0] == ';' || t[0] == '#') {
 					continue;
@@ -249,7 +288,7 @@ namespace Plugin
 		void WritePresetsSoon()
 		{
 			if (auto* tasks = SKSE::GetTaskInterface()) {
-				tasks->AddTask([all = gPresets]() { WritePresets(all); });
+				tasks->AddTask([all = gPresets]() { LightKit::Guarded("presets save", [&all]() { WritePresets(all); }); });
 			}
 		}
 

@@ -34,13 +34,14 @@ namespace Plugin
 
 		struct Kept
 		{
-			RE::NiPointer<RE::NiRefObject>  owner;  // the art effect or the weapon part it is for (held: its address stays its own)
-			RE::NiPointer<RE::NiNode>       root;   // the model it hangs on
-			RE::NiPointer<RE::NiPointLight> light;
-			RE::NiPointer<RE::BSLight>      bs;
-			const RE::TESObjectLIGH*        record{ nullptr };
-			const RE::NiColor*              hue{ nullptr };  // FleshFX's hue for a flesh spell's light (LightKit.h), or none
-			bool                            seen{ false };
+			RE::NiPointer<RE::NiRefObject>   owner;  // the art effect or the weapon part it is for (held: its address stays its own)
+			RE::NiPointer<RE::NiNode>        root;   // the model it hangs on
+			RE::NiPointer<RE::NiPointLight>  light;
+			RE::NiPointer<RE::BSLight>       bs;
+			const RE::TESObjectLIGH*         record{ nullptr };
+			const RE::NiColor*               hue{ nullptr };     // FleshFX's hue for a flesh spell's light (LightKit.h), or none
+			const RE::ShaderReferenceEffect* shader{ nullptr };  // a body shader's effect, held by owner: FrozenFade reads its age
+			bool                             seen{ false };
 		};
 
 		std::unordered_map<const void*, Kept> gKept;  // main thread only
@@ -51,7 +52,8 @@ namespace Plugin
 			std::string model, key;
 		};
 		std::unordered_map<const RE::TESForm*, ModelKeyOf> gModelKey;
-		std::size_t                                        gMade = 0;
+		std::atomic<std::size_t>                           gMade{ 0 };       // the testing DLL's Diagnostics page reads these two
+		std::atomic<std::size_t>                           gKeptCount{ 0 };  // from the render thread
 
 		[[nodiscard]] const std::string& ModelKey(const RE::TESForm* a_form, const char* a_model)
 		{
@@ -82,16 +84,19 @@ namespace Plugin
 			const auto&       c = a_kept.record->data.color;
 			const RE::NiColor own{ c.red / 255.0f, c.green / 255.0f, c.blue / 255.0f };
 			data.diffuse = a_kept.hue ? LightKit::FleshFx::Shown(*a_kept.hue, own) : own;
-			data.fade = RecordFadeNow(a_kept.record, a_kept.light.get());
+			data.fade = RecordFadeNow(a_kept.record, a_kept.light.get()) * FrozenFade(a_kept.shader);
 			const float radius = (std::max)(static_cast<float>(a_kept.record->data.radius), 1.0f);
 			if (data.radius.x != radius) {
 				data.radius = { radius, radius, LightKit::kLightSize };
 				a_kept.light->SetLightAttenuation(radius);
 			}
 			if (InverseSquare()) {
-				// after SetLightAttenuation, which writes the same two words: a light of our own, its words written whole (LightKit.h)
+				// after SetLightAttenuation, which writes the same two words: a light of our own, its words written whole (LightKit.h);
+				// the record's cutoff when it is an inverse-square light, else the cutoff that reaches its radius at this fade (a
+				// plain record's falloff exponent is no cutoff)
+				const bool isl = (a_kept.record->data.flags.underlying() & LightKit::kRecordInverseSquare) != 0;
 				LightKit::Isl::SetOwn(a_kept.light.get());
-				LightKit::Isl::SetCutoff(a_kept.light.get(), a_kept.record->data.fallofExponent, 0.01f, 1.0f);
+				LightKit::Isl::SetCutoff(a_kept.light.get(), isl ? a_kept.record->data.fallofExponent : LightKit::CutoffFor(data.fade, radius), 0.01f, 1.0f);
 			} else {
 				data.ambient = { data.diffuse.red * kAmbient, data.diffuse.green * kAmbient, data.diffuse.blue * kAmbient };
 			}
@@ -104,6 +109,7 @@ namespace Plugin
 				return false;
 			}
 			light->name = kName;
+			light->GetLightRuntimeData().radius.x = -1.0f;  // the clone's own may equal the record's: Follow attenuates it at once
 			a_root->AttachChild(light, true);
 			a_kept.light.reset(light);
 			a_kept.root.reset(a_root);
@@ -125,7 +131,7 @@ namespace Plugin
 
 		// the light this owner wants on this model now (a_record nullptr: none)
 		void Keep(RE::NiRefObject* a_owner, RE::NiAVObject* a_model, const RE::TESObjectLIGH* a_record, RE::ShadowSceneNode* a_scene,
-			const RE::NiColor* a_hue = nullptr)
+			const RE::NiColor* a_hue = nullptr, const RE::ShaderReferenceEffect* a_shader = nullptr)
 		{
 			auto* root = a_model ? a_model->AsNode() : nullptr;
 			if (!a_owner || !root || !a_record) {
@@ -136,6 +142,7 @@ namespace Plugin
 				Drop(kept, a_scene);  // the model was rebuilt (a draw, a view change): a new one
 			}
 			kept.hue = a_hue;  // before Make, which draws the light's first color
+			kept.shader = a_shader;
 			if (!kept.light) {
 				kept.owner.reset(a_owner);
 				if (!Make(kept, root, a_record, a_scene)) {
@@ -147,12 +154,13 @@ namespace Plugin
 			Follow(kept);
 		}
 
-		// the five flesh shaders in this load order (LightKit::FleshFx::Resolved, found at data load) and the key their config
-		// rows are kept under (Configs.cpp: "formid:" + the editor ID the configs claim) - built on the first frame
+		// the body shaders followed here and the key their config rows are kept under (Configs.cpp: "formid:" + the editor ID
+		// the configs claim): the five flesh shaders in this load order (LightKit::FleshFx::Resolved) and FEC's lit ones
+		// (FleshLights.cpp NoteFecShaders), both found at data load - built on the first frame
 		const std::unordered_map<const RE::TESEffectShader*, std::string>& FleshShaders()
 		{
 			static const auto shaders = [] {
-				std::unordered_map<const RE::TESEffectShader*, std::string> out;
+				std::unordered_map<const RE::TESEffectShader*, std::string> out(FecShaders());
 				for (const auto& [shader, look] : LightKit::FleshFx::Resolved()) {
 					out.emplace(shader, FormKey(Lower(look->editorID)));
 				}
@@ -173,7 +181,7 @@ namespace Plugin
 			if (!root) {
 				return;
 			}
-			Keep(a_effect, root, record, a_scene, LightKit::FleshFx::HueOf(a_effect->effectData));
+			Keep(a_effect, root, record, a_scene, LightKit::FleshFx::HueOf(a_effect->effectData), a_effect);
 		}
 
 		// the weapon parts an art light already hangs under (measured on Vanilla: a bound sword's configs light both its
@@ -196,7 +204,8 @@ namespace Plugin
 		// on the spine does light it (a first-person cloak +41), so a light for what she holds hangs there in first person.
 		[[nodiscard]] RE::NiAVObject* BodyNode(RE::NiAVObject* a_third)
 		{
-			auto* node = a_third ? a_third->GetObjectByName("MagicEffectsNode") : nullptr;
+			static const RE::BSFixedString kEffectsNode{ "MagicEffectsNode" };
+			auto*                          node = a_third ? a_third->GetObjectByName(kEffectsNode) : nullptr;
 			return node ? node : a_third;
 		}
 
@@ -350,6 +359,7 @@ namespace Plugin
 				Drop(kept, scene);  // with a scene, each light leaves its lists too (CodeRabbit, Illuminated #6)
 			}
 			gKept.clear();
+			gKeptCount = 0;
 			return;
 		}
 		for (auto& [key, kept] : gKept) {
@@ -392,6 +402,7 @@ namespace Plugin
 			}
 			return false;
 		});
+		gKeptCount = gKept.size();
 	}
 
 	void DropArtLights()
@@ -401,9 +412,10 @@ namespace Plugin
 			Drop(kept, scene);
 		}
 		gKept.clear();
+		gKeptCount = 0;
 		gModelKey.clear();  // keyed by form address: a form made in memory and freed could hand its address to another
 	}
 
-	std::size_t ArtLightCount() { return gKept.size(); }
-	std::size_t ArtLightsMade() { return gMade; }
+	std::size_t ArtLightCount() { return gKeptCount.load(); }
+	std::size_t ArtLightsMade() { return gMade.load(); }
 }

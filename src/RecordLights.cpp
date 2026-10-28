@@ -423,10 +423,24 @@ namespace Plugin
 		const float radius = static_cast<float>(record->data.radius);
 		if (radius > 0.0f && data.radius.x != radius) {
 			data.radius = RE::NiPoint3{ radius, radius, data.radius.z };  // z is the light's size: the game's, kept
+			if (auto* point = InverseSquare() ? nullptr : netimmerse_cast<RE::NiPointLight*>(light)) {
+				// the drawn reach too, ground twin or not; the call writes the two words that are the ambient color off Community Shaders
+				const auto ambient = LightKit::Isl::Read(point);
+				point->SetLightAttenuation(radius);
+				LightKit::Isl::Write(point, ambient);
+			}
 		}
 		// a steady one takes its record's fade too, so Brightness and Dim in daylight reach a hand already lit (run 9,
 		// the game set it once, when the spell was readied, and it never moved after); a flicker plays its keys
-		data.fade = RecordFadeNow(record, light);
+		// under Realistic a spell with a kind takes its shape in place of the flicker's keys, around the same mean fade (as RELight)
+		const bool left = a_caster->GetCastingSource() == RE::MagicSystem::CastingSource::kLeftHand;
+		const auto kind = PulseRealistic() ? LightKit::PulseKindOfHand(a_caster->GetCasterAsActor(), left) : Pulse::Kind::kNone;
+		if (kind != Pulse::Kind::kNone) {
+			const auto seed = static_cast<std::uint32_t>(std::hash<const void*>{}(light));
+			data.fade = record->fade * Pulse::Factor(kind, gClock.load(std::memory_order_relaxed), seed);
+		} else {
+			data.fade = RecordFadeNow(record, light);
+		}
 		// on Community Shaders the cutoff the sliders gave the record reaches the lit hand too (LightKit.h's two words)
 		if (InverseSquare() && (record->data.flags.underlying() & LightKit::kRecordInverseSquare)) {
 			LightKit::Isl::SetCutoff(light, record->data.fallofExponent, 0.01f, 1.0f);
