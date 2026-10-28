@@ -43,7 +43,10 @@ namespace Plugin
 			const RE::NiColor*               hue{ nullptr };     // FleshFX's hue for a flesh spell's light (LightKit.h), or none
 			const RE::ShaderReferenceEffect* shader{ nullptr };  // a body shader's effect, held by owner: FrozenFade reads its age
 			bool                             seen{ false };
+			std::uint32_t                    wait{ 0 };  // frames until a light the scene refused is made again
 		};
+		// the scene refused a light (its light limit): made again after this many frames, never a clone every frame (L10)
+		constexpr std::uint32_t kRefusedWait = 60;
 
 		std::unordered_map<const void*, Kept> gKept;  // main thread only
 		// a weapon's / an art object's model as the configs key it, worked out once per form and model (main thread); the
@@ -146,8 +149,15 @@ namespace Plugin
 			kept.hue = a_hue;  // before Make, which draws the light's first color
 			kept.shader = a_shader;
 			if (!kept.light) {
+				if (kept.wait) {
+					--kept.wait;
+					kept.seen = true;  // kept while it waits, so the sweep does not start it over
+					return;
+				}
 				kept.owner.reset(a_owner);
 				if (!Make(kept, root, a_record, a_scene)) {
+					kept.wait = kRefusedWait;
+					kept.seen = true;
 					return;
 				}
 			}

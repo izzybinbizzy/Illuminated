@@ -135,8 +135,7 @@ namespace Plugin
 			return true;
 		}
 
-		// main thread, data load; not on VR (the loader's address is read off the SE / AE Address Library only, as LightKit.h
-		// ArtColor's)
+		// main thread, data load; not on VR (kept SE / AE only, untested there - the loader itself resolves on VR, as below)
 		void HoldWornModels()
 		{
 			if (REL::Module::IsVR() || !gWornModels.empty()) {

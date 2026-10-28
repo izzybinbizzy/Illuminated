@@ -260,6 +260,9 @@ namespace Plugin
 		// each time, and it is the base that has to be capped
 		std::unordered_map<RE::FormID, std::size_t> gLiveCount;
 		std::mutex                                  gLiveLock;
+		// a projectile dropped under gLiveLock is let go only after it: its last reference running the game's release (our
+		// hooked Release3DRelatedData -> DropLights) inside the lock would take it again on the same thread (L12)
+		std::vector<RE::NiPointer<RE::TESObjectREFR>> gLetGo;
 		// what a loader thread built or released, waiting for the main thread (under gLiveLock). The reference and the 3D are
 		// held (refcounted) - never a handle made off the main thread (the fading module's rule; re-score issue 2), and a
 		// queued 3D's address is never another's when its turn comes (the cap's sweep may have let its entry go first)
@@ -363,6 +366,9 @@ namespace Plugin
 						light->parent->DetachChild(light);
 					}
 				}
+			}
+			if (it->second.beam) {
+				gLetGo.push_back(std::move(it->second.beam));
 			}
 			gLive.erase(it);  // the last reference to the projectile's 3D may go here, on the main thread
 		}
@@ -1142,22 +1148,40 @@ namespace Plugin
 	// once a frame, on the main thread - what the loader threads left to do
 	void DropStreamLights()
 	{
-		auto*           scene = LightKit::Scene();
-		std::lock_guard l{ gLiveLock };
+		auto* scene = LightKit::Scene();
+		// every projectile this drops is let go after the lock: declared before it, so it goes last (L12)
+		std::vector<RE::NiPointer<RE::TESObjectREFR>> letGo;
+		std::lock_guard                               l{ gLiveLock };
 		ForgetIf(scene, [](const Live&) { return true; });
+		letGo.insert(letGo.end(), std::make_move_iterator(gToHang.begin()), std::make_move_iterator(gToHang.end()));
 		gToHang.clear();
 		gToDrop.clear();
 		for (auto& cloud : gClouds) {
 			DropCloud(cloud, scene);
+			letGo.push_back(std::move(cloud.ref));
 		}
 		gClouds.clear();
+		for (auto& wait : gCloudWait) {
+			letGo.push_back(std::move(wait.ref));
+		}
 		gCloudWait.clear();
+		letGo.insert(letGo.end(), std::make_move_iterator(gParkedRows.begin()), std::make_move_iterator(gParkedRows.end()));
 		gParkedRows.clear();
+		letGo.insert(letGo.end(), std::make_move_iterator(gLetGo.begin()), std::make_move_iterator(gLetGo.end()));
+		gLetGo.clear();
 		gRowLights = 0;
 	}
 
 	void StreamLightsFrame()
 	{
+		{
+			// what the last frame dropped under gLiveLock, let go here with the lock free (L12)
+			std::vector<RE::NiPointer<RE::TESObjectREFR>> letGo;
+			{
+				std::lock_guard l{ gLiveLock };
+				letGo.swap(gLetGo);
+			}
+		}
 		// a row its switch or the light cap held back: tried again while its projectile flies, let go when that ends
 		if (!gParkedRows.empty()) {
 			bool room = false;
