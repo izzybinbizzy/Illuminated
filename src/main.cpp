@@ -168,6 +168,8 @@ namespace
 				DropGroundLights();
 				DropStreamLights();
 				DropSneakFade();
+				DropCastingLights();
+				DropHandBudget();
 				Fade::OnGameLoading();
 			}
 			break;

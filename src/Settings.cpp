@@ -318,7 +318,7 @@ namespace Plugin
 			for (const auto& c : test) {
 				const auto it = gIndex.find(c.global);
 				// a setting no settings file names: treat it as 0, which is what the game reads from a missing global
-				const int value = it == gIndex.end() ? 0 : gSettings[it->second].value.load();
+				const int value = it == gIndex.end() ? 0 : EffectiveValue(gSettings[it->second]);  // an art pick: the pack it found
 				if (value == c.value) {
 					any = true;
 					break;

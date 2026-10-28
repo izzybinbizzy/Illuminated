@@ -586,7 +586,8 @@ namespace Plugin
 					}
 					if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
 						if (!RecordRoute()) {
-							FleshLightPlacer(a_this);  // a flesh spell under FleshFX: Light Placer's light just written takes its hue
+							std::lock_guard l{ gFlickerLock };  // the slider pass writes the same fade
+							FleshLightPlacer(a_this);           // a flesh spell under FleshFX: Light Placer's light just written takes its hue
 						}
 					}
 					Fade::AfterReferenceEffect(a_this, std::is_same_v<T, RE::ModelReferenceEffect>);  // an art model, not a shader's actor

@@ -117,7 +117,7 @@ namespace Plugin
 				++noLight;
 				continue;
 			}
-			const int range = static_cast<int>(std::lround(std::clamp(proj->data.range, 0.0f, 1.0e7f)));
+			const int range = std::isfinite(proj->data.range) ? static_cast<int>(std::lround(std::clamp(proj->data.range, 0.0f, 1.0e7f))) : 0;
 			if (range <= 0) {
 				++failed;
 				SKSE::log::warn("[SPRAY-FAILED] {} | could not read its range", Label(proj));
