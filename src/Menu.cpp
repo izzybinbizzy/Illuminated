@@ -471,7 +471,7 @@ namespace Plugin
 		template <std::size_t I>
 		void __stdcall Page()
 		{
-			DrawPage(I);
+			LightKit::Guarded("menu page", [] { DrawPage(I); });
 		}
 
 		constexpr SKSEMenuFramework::Model::RenderFunction kPageFunctions[kMaxPages] = {
@@ -571,8 +571,8 @@ namespace Plugin
 		// a name makes a submenu: Lights by Item holds Spell (Spells Without a Patch above the spell list) and the weapons' page
 		static const std::string kSpellPage = std::string(T("Lights by Item")) + "/" + T("Spell");
 		static const std::string kWeaponPage = std::string(T("Lights by Item")) + "/" + T("Weapons and Staves");
-		SKSEMenuFramework::AddSectionItem(kSpellPage.c_str(), ItemsPage);
-		SKSEMenuFramework::AddSectionItem(kWeaponPage.c_str(), Fade::Items::RenderWeapons);
+		SKSEMenuFramework::AddSectionItem(kSpellPage.c_str(), LightKit::GuardedDraw<ItemsPage>);
+		SKSEMenuFramework::AddSectionItem(kWeaponPage.c_str(), LightKit::GuardedDraw<Fade::Items::RenderWeapons>);
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
 			if (gPages[i] == kPerformancePage) {
 				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
@@ -580,7 +580,7 @@ namespace Plugin
 		}
 #ifdef FADE_DEBUG_PAGE
 		SKSEMenuFramework::SetSection(T(kSection.c_str()));
-		SKSEMenuFramework::AddSectionItem(T("Diagnostics"), RenderDiagnostics);
+		SKSEMenuFramework::AddSectionItem(T("Diagnostics"), LightKit::GuardedDraw<RenderDiagnostics>);
 #endif
 	}
 }
