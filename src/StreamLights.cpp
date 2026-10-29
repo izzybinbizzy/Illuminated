@@ -490,8 +490,10 @@ namespace Plugin
 			if (!proj) {
 				return path;
 			}
-			auto& rt = proj->GetProjectileRuntimeData();
-			path.length = rt.range;
+			auto&       rt = proj->GetProjectileRuntimeData();
+			const auto* base = a_ref->GetBaseObject() ? a_ref->GetBaseObject()->As<RE::BGSProjectile>() : nullptr;
+			// a cone flies: what is left of its range runs from where it is now
+			path.length = base && base->IsCone() ? (std::max)(rt.range - rt.distanceMoved, 0.0f) : rt.range;
 			// only a bolt stops where its art is drawn: a spray's geometry reads far shorter than its flames (Flames 230 of 768)
 			if (a_beam) {
 				if (const float drawn = DrawnLength(a_root, path.axis); drawn > 1.0f && drawn < path.length) {
