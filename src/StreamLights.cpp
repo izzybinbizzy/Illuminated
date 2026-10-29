@@ -492,8 +492,11 @@ namespace Plugin
 			}
 			auto& rt = proj->GetProjectileRuntimeData();
 			path.length = rt.range;
-			if (const float drawn = DrawnLength(a_root, path.axis); drawn > 1.0f && drawn < path.length) {
-				path.length = drawn;
+			// only a bolt stops where its art is drawn: a spray's geometry reads far shorter than its flames (Flames 230 of 768)
+			if (a_beam) {
+				if (const float drawn = DrawnLength(a_root, path.axis); drawn > 1.0f && drawn < path.length) {
+					path.length = drawn;
+				}
 			}
 			for (const auto* impact : rt.impacts) {  // the newest impact comes first
 				if (impact) {
