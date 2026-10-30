@@ -14,8 +14,12 @@
 // event), but not the casting art's. So a few frames after the player enters a cell, each Light Placer light under the player's
 // casting art is registered with the scene again, as a re-equip would; that registration is ours to take back when the light
 // leaves the art or Light Placer registers it again itself.
+//
+// A light of ours can also stay lit in the scene with no node when the casting art is cleared away in one go (a dispel and a
+// temporary-effects clear with the hands up); every few frames the ones that have stood so for two looks are put out.
 
 #include "Plugin.h"
+#include "StrayLights.h"
 
 namespace Plugin
 {
@@ -237,6 +241,54 @@ namespace Plugin
 				return true;
 			});
 		}
+
+		// Light Placer leaves a light of ours lit in the scene with no node when a casting art is torn down without its removal (a
+		// dispel and a temporary-effects clear with the hands up, then another spell). One that stands without a parent for two looks,
+		// a quarter second apart, goes out the way the scene takes any light out; a light with a parent, one being removed already
+		// and another mod's are never touched
+		constexpr std::chrono::milliseconds   kStrayEvery{ 250 };
+		StrayLights::Watch                    gStray;
+		std::chrono::steady_clock::time_point gStrayAt;
+		std::size_t                           gStrayPutOut = 0;
+		std::size_t                           gStrayLogged = 0;
+		bool                                  gKeepOn = false;
+
+		void PutOutStrayLights(RE::ShadowSceneNode* a_scene)
+		{
+			auto&                                   data = a_scene->GetRuntimeData();
+			std::vector<RE::NiPointer<RE::NiLight>> lights;
+			std::vector<StrayLights::Seen>          seen;
+			const auto                              look = [&](const RE::BSLight* a_bs) {
+				auto*       light = a_bs ? a_bs->light.get() : nullptr;
+				const char* name = light ? light->name.c_str() : nullptr;
+				if (name && !light->parent && StrayLights::IsOurs(name)) {
+					lights.emplace_back(light);
+					seen.push_back({ light, name, false, false });
+				}
+			};
+			for (const auto& bs : data.activeLights) {
+				look(bs.get());
+			}
+			for (const auto& bs : data.activeShadowLights) {
+				look(bs.get());
+			}
+			if (!seen.empty()) {
+				RE::BSSpinLockGuard locker(data.lightQueueLock);
+				for (auto& s : seen) {
+					s.removalQueued = std::ranges::any_of(data.lightQueueRemove, [&s](const auto& a_queued) { return a_queued && a_queued->light.get() == s.key; });
+				}
+			}
+			const auto stray = gStray.Look(seen);
+			for (const auto i : stray) {
+				a_scene->RemoveLight(lights[i].get());
+			}
+			if (!stray.empty()) {
+				gStrayPutOut += stray.size();
+				if (gStrayLogged++ < 5) {
+					SKSE::log::info("light placer: {} light(s) of ours left in the scene with no node put out ({} so far)", stray.size(), gStrayPutOut);
+				}
+			}
+		}
 	}
 
 	std::vector<RE::NiPointer<RE::BSLight>> QueuedLights(RE::ShadowSceneNode* a_scene)
@@ -256,7 +308,11 @@ namespace Plugin
 
 	void KeepLightPlacerLights()
 	{
-		if (REL::Module::IsVR() || !REX::W32::GetModuleHandleA("po3_LightPlacer.dll")) {
+		if (!REX::W32::GetModuleHandleA("po3_LightPlacer.dll")) {
+			return;
+		}
+		gKeepOn = true;  // the stray-light clean-up runs on VR too; the resume hook and the cell watch do not
+		if (REL::Module::IsVR()) {
 			return;
 		}
 		REL::Relocation<std::uintptr_t> vtbl{ RE::ShaderReferenceEffect::VTABLE[0] };
@@ -278,6 +334,7 @@ namespace Plugin
 			}
 		}
 		gReadded.clear();
+		gStray.Clear();
 		gCellSince.reset();
 		gNextLook = kLookAt.size();
 		gLastSpace = nullptr;  // the first cell of the loaded game came through a loading screen
@@ -286,7 +343,7 @@ namespace Plugin
 
 	void KeepCastingLights()
 	{
-		if (!gCellWatchOn) {
+		if (!gKeepOn) {
 			return;
 		}
 		auto* scene = LightKit::Scene();
@@ -298,6 +355,13 @@ namespace Plugin
 			TendReadded(scene);
 		}
 		const auto now = std::chrono::steady_clock::now();
+		if (now - gStrayAt >= kStrayEvery) {
+			gStrayAt = now;
+			PutOutStrayLights(scene);
+		}
+		if (!gCellWatchOn) {
+			return;
+		}
 		if (gCellEntered.exchange(false, std::memory_order_relaxed)) {
 			gCellSince = now;
 			gNextLook = 0;
