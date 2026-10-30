@@ -1040,9 +1040,10 @@ namespace Plugin
 			c.form->fade = c.flicker ? c.startFade : c.startFade * scale;  // a flicker's Brightness is applied as it is written
 			c.form->data.radius = static_cast<std::uint32_t>(std::lround(static_cast<double>(c.startRadius) * reach / 100.0));
 			if (c.startCutoff > 0.0f) {
-				c.form->data.fallofExponent = c.startCutoff * LightKit::ReachCutoffFactor(scale, stretch, c.startFade, c.startCutoff, LightKit::LightPlacerSize(c.form->data.fov));
+				const float cutoff = std::clamp(c.startCutoff * LightKit::ReachCutoffFactor(scale, stretch, c.startFade, c.startCutoff, LightKit::LightPlacerSize(c.form->data.fov)), kLowestCutoff, kHighestCutoff);
+				c.form->data.fallofExponent = cutoff;
 				if (const auto it = gLit.find(c.id); it != gLit.end()) {
-					it->second.cutoff = std::clamp(c.form->data.fallofExponent, kLowestCutoff, kHighestCutoff);
+					it->second.cutoff = cutoff;
 				}
 			}
 			++set;
