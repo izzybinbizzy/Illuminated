@@ -14,7 +14,7 @@
 //   Brightness  the fade.
 //   Reach       the radius - and, for an inverse-square light, the cutoff. Community Shaders works such a light's reach
 // out from its fade and its cutoff alone (measured: the stated radius changed nothing, and a
-//               brighter light reached further). The cutoff is the made-with one x Brightness / Reach², which moves the
+//               brighter light reached further). The cutoff is the made-with one moved by LightKit::ReachCutoffFactor, which moves the
 //               reach by Reach and holds it still while Brightness changes.
 //               On ENB and Vanilla (Lighting.cpp) an inverse-square copy is made plain when it is made: no cutoff, the
 //               reach it had drawn as a radius, and Reach moves that radius.
@@ -1040,7 +1040,7 @@ namespace Plugin
 			c.form->fade = c.flicker ? c.startFade : c.startFade * scale;  // a flicker's Brightness is applied as it is written
 			c.form->data.radius = static_cast<std::uint32_t>(std::lround(static_cast<double>(c.startRadius) * reach / 100.0));
 			if (c.startCutoff > 0.0f) {
-				c.form->data.fallofExponent = c.startCutoff * scale / (stretch * stretch);
+				c.form->data.fallofExponent = c.startCutoff * LightKit::ReachCutoffFactor(scale, stretch, c.startFade, c.startCutoff, LightKit::LightPlacerSize(c.form->data.fov));
 				if (const auto it = gLit.find(c.id); it != gLit.end()) {
 					it->second.cutoff = std::clamp(c.form->data.fallofExponent, kLowestCutoff, kHighestCutoff);
 				}
