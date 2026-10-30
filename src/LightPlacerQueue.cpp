@@ -308,12 +308,15 @@ namespace Plugin
 
 	void KeepLightPlacerLights()
 	{
-		if (REL::Module::IsVR() || !REX::W32::GetModuleHandleA("po3_LightPlacer.dll")) {
+		if (!REX::W32::GetModuleHandleA("po3_LightPlacer.dll")) {
+			return;
+		}
+		gKeepOn = true;  // the stray-light clean-up runs on VR too; the resume hook and the cell watch do not
+		if (REL::Module::IsVR()) {
 			return;
 		}
 		REL::Relocation<std::uintptr_t> vtbl{ RE::ShaderReferenceEffect::VTABLE[0] };
 		ResumeAfterLightPlacer::func = vtbl.write_vfunc(0x38, ResumeAfterLightPlacer::thunk);  // ShaderReferenceEffect::Resume
-		gKeepOn = true;
 		SKSE::log::info("light placer: a light put back on an effect's resume is kept (its fix, until a Light Placer release carries it)");
 		if (auto* player = RE::PlayerCharacter::GetSingleton()) {
 			player->AsBGSActorCellEventSource()->AddEventSink(&gCellWatch);
