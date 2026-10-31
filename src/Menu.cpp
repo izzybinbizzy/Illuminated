@@ -40,26 +40,48 @@ namespace Plugin
 		// (the settings files list an author's mods by mod name, among the other authors', so drawn in file order an author's
 		// heading came back for each run of its mods - his "yes, fix it" 2026-10-18)
 		std::array<std::vector<std::size_t>, kMaxPages> gOrder;
-		// 🔁 his order 2026-10-20: "performance added to its own main menu as the last menu, i want praedy's staves right below
-		// configs" and "spells without a patch moved to lights by item/spell" - Praedy's Staves is added with the pages up to
-		// Configs (RegisterMenu), these two after the fading module's pages (RegisterMenuTail); lagen.py names them
+		// his orders: Performance the last page (2026-10-20), Choose Your Own Color right below Lights (2026-10-31) - the pages
+		// up to Praedy's Staves are added in the settings files' order (RegisterMenu), Performance after the fading module's
+		// pages (RegisterMenuTail); lagen.py names them
 		constexpr std::string_view kPraedyPage = "Praedy's Staves";
 		constexpr std::string_view kItemsPage = "Choose Your Own Color";
 		constexpr std::string_view kPerformancePage = "Performance";
-		bool                       IsTailPage(std::string_view a_page) { return a_page == kItemsPage || a_page == kPerformancePage; }
 		std::string                gCSLight;  // the CS Light plugin that is loaded, if one is
 
 		const ImGuiMCP::ImVec4 kWarn{ 1.0f, 0.72f, 0.3f, 1.0f };
 		// every shown line goes through T(): Translation.json beside Settings.txt (lagen.py writes the English one)
 		using Translation::T;
 
-		// HIS MENU: "Default to ENB Light Settings" sits under the Version heading and is "greyed out if enb
-		// is not selected". 🔁 HIS WORD: "found by itself needs to be changed to "Automatic"" and "users to not be able
-		// to manually switch between versions" - the heading shows what was found (Lighting.cpp), there is no pick
+		// "Default to ENB Light Settings" sits under the Version heading, greyed where it does nothing: ENB Light not loaded, or
+		// Vanilla, which draws no ENB light (his word 2026-10-31: it "needs to work for CS users too who might be using ENB Light")
 		constexpr std::string_view kYieldENBId = "IlluminatedYieldENBLight";
 		constexpr std::string_view kVersionGroup = "Version";  // lagen.py: the first heading on Lights
 
-		bool EnbFound() { return LightingFound() == Lighting::kEnb; }
+		bool YieldUsable() { return ENBLightLoaded() && LightingFound() != Lighting::kVanilla; }
+
+		// a pick-one combo whose every choice shows its own tip while the list is open
+		bool ChoiceCombo(const char* a_label, int& a_value, const std::vector<const char*>& a_items, const std::vector<const char*>& a_tips)
+		{
+			bool       changed = false;
+			const auto n = static_cast<int>(a_items.size());
+			if (ImGuiMCP::BeginCombo(a_label, a_value >= 0 && a_value < n ? a_items[a_value] : "")) {
+				for (int i = 0; i < n; ++i) {
+					const bool selected = i == a_value;
+					if (ImGuiMCP::Selectable(a_items[i], selected)) {
+						a_value = i;
+						changed = true;
+					}
+					if (i < static_cast<int>(a_tips.size()) && a_tips[i] && *a_tips[i]) {
+						MenuStyle::Tip(a_tips[i]);
+					}
+					if (selected) {
+						ImGuiMCP::SetItemDefaultFocus();
+					}
+				}
+				ImGuiMCP::EndCombo();
+			}
+			return changed;
+		}
 
 		void DrawVersion()
 		{
@@ -119,17 +141,19 @@ namespace Plugin
 		constexpr std::string_view kGlowLimitId = "IlluminatedGlowLimit";
 		constexpr std::string_view kGlowCountId = "IlluminatedGlowLimitCount";
 
-		// Dynamic Lighting as one pick of three: Off, Regular (the pulsing as before), Realistic (a shape per kind of spell)
+		// Dynamic Lighting as one pick of three: Off, Regular (the pulsing as before), Cinematic (a shape per kind of spell)
 		void DrawDynamicLighting(const Setting& a_s)
 		{
-			const std::array<const char*, 3> items{ T("Off"), T("Regular"), T("Realistic") };
-			int                              v = a_s.value.load() == 0 ? 0 : SettingValue(kPulseShapesId, 0) != 0 ? 2 :
-			                                                                                                        1;
-			if (ImGuiMCP::Combo(T(a_s.label.c_str()), &v, items.data(), static_cast<int>(items.size()))) {
+			const std::vector<const char*> items{ T("Off"), T("Regular"), T("Cinematic") };
+			const std::vector<const char*> tips{ T("Steady lights, no pulse or flicker."), T("Every light breathes the same gentle way."),
+				T("Each kind of spell moves its own way: fire flickers, absorb spells beat like a heart, healing breathes slowly. With Light Placer it pulses like Regular for now.") };
+			int                            v = a_s.value.load() == 0 ? 0 : SettingValue(kPulseShapesId, 0) != 0 ? 2 :
+			                                                                                                      1;
+			if (ChoiceCombo(T(a_s.label.c_str()), v, items, tips)) {
 				SetById(kPulseShapesId, v == 2 ? 1 : 0);
 				SetById(kDynamicLightingId, v == 0 ? 0 : 1);
 			}
-			MenuStyle::Tip(T("Off: steady lights. Regular: every light breathes the same way. Realistic: each kind of spell pulses in its own way - fire flickers, absorb spells beat like a heart, healing breathes slowly. With Light Placer it pulses like Regular for now."));
+			MenuStyle::Tip(tips[static_cast<std::size_t>(v)]);
 		}
 
 		void DrawSetting(std::size_t a_index, Setting& a_s)
@@ -147,13 +171,13 @@ namespace Plugin
 				ImGuiMCP::PopID();
 				return;
 			}
-			const bool greyed = (a_s.id == kYieldENBId && !EnbFound()) || (a_s.id == kGlowCountId && SettingValue(kGlowLimitId, 1) == 0);
+			const bool greyed = (a_s.id == kYieldENBId && !YieldUsable()) || (a_s.id == kGlowCountId && SettingValue(kGlowLimitId, 1) == 0);
 			ImGuiMCP::BeginDisabled(greyed);
 			if (a_s.isSlider) {
 				// live while it is dragged, on its step (his report: "the sliders also stopped working live during sliding and only
 				// work after the click is released") - SetSetting queues one task however many steps it moves
 				int v = a_s.value.load();
-				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, a_s.id == kGlowCountId ? "%d" : "%d%%");
+				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, a_s.id == kGlowCountId ? "%d lights" : "%d%%");
 				const bool released = ImGuiMCP::IsItemDeactivatedAfterEdit();
 				if (v = AllowedValue(a_s, v); v != a_s.value) {
 					SetSetting(a_index, v, false);  // applied at once, written when it is let go
@@ -167,12 +191,18 @@ namespace Plugin
 				for (const auto& c : a_s.choices) {
 					items.push_back(T(c.c_str()));
 				}
+				// each choice its own tip in the open list when the settings file gives every choice one
+				std::vector<const char*> tips;
+				if (a_s.tips.size() == a_s.choices.size() && std::ranges::none_of(a_s.tips, &std::string::empty)) {
+					for (const auto& t : a_s.tips) {
+						tips.push_back(T(t.c_str()));
+					}
+				}
 				int v = a_s.value.load();
-				if (ImGuiMCP::Combo(T(a_s.label.c_str()), &v, items.data(), static_cast<int>(items.size()))) {
+				if (ChoiceCombo(T(a_s.label.c_str()), v, items, tips)) {
 					SetSetting(a_index, v);
 				}
-				// the choice's own tip when the settings file gives one, else the setting's (the build writes only the first for its
-				// own pick-one settings - Dim in daylight, Hand lights for, Ward look)
+				// the choice's own tip when the settings file gives one, else the setting's
 				const auto choice = static_cast<std::size_t>((std::max)(a_s.value.load(), 0));
 				SettingTip(a_s, choice < a_s.tips.size() && !a_s.tips[choice].empty() ? choice : 0);
 			} else {
@@ -440,6 +470,7 @@ namespace Plugin
 					ImGuiMCP::TextWrapped("%s", T(n.text.c_str()));
 				}
 			}
+			std::string_view drawn;  // the setting drawn last: one that follows it goes on its line
 			for (const std::size_t i : gOrder[a_page]) {
 				auto& s = settings[i];
 				if (s.group != group) {
@@ -455,7 +486,15 @@ namespace Plugin
 #endif
 					}
 				}
+				if (!s.follows.empty()) {
+					if (s.follows != drawn || !SettingAvailable(s)) {
+						continue;
+					}
+					ImGuiMCP::SameLine(0.0f, 24.0f);
+					ImGuiMCP::SetNextItemWidth(220.0f);
+				}
 				DrawSetting(i, s);
+				drawn = s.id;
 			}
 			presets();
 		}
@@ -536,8 +575,11 @@ namespace Plugin
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
 			if (gPages[i] == kItemsPage) {
 				gItemsAt = i;
+				// his order: "an entirely new main menu ... search for the weapon/spell and change it's lights" (FadeItems.cpp)
+				SKSEMenuFramework::AddSectionItem(T(kItemsPage.data()), LightKit::GuardedDraw<ItemsPage>);
+				continue;
 			}
-			if (IsTailPage(gPages[i])) {
+			if (gPages[i] == kPerformancePage) {
 				continue;
 			}
 			if (gPages[i] == kPraedyPage && !withPraedys) {
@@ -549,7 +591,7 @@ namespace Plugin
 		SKSE::log::info("menu: {} page(s) added to SKSE Menu Framework {}", gPages.size(), SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
 
-	// after the fading module's pages (HUD, Fading): Choose Your Own Color and Performance, the last page
+	// after the fading module's pages (HUD, Fading): Performance, the last page
 	void RegisterMenuTail()
 	{
 		if (!SKSEMenuFramework::IsInstalled()) {
@@ -557,8 +599,6 @@ namespace Plugin
 		}
 		static const std::string kSection(kOurFolder);
 		SKSEMenuFramework::SetSection(T(kSection.c_str()));
-		// his order: "an entirely new main menu ... search for the weapon/spell and change it's lights" (FadeItems.cpp)
-		SKSEMenuFramework::AddSectionItem(T(kItemsPage.data()), LightKit::GuardedDraw<ItemsPage>);
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
 			if (gPages[i] == kPerformancePage) {
 				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);

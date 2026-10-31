@@ -91,6 +91,7 @@ namespace Plugin
 					}
 					s.restart = block["restart"] == "1";
 					s.needs = Split(block["requires"], '|');
+					s.follows = block["follows"];
 					const auto& autoText = block["auto"];
 					if (const auto colon = autoText.find(':'); colon != std::string::npos) {
 						s.autoAll = autoText.substr(0, colon) == "and";

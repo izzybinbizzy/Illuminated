@@ -336,17 +336,23 @@ namespace Plugin
 	// ------------------------------------------------------------------ stepping aside for other light mods
 	// HIS GO-TO PICK ("4 make it optional"): where another light mod lights the same spell, a switch says
 	// whether Illuminated steps aside, so nothing is lit twice. Without Light Placer:
-	//   ENB Light (ENB Light.esp, ENB only): a spell whose effect or casting art ENB Light changed keeps the light ENB Light
-	//   gave it (its mesh's ENB light).
+	//   ENB Light (ENB Light.esp): a spell whose effect or casting art ENB Light changed keeps the light ENB Light gave it (its
+	//   mesh's ENB light) - on ENB and on Community Shaders, which draws those lights too; Vanilla draws none. With Light
+	//   Placer the rows on ENB Light's own hand art wait on the same switch (lagen.py enb_light_switch).
 	// (RELight is never used with Illuminated - his word: "two separate mods and will never be used together" - so
 	// nothing here looks for it.)
-	bool YieldToENBLight()
+	bool ENBLightLoaded()
 	{
 		static const bool loaded = [] {
 			auto* dh = RE::TESDataHandler::GetSingleton();
 			return dh && (dh->LookupLoadedModByName("ENB Light.esp") || dh->LookupLoadedLightModByName("ENB Light.esp"));
 		}();
-		return loaded && LightingFound() == Lighting::kEnb && SettingValue("IlluminatedYieldENBLight", 0) != 0;
+		return loaded;
+	}
+
+	bool YieldToENBLight()
+	{
+		return ENBLightLoaded() && LightingFound() != Lighting::kVanilla && SettingValue("IlluminatedYieldENBLight", 0) != 0;
 	}
 
 	bool TouchedByENBLight(const RE::TESForm* a_form)

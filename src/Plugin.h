@@ -76,7 +76,7 @@ namespace Plugin
 
 	struct Setting
 	{
-		std::string              id, ini, page, group, label;
+		std::string              id, ini, page, group, label, follows;  // follows: the setting it is drawn beside
 		bool                     isChoice{ false }, isSlider{ false }, restart{ false }, autoAll{ false };
 		std::vector<std::string> choices, tips, needs, autoPlugins;
 		int                      defaultValue{ 0 };
@@ -257,7 +257,8 @@ namespace Plugin
 	[[nodiscard]] std::size_t        AutoLightCount();
 	[[nodiscard]] std::size_t        AutoCastingCount();  // CastingLights.cpp: the spells given an automatic light
 	// stepping aside for other light mods (RecordLights.cpp)
-	[[nodiscard]] bool        YieldToENBLight();  // its switch on, ENB Light.esp loaded, the lighting ENB
+	[[nodiscard]] bool        ENBLightLoaded();   // ENB Light.esp is in the load order
+	[[nodiscard]] bool        YieldToENBLight();  // its switch on, ENB Light.esp loaded, the lighting ENB or Community Shaders
 	[[nodiscard]] bool        TouchedByENBLight(const RE::TESForm* a_form);
 	[[nodiscard]] std::string RecordReport();  // for DevBench
 
