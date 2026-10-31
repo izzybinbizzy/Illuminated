@@ -713,9 +713,19 @@ namespace Fade
 
 		// what the HUD shows this frame: the player's hands that fade (not one left alone), the switches, and whether her
 		// weapons or spells are out (the gems and Reticle Arcs' bars show only then). Main thread, under gLock.
-		void PublishHud(const Settings& a_s)
+		// a HUD toggle mod (Toggle UI's F6) takes the HUD movie's root alpha to 0 and leaves the menus showing; read before gLock
+		[[nodiscard]] bool HudMovieHidden()
+		{
+			auto*        ui = RE::UI::GetSingleton();
+			const auto   menu = ui ? ui->GetMenu<RE::HUDMenu>() : nullptr;
+			RE::GFxValue alpha;
+			return menu && menu->uiMovie && menu->uiMovie->GetVariable(&alpha, "_root._alpha") && alpha.IsNumber() && alpha.GetNumber() < 1.0;
+		}
+
+		void PublishHud(const Settings& a_s, bool a_hudHidden)
 		{
 			HudState hud;
+			hud.hudHidden = a_hudHidden;
 			hud.gems = a_s.enabled && a_s.hudGems;
 			hud.gemSize = a_s.hudGemSize;
 			hud.gemOpacity = a_s.hudGemOpacity;
@@ -774,6 +784,7 @@ namespace Fade
 				readings.push_back({ ReadHand(actor.get(), false), ReadHand(actor.get(), true) });
 			}
 		}
+		const bool      hudHidden = s.enabled && s.hudGems && HudMovieHidden();
 		std::lock_guard lock(gLock);
 		++gFrame;
 		// Lights by Item asks again this frame if it still needs its own roots (EffectRootsOf); a hand's roots not seen for a
@@ -793,7 +804,7 @@ namespace Fade
 		gDimShader = s.dimShader;
 		if (!s.enabled) {
 			RestoreAll();
-			PublishHud(s);
+			PublishHud(s, hudHidden);
 			Items::Apply();  // Lights by Item works with Fading off too
 			return;
 		}
@@ -910,7 +921,7 @@ namespace Fade
 			}
 		}
 		gActiveHands = gActiveList.size();
-		PublishHud(s);
+		PublishHud(s, hudHidden);
 		Items::Apply();  // last: an item's own choice wins over the fading (his order, FadeItems.cpp)
 	}
 

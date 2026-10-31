@@ -44,7 +44,7 @@ namespace Plugin
 		// configs" and "spells without a patch moved to lights by item/spell" - Praedy's Staves is added with the pages up to
 		// Configs (RegisterMenu), these two after the fading module's pages (RegisterMenuTail); lagen.py names them
 		constexpr std::string_view kPraedyPage = "Praedy's Staves";
-		constexpr std::string_view kItemsPage = "Lights by Item / Spell";
+		constexpr std::string_view kItemsPage = "Choose Your Own Color";
 		constexpr std::string_view kPerformancePage = "Performance";
 		bool                       IsTailPage(std::string_view a_page) { return a_page == kItemsPage || a_page == kPerformancePage; }
 		std::string                gCSLight;  // the CS Light plugin that is loaded, if one is
@@ -147,9 +147,7 @@ namespace Plugin
 				ImGuiMCP::PopID();
 				return;
 			}
-			// an art pick greys while its "Find my art pack" switch uses the pack it found (the pick stays the backup)
-			const bool foundInUse = a_s.found.load() >= 0 && a_s.autoSwitch < Settings().size() && Settings()[a_s.autoSwitch].value.load() != 0;
-			const bool greyed = (a_s.id == kYieldENBId && !EnbFound()) || foundInUse || (a_s.id == kGlowCountId && SettingValue(kGlowLimitId, 1) == 0);
+			const bool greyed = (a_s.id == kYieldENBId && !EnbFound()) || (a_s.id == kGlowCountId && SettingValue(kGlowLimitId, 1) == 0);
 			ImGuiMCP::BeginDisabled(greyed);
 			if (a_s.isSlider) {
 				// live while it is dragged, on its step (his report: "the sliders also stopped working live during sliding and only
@@ -178,17 +176,8 @@ namespace Plugin
 				const auto choice = static_cast<std::size_t>((std::max)(a_s.value.load(), 0));
 				SettingTip(a_s, choice < a_s.tips.size() && !a_s.tips[choice].empty() ? choice : 0);
 			} else {
-				bool        on = a_s.value != 0;
-				std::string label = T(a_s.label.c_str());
-				// a "Find my art pack" switch says what it found (no line of text under it - his rule for this page)
-				const auto& all = Settings();
-				if (const auto pick = std::ranges::find_if(all, [&](const Setting& p) { return p.autoSwitch == a_index; }); pick != all.end()) {
-					const int f = pick->found.load();
-					label += f >= 0 && f < static_cast<int>(pick->choices.size()) ?
-					             std::string(" (") + T("found:") + " " + T(pick->choices[static_cast<std::size_t>(f)].c_str()) + ")" :
-					             std::string(" (") + T("not recognised") + ")";
-				}
-				if (ImGuiMCP::Checkbox(label.c_str(), &on)) {
+				bool on = a_s.value != 0;
+				if (ImGuiMCP::Checkbox(T(a_s.label.c_str()), &on)) {
 					SetSetting(a_index, on ? 1 : 0);
 				}
 				SettingTip(a_s, 0);
@@ -482,13 +471,13 @@ namespace Plugin
 			Page<12>, Page<13>, Page<14>, Page<15>, Page<16>, Page<17>, Page<18>, Page<19>, Page<20>, Page<21>, Page<22>, Page<23>
 		};
 
-		// Lights by Item > Spell: the settings file's "Lights by Item / Spell" page (Spells Without a Patch), then the spell list
+		// the settings file's Choose Your Own Color page (Spells Without a Patch), then the list of spells, staves and weapons
 		std::size_t gItemsAt = kMaxPages;  // gPages' index of that page (kMaxPages: none)
 
 		void __stdcall ItemsPage()
 		{
 			DrawPage(gItemsAt);
-			Fade::Items::RenderSpells();
+			Fade::Items::Render();
 		}
 	}
 
@@ -560,9 +549,7 @@ namespace Plugin
 		SKSE::log::info("menu: {} page(s) added to SKSE Menu Framework {}", gPages.size(), SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
 
-	// after the fading module's pages (HUD, Fading): the Lights by Item folder - Spell (its settings above the spell list) and
-	// Weapons and Staves - and
-	// Performance, the last page (his order 2026-10-20)
+	// after the fading module's pages (HUD, Fading): Choose Your Own Color and Performance, the last page
 	void RegisterMenuTail()
 	{
 		if (!SKSEMenuFramework::IsInstalled()) {
@@ -570,12 +557,8 @@ namespace Plugin
 		}
 		static const std::string kSection(kOurFolder);
 		SKSEMenuFramework::SetSection(T(kSection.c_str()));
-		// his order: "an entirely new main menu ... search for the weapon/spell and change it's lights" (FadeItems.cpp). A '/' in
-		// a name makes a submenu: Lights by Item holds Spell (Spells Without a Patch above the spell list) and the weapons' page
-		static const std::string kSpellPage = std::string(T("Lights by Item")) + "/" + T("Spell");
-		static const std::string kWeaponPage = std::string(T("Lights by Item")) + "/" + T("Weapons and Staves");
-		SKSEMenuFramework::AddSectionItem(kSpellPage.c_str(), LightKit::GuardedDraw<ItemsPage>);
-		SKSEMenuFramework::AddSectionItem(kWeaponPage.c_str(), LightKit::GuardedDraw<Fade::Items::RenderWeapons>);
+		// his order: "an entirely new main menu ... search for the weapon/spell and change it's lights" (FadeItems.cpp)
+		SKSEMenuFramework::AddSectionItem(T(kItemsPage.data()), LightKit::GuardedDraw<ItemsPage>);
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
 			if (gPages[i] == kPerformancePage) {
 				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
