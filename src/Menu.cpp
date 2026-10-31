@@ -153,7 +153,7 @@ namespace Plugin
 				// live while it is dragged, on its step (his report: "the sliders also stopped working live during sliding and only
 				// work after the click is released") - SetSetting queues one task however many steps it moves
 				int v = a_s.value.load();
-				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, a_s.id == kGlowCountId ? "%d" : "%d%%");
+				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, a_s.id == kGlowCountId ? "%d lights" : "%d%%");
 				const bool released = ImGuiMCP::IsItemDeactivatedAfterEdit();
 				if (v = AllowedValue(a_s, v); v != a_s.value) {
 					SetSetting(a_index, v, false);  // applied at once, written when it is let go
@@ -440,6 +440,7 @@ namespace Plugin
 					ImGuiMCP::TextWrapped("%s", T(n.text.c_str()));
 				}
 			}
+			std::string_view drawn;  // the setting drawn last: one that follows it goes on its line
 			for (const std::size_t i : gOrder[a_page]) {
 				auto& s = settings[i];
 				if (s.group != group) {
@@ -455,7 +456,15 @@ namespace Plugin
 #endif
 					}
 				}
+				if (!s.follows.empty()) {
+					if (s.follows != drawn || !SettingAvailable(s)) {
+						continue;
+					}
+					ImGuiMCP::SameLine(0.0f, 24.0f);
+					ImGuiMCP::SetNextItemWidth(220.0f);
+				}
 				DrawSetting(i, s);
+				drawn = s.id;
 			}
 			presets();
 		}
