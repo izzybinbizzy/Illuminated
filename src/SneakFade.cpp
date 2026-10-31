@@ -28,12 +28,13 @@ namespace Plugin
 	{
 		constexpr std::string_view kSneaking = "IlluminatedSneaking";  // 0 fade (the default), 1 stay on
 		constexpr std::string_view kSneakBrightness = "IlluminatedSneakingBrightness";
-		constexpr std::string_view kInvisible = "IlluminatedWhileInvisible";  // 0 fade out (the default), 1 stay on
-		constexpr std::string_view kRunes = "IlluminatedSneakingRunes";       // 0 fade with their caster (the default), 1 stay lit
-		constexpr std::string_view kArtLight = "IlluminatedArtLight";         // ArtLights.cpp
-		constexpr std::string_view kRowLight = "IlluminatedStreamRow";        // StreamLights.cpp: a bolt's row
-		constexpr std::string_view kWardLight = "IlluminatedStream";          // StreamLights.cpp: the ward dome
-		constexpr float            kTopCutoff = 1.0f;                         // the highest cutoff Light Placer and our lights write
+		// a new name so the old setting's saved "fade out" default (1.8 wrote it into every settings file) is not read
+		constexpr std::string_view kInvisible = "IlluminatedInShadow";   // 0 stay on (the default), 1 fade out
+		constexpr std::string_view kRunes = "IlluminatedSneakingRunes";  // 0 fade with their caster (the default), 1 stay lit
+		constexpr std::string_view kArtLight = "IlluminatedArtLight";    // ArtLights.cpp
+		constexpr std::string_view kRowLight = "IlluminatedStreamRow";   // StreamLights.cpp: a bolt's row
+		constexpr std::string_view kWardLight = "IlluminatedStream";     // StreamLights.cpp: the ward dome
+		constexpr float            kTopCutoff = 1.0f;                    // the highest cutoff Light Placer and our lights write
 		constexpr float            kFadeSeconds = 0.5f;
 		constexpr std::uint32_t    kForgetFrames = 3;
 
@@ -58,7 +59,7 @@ namespace Plugin
 		std::uint32_t                            gFrame{ 0 };
 
 		[[nodiscard]] bool  Fades() { return SettingValue(kSneaking, 0) == 0; }
-		[[nodiscard]] bool  FadesInvisible() { return SettingValue(kInvisible, 0) == 0; }
+		[[nodiscard]] bool  FadesInvisible() { return SettingValue(kInvisible, 0) == 1; }
 		[[nodiscard]] bool  RunesFade() { return SettingValue(kRunes, 0) == 0; }
 		[[nodiscard]] float SneakLow() { return static_cast<float>(std::clamp(SettingValue(kSneakBrightness, 0), 0, 100)) / 100.0f; }
 
