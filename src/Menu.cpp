@@ -549,7 +549,7 @@ namespace Plugin
 		SKSE::log::info("menu: {} page(s) added to SKSE Menu Framework {}", gPages.size(), SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
 
-	// after the fading module's pages (HUD, Fading): Choose Your Own Color and Performance, the last page (his order 2026-10-20)
+	// after the fading module's pages (HUD, Fading): Choose Your Own Color and Performance, the last page
 	void RegisterMenuTail()
 	{
 		if (!SKSEMenuFramework::IsInstalled()) {

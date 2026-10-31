@@ -292,10 +292,10 @@ namespace Plugin
 	// ------------------------------------------------------------------ conditions
 	bool ConditionsHold(const std::vector<std::vector<Clause>>& a_tests)
 	{
-		// a setting no settings file names reads 0, as the game reads a missing global; an art pick reads the pack it found
+		// a setting no settings file names reads 0, as the game reads a missing global
 		const auto holds = [](const Clause& a_c) {
 			const auto it = gIndex.find(a_c.global);
-			return (it == gIndex.end() ? 0 : EffectiveValue(gSettings[it->second])) == a_c.value;
+			return (it == gIndex.end() ? 0 : gSettings[it->second].value.load()) == a_c.value;
 		};
 		return std::ranges::all_of(a_tests, [&](const std::vector<Clause>& a_test) { return std::ranges::any_of(a_test, holds); });
 	}
@@ -364,10 +364,6 @@ namespace Plugin
 			SKSE::log::info("[SETTING] {} = {}{}", s.id, v,
 				s.isChoice && v >= 0 && v < static_cast<int>(s.choices.size()) ? " (" + s.choices[static_cast<std::size_t>(v)] + ")" : s.isSlider ? "%" :
 																																					"");
-			if (const int e = EffectiveValue(s); e != v && e >= 0 && e < static_cast<int>(s.choices.size())) {
-				SKSE::log::info("[SETTING] {} in use: {} ({}) - the art pack found, the pick above is the backup", s.id, e,
-					s.choices[static_cast<std::size_t>(e)]);
-			}
 		}
 	}
 
@@ -376,7 +372,7 @@ namespace Plugin
 		std::lock_guard l{ gSettingsLock };
 		for (auto& s : gSettings) {
 			if (s.global) {
-				s.global->value = static_cast<float>(EffectiveValue(s));
+				s.global->value = static_cast<float>(s.value.load());
 			}
 		}
 		if (gRoute) {
@@ -525,12 +521,7 @@ namespace Plugin
 		}
 		std::ranges::transform(a_id, low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 		const auto it = gIndex.find(std::string_view(low.data(), a_id.size()));
-		return it == gIndex.end() ? a_fallback : EffectiveValue(gSettings[it->second]);
-	}
-
-	int EffectiveValue(const Setting& a_s)
-	{
-		return a_s.value.load();
+		return it == gIndex.end() ? a_fallback : gSettings[it->second].value.load();
 	}
 
 	bool LightsOff()
