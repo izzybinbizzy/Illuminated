@@ -160,10 +160,11 @@ namespace Plugin
 			RE::NiColor base;
 			const char* name{ nullptr };
 			bool        tinted{ false };  // our ward light takes its color; the Blue pick keeps the vanilla blue-white
+			const char* hand{ nullptr };  // our hand art in its color: the game's keeps blue particles no gradient reaches
 		};
 		constexpr std::array kStrangePicks{ StrangePick{ { 0.098f, 0.592f, 0.902f }, "the Blue pick", false },
-			StrangePick{ { 0.886f, 0.345f, 0.133f }, "the Amber pick", true },
-			StrangePick{ { 0.935f, 0.869f, 0.843f }, "the Sswaye Special pick", true } };
+			StrangePick{ { 0.886f, 0.345f, 0.133f }, "the Amber pick", true, "Magic\\Glow Wards\\Strange Amber\\wardinhandfx.nif" },
+			StrangePick{ { 0.935f, 0.869f, 0.843f }, "the Sswaye Special pick", true, "Magic\\Glow Wards\\Strange Sswaye\\wardinhandfx.nif" } };
 
 		struct StrangeWards
 		{
@@ -321,7 +322,12 @@ namespace Plugin
 				hand->SetModel(kSphereHand);
 				SKSE::log::info("wards: the hand wears 360 Ward's sphere blue ({})", kSphereHand);
 			} else if (StrangeWardsInstalled()) {
-				SKSE::log::info("wards: the hand keeps the game's own art - it reads Strange Wards' gradient, the dome's color");
+				if (const auto* pick = StrangeWardsLook().pick; pick && pick->hand) {
+					hand->SetModel(pick->hand);
+					SKSE::log::info("wards: the hand wears {} ({})", pick->name, pick->hand);
+				} else {
+					SKSE::log::info("wards: the hand keeps the game's own art - it reads Strange Wards' gradient, the dome's color");
+				}
 			} else {
 				hand->SetModel(kBlueHand);
 				SKSE::log::info("wards: the hand wears our vanilla blue ({})", kBlueHand);
