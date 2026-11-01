@@ -1312,7 +1312,7 @@ namespace Plugin
 			auto* worn = own;
 			if (const auto tint = gOwnTint.find(formID); want && tint != gOwnTint.end()) {
 				if (const auto c = gStreamColor.find(formID); c != gStreamColor.end()) {
-					SetColor(tint->second, ColorFor(c->second, sc));
+					SetColor(tint->second, VanillaLook(ColorFor(c->second, sc)));
 				}
 				HoldFlicker(tint->second, FlickerOn());
 				worn = tint->second;

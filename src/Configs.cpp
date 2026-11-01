@@ -344,6 +344,12 @@ namespace Plugin
 		return gCloudModels.contains(a_model);
 	}
 
+	std::optional<RE::Color> ArtHandLook(Family a_family)
+	{
+		const auto color = ArtHandColor(a_family);
+		return color ? std::optional{ VanillaLook(*color) } : std::nullopt;
+	}
+
 	std::optional<RE::Color> ArtHandColor(Family a_family)
 	{
 		const auto hand = std::ranges::find(kArtHands, a_family, &ArtHand::family);

@@ -64,6 +64,7 @@ namespace Plugin
 				color.green = a_s.own.green;
 				color.blue = a_s.own.blue;
 			}
+			color = VanillaLook(color);
 		}
 
 		constexpr std::string_view FamilyName(Family a_family)

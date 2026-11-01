@@ -3,7 +3,7 @@
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
 // A soft glow on every atronach the HexRim add-on names, on every lighting. The add-on's settings file lists each race and its
-// color ([atronach] blocks); without that file nothing here runs. iLluminous Elementals keeps the atronachs where it lights them.
+// color ([atronach] blocks); without that file nothing here runs. iLluminous Elementals keeps the atronachs its own files light.
 //
 // CREDIT: a light is made and registered the way ReLight by Truman does it (github.com/TrumanGIT/ReLight, GPL-3.0-or-later,
 // used with his permission): a master NiPointLight cloned for every use and handed to the shadow scene node.
@@ -33,45 +33,25 @@ namespace Plugin
 		};
 		std::unordered_map<RE::FormID, Lit>                 gLit;  // main thread only, by the actor's form id
 		std::unordered_map<const RE::TESRace*, RE::NiColor> gRaces;
-		bool                                                gRead{ false };
 		std::uint32_t                                       gWait{ 0 };
+		std::size_t                                         gRoom{ 0 };  // this frame's share of the glow limit
 
-		// another mod's Light Placer files light them only while Light Placer runs
-		[[nodiscard]] bool LitByElementals()
+		// the races another mod's Light Placer files light, only while Light Placer runs: its AtronachFlame.json is AtronachFlameRace
+		[[nodiscard]] std::unordered_set<std::string> ElementalRaces()
 		{
+			std::unordered_set<std::string> out;
 			if (!REX::W32::GetModuleHandleA("po3_LightPlacer.dll")) {
-				return false;
+				return out;
 			}
 			std::error_code ec;
 			const auto      dir = std::filesystem::current_path(ec) / "Data" / "LightPlacer" / "iLluminousElementals";
 			for (auto it = std::filesystem::recursive_directory_iterator(dir, std::filesystem::directory_options::skip_permission_denied, ec);
 				!ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
-				if (Lower(Fade::PathText(it->path().filename())).find("atronach") != std::string::npos) {
-					return true;
+				if (const auto stem = Lower(Fade::PathText(it->path().stem())); stem.starts_with("atronach")) {
+					out.insert(stem + "race");
 				}
 			}
-			return false;
-		}
-
-		void ReadRaces()
-		{
-			gRead = true;
-			auto* data = RE::TESDataHandler::GetSingleton();
-			if (AtronachRows().empty() || !data) {
-				return;
-			}
-			if (LitByElementals()) {
-				SKSE::log::info("atronach lights: iLluminous Elementals lights them, none of ours");
-				return;
-			}
-			for (auto* race : data->GetFormArray<RE::TESRace>()) {
-				const char* id = race ? race->formEditorID.c_str() : nullptr;
-				const auto  row = id ? std::ranges::find_if(AtronachRows(), [id](const AtronachRow& a_r) { return LightKit::SameText(a_r.race, id); }) : AtronachRows().end();
-				if (row != AtronachRows().end()) {
-					gRaces.emplace(race, row->color);
-				}
-			}
-			SKSE::log::info("atronach lights: {} of {} race(s) in this load order", gRaces.size(), AtronachRows().size());
+			return out;
 		}
 
 		void Drop(Lit& a_lit, RE::ShadowSceneNode* a_scene)
@@ -127,7 +107,7 @@ namespace Plugin
 				it = gLit.end();
 			}
 			if (it == gLit.end()) {
-				if (gWait > 0 || gLit.size() >= (std::min)(kMostLights, GlowLimit())) {
+				if (gWait > 0 || ConfigText::GlowWaits(gLit.size(), gRoom, false)) {
 					return;
 				}
 				auto* light = LightKit::CloneLight();
@@ -155,11 +135,25 @@ namespace Plugin
 		}
 	}
 
+	void ReadAtronachRaces()
+	{
+		auto* data = RE::TESDataHandler::GetSingleton();
+		if (AtronachRows().empty() || !data) {
+			return;
+		}
+		const auto theirs = ElementalRaces();
+		for (auto* race : data->GetFormArray<RE::TESRace>()) {
+			const char* id = race ? race->formEditorID.c_str() : nullptr;
+			const auto  row = id ? std::ranges::find_if(AtronachRows(), [id](const AtronachRow& a_r) { return LightKit::SameText(a_r.race, id); }) : AtronachRows().end();
+			if (row != AtronachRows().end() && !theirs.contains(Lower(id))) {
+				gRaces.emplace(race, row->color);
+			}
+		}
+		SKSE::log::info("atronach lights: {} of {} race(s) in this load order, {} name(s) left to iLluminous Elementals", gRaces.size(), AtronachRows().size(), theirs.size());
+	}
+
 	void TickAtronachLights()
 	{
-		if (!gRead) {
-			ReadRaces();
-		}
 		if (gRaces.empty()) {
 			return;
 		}
@@ -173,6 +167,9 @@ namespace Plugin
 			return;
 		}
 		gWait -= gWait > 0 ? 1 : 0;
+		// one limit with the art glows, which go first; a lowered limit puts out the lights past it at once
+		const auto cap = GlowLimit();
+		gRoom = (std::min)(kMostLights, cap > ArtGlowsLit() ? cap - ArtGlowsLit() : std::size_t{ 0 });
 		for (auto& [id, lit] : gLit) {
 			lit.seen = false;
 		}
@@ -188,6 +185,10 @@ namespace Plugin
 			Drop(a_entry.second, scene);
 			return true;
 		});
+		for (auto it = gLit.begin(); gLit.size() > gRoom && it != gLit.end();) {
+			Drop(it->second, scene);
+			it = gLit.erase(it);
+		}
 	}
 
 	void DropAtronachLights()

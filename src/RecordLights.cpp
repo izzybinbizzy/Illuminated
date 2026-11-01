@@ -24,7 +24,7 @@
 //   Truman's (RE::Light's controller.h, GPL-3.0; his permission for RELight's code, credited), each light starting at its
 //   own place in the loop as RE::Light's random start does. Nothing walks the scene: each caster writes the one light it
 //   holds, on the thread the game updates it on. Not in VR (the caster's layout there is not proven; VR is never played here).
-// The color: the row's own, on every lighting. 🚫🚫 The Light colors pick that drew it paler or deeper is gone, twice by his
+// The color: the row's own, on Vanilla through VanillaLook (his 384). 🚫🚫 The Light colors pick that drew it paler or deeper is gone, twice by his
 // word (2026-10-09 "remove all color presets", 2026-10-21 "pale and deep also need to be removed" - CLAUDE.md).
 // On Community Shaders a record light of an inverse-square row is flagged as one, with its cutoff in the falloff field and
 // its size in the field of view - what Community Shaders reads off a record (LightKit.h), as pass 0's lights are.
@@ -42,7 +42,6 @@ namespace Plugin
 {
 	namespace
 	{
-		constexpr std::uint32_t kPortalStrict = 1u << 13;  // TES_LIGHT_FLAGS::kPortalStrict
 		// Community Shaders' Linear falloff flag on a light record; without it a row Light Placer draws Linear came out
 		// about twice as bright on the floor here
 		constexpr std::uint32_t kRecordLinear = 1u << 15;
@@ -65,7 +64,7 @@ namespace Plugin
 		{
 			std::vector<std::vector<Clause>> test;  // the settings it waits on
 			RE::TESObjectLIGH*               light{ nullptr };
-			float                            strength{ 0.0f };  // fade x radius², to put the strongest first
+			float                            strength{ 0.0f };  // Strength(), to put the strongest first
 		};
 
 		// written once at data load, read on the main thread after it
@@ -160,7 +159,10 @@ namespace Plugin
 		[[nodiscard]] float Strength(const LightCopy& a_copy)
 		{
 			const auto radius = static_cast<float>(a_copy.startRadius);
-			return a_copy.startFade * radius * radius;
+			// an inverse-square record's peak goes by 1 / size^2
+			const bool  isl = a_copy.form && (a_copy.form->data.flags.underlying() & LightKit::kRecordInverseSquare) != 0;
+			const float size = isl ? (std::max)(LightKit::LightPlacerSize(a_copy.form->data.fov), 0.1f) : 1.0f;
+			return a_copy.startFade * radius * radius / (size * size);
 		}
 	}
 
@@ -253,7 +255,7 @@ namespace Plugin
 						}
 						light->data.color = VanillaLook(light->data.color);
 						if (row.portalStrict) {
-							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | kPortalStrict);
+							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | kRecordPortalStrict);
 						}
 						if (isl) {
 							// Community Shaders reads an inverse-square record's falloff as its cutoff (the sliders write it there,
@@ -344,10 +346,9 @@ namespace Plugin
 		if (!light) {
 			return nullptr;
 		}
-		const auto look = VanillaLook(a_color);
-		light->data.color.red = look.red;
-		light->data.color.green = look.green;
-		light->data.color.blue = look.blue;
+		light->data.color.red = a_color.red;
+		light->data.color.green = a_color.green;
+		light->data.color.blue = a_color.blue;
 		gOurRecords.insert(light);
 		LightCopy copy{ .id = std::format("auto {},{},{}", a_color.red, a_color.green, a_color.blue),
 			.base = source->id,

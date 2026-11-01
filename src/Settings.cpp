@@ -137,6 +137,8 @@ namespace Plugin
 					const auto parts = Split(block["color"], ',');
 					if (!block["race"].empty() && parts.size() == 3 && ParseInt(parts[0], rgb[0]) && ParseInt(parts[1], rgb[1]) && ParseInt(parts[2], rgb[2])) {
 						gAtronachs.push_back({ block["race"], { std::clamp(rgb[0], 0, 255) / 255.0f, std::clamp(rgb[1], 0, 255) / 255.0f, std::clamp(rgb[2], 0, 255) / 255.0f } });
+					} else {
+						SKSE::log::warn("settings: an [atronach] row without a race or a color r,g,b, left out: race '{}', color '{}'", block["race"], block["color"]);
 					}
 				}
 				block.clear();
@@ -318,6 +320,7 @@ namespace Plugin
 		gMarkers.clear();
 		gLights.clear();
 		gLightIds.clear();
+		gAtronachs.clear();
 		std::error_code       ec;
 		std::vector<fs::path> files;
 		if (fs::is_directory(SettingsFolder(), ec)) {

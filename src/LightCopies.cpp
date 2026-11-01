@@ -688,7 +688,7 @@ namespace Plugin
 				}
 				family = it->second;
 			}
-			const auto                  color = family == Family::kNone ? std::nullopt : ArtHandColor(family);
+			const auto                  color = family == Family::kNone ? std::nullopt : ArtHandLook(family);
 			[[maybe_unused]] const auto tinted = color ? PaintLightsUnder(root, *color) : 0;
 #ifdef FADE_DEBUG_PAGE
 			if (static std::atomic<int> told = 0; family != Family::kNone && told < 12 && ++told) {
@@ -746,7 +746,7 @@ namespace Plugin
 				return;
 			}
 			auto*      own = netimmerse_cast<RE::NiPointLight*>(a_hazard->GetHazardRuntimeData().light.get());
-			const auto color = LightsOff() ? std::nullopt : ArtHandColor(family);
+			const auto color = LightsOff() ? std::nullopt : ArtHandLook(family);
 			if (!color) {
 				// all lights off, or a pick with no color: its own light back in its record's color (a hazard lives long enough to keep a stale tint)
 				if (form->data.light) {
@@ -1052,8 +1052,8 @@ namespace Plugin
 			++set;
 		}
 		if (!a_quiet) {
-			SKSE::log::info("light strength: brightness {}% x daylight {:.2f}, reach {}%, hand lights for {}, on {} light copies", brightness, daylight,
-				reach, gHandBudget.load(), set);
+			SKSE::log::info("light strength: brightness {}% x daylight {:.2f} = {:.2f} with the lighting's own strength, reach {}%, hand lights for {}, on {} light copies", brightness,
+				daylight, BrightnessNow(), reach, gHandBudget.load(), set);
 		}
 		if (a_log) {
 			for (const auto& c : LightCopies()) {
