@@ -26,8 +26,8 @@ namespace Plugin
 	inline std::atomic<float> gGroundLightsOn{ 1.0f };     // [Vanilla and ENB] GroundLights
 	inline std::atomic<float> gGroundLightVRHand{ 0.0f };  // [Vanilla and ENB] GroundLightAtVRHand - VR only (his answer 2026-10-16)
 	inline std::atomic<float> gArtLightsOn{ 1.0f };        // [Vanilla and ENB] ArtLights
-	inline std::atomic<float> gVanillaSaturation{ 1.4f };  // [Vanilla and ENB] VanillaColorStrength - his checklist 384, Vanilla only
-	inline std::atomic<float> gVanillaStrength{ 1.35f };   // [Vanilla and ENB] VanillaBrightness - his checklist 384, Vanilla only
+	inline std::atomic<float> gVanillaSaturation{ 1.4f };  // [Vanilla and ENB] VanillaColorStrength - Vanilla only
+	inline std::atomic<float> gVanillaStrength{ 1.35f };   // [Vanilla and ENB] VanillaBrightness - Vanilla only
 
 	// ------------------------------------------------------------------ Text.cpp: small text helpers
 	using LightKit::Lower;  // LightMath.h: the one lower-casing helper
@@ -221,9 +221,10 @@ namespace Plugin
 	// drawn weapon whose model a config row lights now; once a frame on the main thread
 	void                      NoteEnchantShaders();  // at load, while the passes' editor IDs are still known (record route)
 	void                      TickArtLights();
-	void                      DropArtLights();       // a game loads, or a new one starts
-	void                      TickAtronachLights();  // AtronachLights.cpp: once a frame, in the player update
-	void                      DropAtronachLights();  // a game loads, or a new one starts
+	void                      DropArtLights();                 // a game loads, or a new one starts
+	[[nodiscard]] RE::Color   VanillaLook(RE::Color a_color);  // RecordLights.cpp: a light's color as Vanilla wears it
+	void                      TickAtronachLights();            // AtronachLights.cpp: once a frame, in the player update
+	void                      DropAtronachLights();            // a game loads, or a new one starts
 	[[nodiscard]] std::size_t ArtLightCount();
 	[[nodiscard]] std::size_t ArtLightsMade();
 	// FleshLights.cpp (his call on FleshFX: "the dim light in its own color"): with Light Placer, a flesh spell's light takes

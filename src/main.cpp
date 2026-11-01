@@ -45,6 +45,7 @@
 //   GroundLights.cpp   without Light Placer: a twin of each hand light that lights the ground
 //   ArtLights.cpp      without Light Placer: lights of ours on lit art and weapon models (bound weapons) and flesh spells
 //   FleshLights.cpp    the flesh spells' lights in FleshFX's hue, where FleshFX's look wins (LightKit.h FleshFx)
+//   AtronachLights.cpp a glow on the atronach races an add-on's settings file names
 //   Fade*.cpp, Fade*.h the fading module (identical in RELight - Spell Addon but for FadeConfig.h and FadeDevBench.cpp -
 //                      PC Runner\fade copies check.py); its hooks are in FadeMain.cpp
 //   SKSEMenuFramework.h, DevBenchAPI.*  those mods' own files; DevBenchGlue.h, MenuStyle.h, Translation.h are

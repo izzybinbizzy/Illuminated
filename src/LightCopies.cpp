@@ -1014,7 +1014,7 @@ namespace Plugin
 		// load the player is in no cell yet, so 1
 		gDaylight = DaylightFactor();
 		const float daylight = gDaylight.load();
-		// his checklist 384 ("go with the proposed one"): Vanilla's lights a third brighter, under the slider
+		// Vanilla's lights a third brighter, under the slider
 		const float vanilla = LightingFound() == Lighting::kVanilla ? gVanillaStrength.load(std::memory_order_relaxed) : 1.0f;
 		const float scale = static_cast<float>(brightness) / 100.0f * daylight * vanilla;
 		const float stretch = (std::max)(static_cast<float>(reach) / 100.0f, 0.01f);

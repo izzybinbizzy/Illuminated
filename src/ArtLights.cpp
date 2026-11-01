@@ -100,7 +100,9 @@ namespace Plugin
 			data.fade = RecordFadeNow(a_kept.record, a_kept.light.get()) * FrozenFade(a_kept.shader);
 			const float radius = (std::max)(static_cast<float>(a_kept.record->data.radius), 1.0f);
 			if (data.radius.x != radius) {
-				data.radius = { radius, radius, LightKit::kLightSize };
+				// an inverse-square record's field of view is its row's size (RecordLights.cpp): the peak goes by 1 / size^2
+				const bool islRecord = InverseSquare() && (a_kept.record->data.flags.underlying() & LightKit::kRecordInverseSquare) != 0;
+				data.radius = { radius, radius, islRecord ? LightKit::LightPlacerSize(a_kept.record->data.fov) : LightKit::kLightSize };
 				a_kept.light->SetLightAttenuation(radius);
 			}
 			if (InverseSquare()) {

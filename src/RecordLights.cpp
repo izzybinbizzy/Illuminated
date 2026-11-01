@@ -44,7 +44,7 @@ namespace Plugin
 	{
 		constexpr std::uint32_t kPortalStrict = 1u << 13;  // TES_LIGHT_FLAGS::kPortalStrict
 		// Community Shaders' Linear falloff flag on a light record; without it a row Light Placer draws Linear came out
-		// about twice as bright on the floor here (his checklist 376)
+		// about twice as bright on the floor here
 		constexpr std::uint32_t kRecordLinear = 1u << 15;
 
 		// a flicker row's keys, played on the record light's live lights (the hands)
@@ -234,8 +234,10 @@ namespace Plugin
 					// a fade controller's steady share of the fade the copy was made with
 					const float share = row.controller && row.meanFade > 0.0f && copy.fade > 0.0f ? row.meanFade / copy.fade : 1.0f;
 					const bool  flickers = row.controller && !row.flash && row.keys.size() > 1 && row.meanFade > 0.0f;
-					const auto  key = std::format("{}|{}|{},{},{}|{}|{}|{:.3f}|{:.4f}|{}", copy.id, row.hasColor, row.r, row.g, row.b,
-						row.portalStrict, row.linear, row.size, share, flickers ? KeysOf(row) : std::string());
+					// size and Linear count only on the inverse-square records that take them
+					const bool isl = InverseSquare() && copy.startCutoff > 0.0f;
+					const auto key = std::format("{}|{}|{},{},{}|{}|{}|{:.3f}|{:.4f}|{}", copy.id, row.hasColor, row.r, row.g, row.b,
+						row.portalStrict, isl && row.linear, isl ? row.size : 0.0f, share, flickers ? KeysOf(row) : std::string());
 					auto [slot, isNew] = made.try_emplace(key, added.size());
 					if (isNew) {
 						auto* light = CopyLight(copy.form);
@@ -249,13 +251,11 @@ namespace Plugin
 							light->data.color.green = row.g;
 							light->data.color.blue = row.b;
 						}
-						if (LightingFound() == Lighting::kVanilla) {
-							Deepen(light->data.color, gVanillaSaturation.load(std::memory_order_relaxed));
-						}
+						light->data.color = VanillaLook(light->data.color);
 						if (row.portalStrict) {
 							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | kPortalStrict);
 						}
-						if (InverseSquare() && copy.startCutoff > 0.0f) {
+						if (isl) {
 							// Community Shaders reads an inverse-square record's falloff as its cutoff (the sliders write it there,
 							// LightCopies.cpp) and its field of view as its size (Light Placer's GetSize)
 							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | LightKit::kRecordInverseSquare |
@@ -302,6 +302,14 @@ namespace Plugin
 			gMade, gFlickerOf.size(), gChoices.size(), gRows, gNotOurs, gMissing, gFailed, gMs);
 	}
 
+	RE::Color VanillaLook(RE::Color a_color)
+	{
+		if (LightingFound() == Lighting::kVanilla) {
+			Deepen(a_color, gVanillaSaturation.load(std::memory_order_relaxed));
+		}
+		return a_color;
+	}
+
 	RE::TESObjectLIGH* AutoLight(RE::Color a_color, const std::vector<const RE::TESObjectLIGH*>& a_tuned)
 	{
 		static std::unordered_map<std::uint32_t, RE::TESObjectLIGH*> made;              // one per color
@@ -336,9 +344,10 @@ namespace Plugin
 		if (!light) {
 			return nullptr;
 		}
-		light->data.color.red = a_color.red;
-		light->data.color.green = a_color.green;
-		light->data.color.blue = a_color.blue;
+		const auto look = VanillaLook(a_color);
+		light->data.color.red = look.red;
+		light->data.color.green = look.green;
+		light->data.color.blue = look.blue;
 		gOurRecords.insert(light);
 		LightCopy copy{ .id = std::format("auto {},{},{}", a_color.red, a_color.green, a_color.blue),
 			.base = source->id,

@@ -97,8 +97,8 @@ namespace Plugin
 				return json{ { "ok", true }, { "form", form }, { "choice", DevBenchGlue::Text(a_args, "choice") }, { "note", "applied to the lights at the next frame" } };
 			}
 			if (action == "lights") {
-				// read only: every light hung on the player, with what the shader reads beside what devbench shows (his checklist
-				// 376: our route vs Light Placer's on Community Shaders, compared field by field)
+				// read only: every light hung on the player, with what the shader reads beside what devbench shows (our route vs Light
+				// Placer's on Community Shaders, compared field by field)
 				json  out = json::array();
 				auto* player = RE::PlayerCharacter::GetSingleton();
 				for (const bool first : { false, true }) {

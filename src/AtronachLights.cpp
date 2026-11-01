@@ -1,3 +1,7 @@
+// Illuminated - SKSE plugin
+// Copyright (C) 2026 izzydoingit
+// GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
+//
 // A soft glow on every atronach the HexRim add-on names, on every lighting. The add-on's settings file lists each race and its
 // color ([atronach] blocks); without that file nothing here runs. iLluminous Elementals keeps the atronachs where it lights them.
 //
@@ -16,7 +20,8 @@ namespace Plugin
 		constexpr std::size_t      kMostLights = 16;
 		constexpr float            kFade = 1.0f;
 		constexpr float            kReach = 300.0f;
-		constexpr float            kHeight = 90.0f;  // about its chest, above the feet its root stands on
+		constexpr float            kHeight = 90.0f;    // about its chest, above the feet its root stands on
+		constexpr std::uint32_t    kRefusedWait = 60;  // a full scene: never a clone every frame
 
 		struct Lit
 		{
@@ -29,11 +34,12 @@ namespace Plugin
 		std::unordered_map<RE::FormID, Lit>                 gLit;  // main thread only, by the actor's form id
 		std::unordered_map<const RE::TESRace*, RE::NiColor> gRaces;
 		bool                                                gRead{ false };
+		std::uint32_t                                       gWait{ 0 };
 
 		// another mod's Light Placer files light them only while Light Placer runs
 		[[nodiscard]] bool LitByElementals()
 		{
-			if (RecordRoute()) {
+			if (!REX::W32::GetModuleHandleA("po3_LightPlacer.dll")) {
 				return false;
 			}
 			std::error_code ec;
@@ -89,15 +95,19 @@ namespace Plugin
 			data.diffuse = a_lit.color;
 			if (InverseSquare()) {
 				data.fade = strength;
-				data.radius = { reach, reach, LightKit::kLightSize };
-				light->SetLightAttenuation(reach);
+				if (data.radius.x != reach) {
+					data.radius = { reach, reach, LightKit::kLightSize };
+					light->SetLightAttenuation(reach);
+				}
 				LightKit::Isl::SetOwn(light);
 				LightKit::Isl::SetCutoff(light, LightKit::CutoffFor(strength, reach));
 			} else {
 				const auto plain = LightKit::PlainAt(strength, reach, reach);
 				data.fade = plain.fade;
-				data.radius = { plain.radius, plain.radius, LightKit::kLightSize };
-				light->SetLightAttenuation(plain.radius);
+				if (data.radius.x != plain.radius) {
+					data.radius = { plain.radius, plain.radius, LightKit::kLightSize };
+					light->SetLightAttenuation(plain.radius);
+				}
 				data.ambient = LightKit::Tenth(a_lit.color);
 			}
 		}
@@ -117,7 +127,7 @@ namespace Plugin
 				it = gLit.end();
 			}
 			if (it == gLit.end()) {
-				if (gLit.size() >= kMostLights) {
+				if (gWait > 0 || gLit.size() >= (std::min)(kMostLights, GlowLimit())) {
 					return;
 				}
 				auto* light = LightKit::CloneLight();
@@ -126,6 +136,7 @@ namespace Plugin
 				}
 				light->name = kName;
 				light->local.translate = { 0.0f, 0.0f, kHeight };
+				light->GetLightRuntimeData().radius.x = -1.0f;  // the clone's own may equal ours: Dress attenuates it at once
 				Lit lit;
 				lit.light.reset(light);
 				lit.root.reset(node);
@@ -133,11 +144,13 @@ namespace Plugin
 				Dress(lit);
 				lit.bs.reset(LightKit::Hang(node, light, a_scene));
 				if (!lit.bs) {
+					gWait = kRefusedWait;
 					return;
 				}
 				it = gLit.emplace(a_actor->GetFormID(), std::move(lit)).first;
+			} else {
+				Dress(it->second);
 			}
-			Dress(it->second);
 			it->second.seen = true;
 		}
 	}
@@ -159,6 +172,7 @@ namespace Plugin
 			gLit.clear();
 			return;
 		}
+		gWait -= gWait > 0 ? 1 : 0;
 		for (auto& [id, lit] : gLit) {
 			lit.seen = false;
 		}

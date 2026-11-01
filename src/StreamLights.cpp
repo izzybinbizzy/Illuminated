@@ -122,7 +122,7 @@ namespace Plugin
 
 		void PickColor(const StreamColor& a_c, RE::TESObjectLIGH* a_copy, const SprayChoice& a_sc)
 		{
-			SetColor(a_copy, ColorFor(a_c, a_sc));
+			SetColor(a_copy, VanillaLook(ColorFor(a_c, a_sc)));
 		}
 
 		// the light a beam with none of its own borrows: its Streams row's light - one of our copies (pass 0's look), else the record
