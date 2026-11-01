@@ -26,6 +26,8 @@ namespace Plugin
 	inline std::atomic<float> gGroundLightsOn{ 1.0f };     // [Vanilla and ENB] GroundLights
 	inline std::atomic<float> gGroundLightVRHand{ 0.0f };  // [Vanilla and ENB] GroundLightAtVRHand - VR only (his answer 2026-10-16)
 	inline std::atomic<float> gArtLightsOn{ 1.0f };        // [Vanilla and ENB] ArtLights
+	inline std::atomic<float> gVanillaSaturation{ 1.4f };  // [Vanilla and ENB] VanillaColorStrength - his checklist 384, Vanilla only
+	inline std::atomic<float> gVanillaStrength{ 1.35f };   // [Vanilla and ENB] VanillaBrightness - his checklist 384, Vanilla only
 
 	// ------------------------------------------------------------------ Text.cpp: small text helpers
 	using LightKit::Lower;  // LightMath.h: the one lower-casing helper
@@ -170,6 +172,8 @@ namespace Plugin
 		std::uint8_t                         r{ 0 }, g{ 0 }, b{ 0 };
 		bool                                 hasColor{ false };      // false: the copy's own color
 		bool                                 portalStrict{ false };  // kept inside its cell, as Light Placer keeps it
+		bool                                 linear{ false };        // the row's Linear falloff, as Light Placer draws it
+		float                                size{ 0.0f };           // the row's own light size (0: the record's), as Light Placer reads it
 		bool                                 controller{ false };    // a fadeController drives its fade
 		bool                                 flash{ false };         // that controller is a one-off flash (it ends at 0), not a flicker
 		float                                meanFade{ 0.0f };       // the controller's fade, averaged over the time it runs

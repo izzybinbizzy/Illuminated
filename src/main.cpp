@@ -72,6 +72,8 @@ namespace
 				"VR only - 1: a hand's ground light hangs at your VR hand; 0: at the body's hand (the default)", gGroundLightVRHand);
 		}
 		Fade::Tuning::Register("Vanilla and ENB", "ArtLights", 1.0f, 0.0f, 1.0f, "1: bound weapons and lit art and weapons get their light on Vanilla and ENB (and without Light Placer); 0: off", gArtLightsOn);
+		Fade::Tuning::Register("Vanilla and ENB", "VanillaColorStrength", 1.4f, 0.5f, 3.0f, "Vanilla only - how strong a spell light's color is: 1 as made, above 1 deeper, below paler", gVanillaSaturation);
+		Fade::Tuning::Register("Vanilla and ENB", "VanillaBrightness", 1.35f, 0.5f, 3.0f, "Vanilla only - every light this strong before the Brightness slider: 1 as made", gVanillaStrength);
 		LoadSettings();  // first: Light Placer reads the settings' globals in its conditions
 		ReadLighting();  // before pass 0: on ENB and Vanilla its lights are made plain
 		RegisterMenu();

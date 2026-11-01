@@ -43,6 +43,9 @@ namespace Plugin
 	namespace
 	{
 		constexpr std::uint32_t kPortalStrict = 1u << 13;  // TES_LIGHT_FLAGS::kPortalStrict
+		// Community Shaders' Linear falloff flag on a light record; without it a row Light Placer draws Linear came out
+		// about twice as bright on the floor here (his checklist 376)
+		constexpr std::uint32_t kRecordLinear = 1u << 15;
 
 		// a flicker row's keys, played on the record light's live lights (the hands)
 		struct Flicker
@@ -95,6 +98,21 @@ namespace Plugin
 		// every light record of ours a hand can wear: the record lights, the automatic ones, and every light copy
 		// (pass 0's copies of the game's magic lights among them) - filled when the data load is done (RecordTablesReady)
 		std::unordered_set<const RE::TESObjectLIGH*> gAllOurs;
+
+		// a color pushed away from (a_k > 1) or toward (a_k < 1) its own grey; 1 leaves it as it is
+		void Deepen(RE::Color& a_color, float a_k)
+		{
+			if (a_k == 1.0f) {
+				return;
+			}
+			const float grey = (a_color.red + a_color.green + a_color.blue) / 3.0f;
+			const auto  push = [&](std::uint8_t a_c) {
+				return static_cast<std::uint8_t>(std::clamp(std::lround(grey + (a_c - grey) * a_k), 0L, 255L));
+			};
+			a_color.red = push(a_color.red);
+			a_color.green = push(a_color.green);
+			a_color.blue = push(a_color.blue);
+		}
 
 		struct HandRecord
 		{
@@ -216,8 +234,8 @@ namespace Plugin
 					// a fade controller's steady share of the fade the copy was made with
 					const float share = row.controller && row.meanFade > 0.0f && copy.fade > 0.0f ? row.meanFade / copy.fade : 1.0f;
 					const bool  flickers = row.controller && !row.flash && row.keys.size() > 1 && row.meanFade > 0.0f;
-					const auto  key = std::format("{}|{}|{},{},{}|{}|{:.4f}|{}", copy.id, row.hasColor, row.r, row.g, row.b, row.portalStrict, share,
-						flickers ? KeysOf(row) : std::string());
+					const auto  key = std::format("{}|{}|{},{},{}|{}|{}|{:.3f}|{:.4f}|{}", copy.id, row.hasColor, row.r, row.g, row.b,
+						row.portalStrict, row.linear, row.size, share, flickers ? KeysOf(row) : std::string());
 					auto [slot, isNew] = made.try_emplace(key, added.size());
 					if (isNew) {
 						auto* light = CopyLight(copy.form);
@@ -231,14 +249,19 @@ namespace Plugin
 							light->data.color.green = row.g;
 							light->data.color.blue = row.b;
 						}
+						if (LightingFound() == Lighting::kVanilla) {
+							Deepen(light->data.color, gVanillaSaturation.load(std::memory_order_relaxed));
+						}
 						if (row.portalStrict) {
 							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | kPortalStrict);
 						}
 						if (InverseSquare() && copy.startCutoff > 0.0f) {
 							// Community Shaders reads an inverse-square record's falloff as its cutoff (the sliders write it there,
 							// LightCopies.cpp) and its field of view as its size (Light Placer's GetSize)
-							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | LightKit::kRecordInverseSquare);
-							light->data.fov = LightKit::LightPlacerSize(light->data.fov);
+							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | LightKit::kRecordInverseSquare |
+																				 (row.linear ? kRecordLinear : 0u));
+							// the row's own size, as Light Placer reads it: the record's 1.414 drew a size-2 row's pool ~2x as bright
+							light->data.fov = row.size > 0.0f ? LightKit::LightPlacerSize(row.size) : LightKit::LightPlacerSize(light->data.fov);
 						}
 						gOurRecords.insert(light);
 						if (flickers) {
