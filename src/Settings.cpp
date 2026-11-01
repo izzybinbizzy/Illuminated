@@ -20,6 +20,7 @@ namespace Plugin
 		Fade::StringMap<std::size_t>    gIndex;  // lower-case id -> index
 		std::vector<MenuNote>           gNotes;
 		std::vector<SprayMarker>        gMarkers;
+		std::vector<AtronachRow>        gAtronachs;
 		std::vector<LightCopy>          gLights;
 		std::unordered_set<std::string> gLightIds;   // lower-case ids of gLights, for the duplicate check
 		std::vector<char>               gAvailable;  // per setting: are the mods it needs loaded (worked out once, main thread)
@@ -131,6 +132,12 @@ namespace Plugin
 					m.when = ParseConditions(Split(block["when"], ';'));
 					m.values = block["values"];
 					gMarkers.push_back(std::move(m));
+				} else if (kind == "atronach") {
+					int        rgb[3]{};
+					const auto parts = Split(block["color"], ',');
+					if (!block["race"].empty() && parts.size() == 3 && ParseInt(parts[0], rgb[0]) && ParseInt(parts[1], rgb[1]) && ParseInt(parts[2], rgb[2])) {
+						gAtronachs.push_back({ block["race"], { std::clamp(rgb[0], 0, 255) / 255.0f, std::clamp(rgb[1], 0, 255) / 255.0f, std::clamp(rgb[2], 0, 255) / 255.0f } });
+					}
 				}
 				block.clear();
 				kind.clear();
@@ -562,6 +569,7 @@ namespace Plugin
 	std::vector<Setting>&           Settings() { return gSettings; }
 	const std::vector<MenuNote>&    Notes() { return gNotes; }
 	const std::vector<SprayMarker>& SprayMarkers() { return gMarkers; }
+	const std::vector<AtronachRow>& AtronachRows() { return gAtronachs; }
 	bool                            PluginLoaded(std::string_view a_plugin) { return Loaded(a_plugin); }
 
 	bool PluginLoadedStartingWith(std::initializer_list<std::string_view> a_lowerPrefixes)

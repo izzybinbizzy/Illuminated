@@ -137,6 +137,7 @@ namespace
 	void ForgetOldGame()
 	{
 		DropArtLights();
+		DropAtronachLights();
 		DropGroundLights();
 		DropStreamLights();
 		DropSneakFade();

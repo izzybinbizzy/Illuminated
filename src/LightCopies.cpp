@@ -512,6 +512,7 @@ namespace Plugin
 					Frame();
 					TickSwapped(a_delta);     // the Dynamic Lighting swap's lights back to Light Placer's own verdict
 					TickArtLights();          // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
+					TickAtronachLights();     // the HexRim add-on's atronachs (AtronachLights.cpp)
 					KeepCastingLights();      // a held spell's Light Placer lights after a cell change (LightPlacerQueue.cpp)
 					KeepBlockWatch(a_delta);  // the shield ward's block watch follows a rebuilt animation graph (Wards.cpp)
 					if (!RecordRoute()) {

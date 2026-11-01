@@ -115,6 +115,12 @@ namespace Plugin
 		std::string                      values;  // key=value;key=value
 	};
 
+	struct AtronachRow
+	{
+		std::string race;  // the race's editor id
+		RE::NiColor color;
+	};
+
 	using ConfigText::ParseConditions;  // ConfigText.h (game-free)
 	[[nodiscard]] bool                            ConditionsHold(const std::vector<std::vector<Clause>>& a_tests);
 	void                                          LoadSettings();
@@ -125,6 +131,7 @@ namespace Plugin
 	[[nodiscard]] std::vector<Setting>&           Settings();
 	[[nodiscard]] const std::vector<MenuNote>&    Notes();
 	[[nodiscard]] const std::vector<SprayMarker>& SprayMarkers();
+	[[nodiscard]] const std::vector<AtronachRow>& AtronachRows();  // the HexRim add-on's [atronach] blocks
 	[[nodiscard]] bool                            PluginLoaded(std::string_view a_plugin);
 	[[nodiscard]] bool                            PluginLoadedStartingWith(std::initializer_list<std::string_view> a_lowerPrefixes);  // lower-case name starts: a mod shipped under several plugin names
 	[[nodiscard]] bool                            SettingAvailable(const Setting& a_setting);
@@ -210,7 +217,9 @@ namespace Plugin
 	// drawn weapon whose model a config row lights now; once a frame on the main thread
 	void                      NoteEnchantShaders();  // at load, while the passes' editor IDs are still known (record route)
 	void                      TickArtLights();
-	void                      DropArtLights();  // a game loads, or a new one starts
+	void                      DropArtLights();       // a game loads, or a new one starts
+	void                      TickAtronachLights();  // AtronachLights.cpp: once a frame, in the player update
+	void                      DropAtronachLights();  // a game loads, or a new one starts
 	[[nodiscard]] std::size_t ArtLightCount();
 	[[nodiscard]] std::size_t ArtLightsMade();
 	// FleshLights.cpp (his call on FleshFX: "the dim light in its own color"): with Light Placer, a flesh spell's light takes
