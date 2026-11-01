@@ -43,7 +43,8 @@ namespace Plugin
 			const RE::NiColor*               hue{ nullptr };     // FleshFX's hue for a flesh spell's light (LightKit.h), or none
 			const RE::ShaderReferenceEffect* shader{ nullptr };  // a body shader's effect, held by owner: FrozenFade reads its age
 			bool                             seen{ false };
-			std::uint32_t                    wait{ 0 };  // frames until a light the scene refused is made again
+			bool                             hers{ false };  // on the player: never put out by the cap
+			std::uint32_t                    wait{ 0 };      // frames until a light the scene refused is made again
 		};
 		// the scene refused a light (its light limit): made again after this many frames, never a clone every frame (L10)
 		constexpr std::uint32_t kRefusedWait = 60;
@@ -156,6 +157,7 @@ namespace Plugin
 			}
 			kept.hue = a_hue;  // before Make, which draws the light's first color
 			kept.shader = a_shader;
+			kept.hers = a_hers;
 			if (!kept.light) {
 				if (kept.wait) {
 					--kept.wait;
@@ -460,6 +462,12 @@ namespace Plugin
 			}
 			return false;
 		});
+		// a lowered cap, or the limit switched on, puts out the glows on others past it at once; they wait like any other
+		for (auto it = gKept.begin(); gLit > gCap && it != gKept.end(); ++it) {
+			if (it->second.light && !it->second.hers) {
+				Drop(it->second, scene);
+			}
+		}
 		gKeptCount = gKept.size();
 		// the lights that went to the body for a hand, now that the walk is over: the fading module and Lights by Item reach
 		// them as that hand's (both run after this in the player update)

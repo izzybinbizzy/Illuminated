@@ -145,8 +145,10 @@ namespace Plugin
 		void DrawDynamicLighting(const Setting& a_s)
 		{
 			const std::vector<const char*> items{ T("Off"), T("Regular"), T("Cinematic") };
-			const std::vector<const char*> tips{ T("Steady lights, no pulse or flicker."), T("Every light breathes the same gentle way."),
-				T("Each kind of spell moves its own way: fire flickers, absorb spells beat like a heart, healing breathes slowly. With Light Placer it pulses like Regular for now.") };
+			const std::vector<const char*> tips{ T("Steady lights, no pulse or flicker."),
+				T("Lights pulse as they always have: fire crackles, absorb spells beat, the rest breathe gently."),
+				T("Each kind of spell gets a shape of its own: fire flickers in uneven bursts, shock snaps, healing breathes slowly, and the "
+				  "rows along sprays and bolts follow it. With Light Placer it pulses like Regular for now.") };
 			int                            v = a_s.value.load() == 0 ? 0 : SettingValue(kPulseShapesId, 0) != 0 ? 2 :
 			                                                                                                      1;
 			if (ChoiceCombo(T(a_s.label.c_str()), v, items, tips)) {
@@ -177,7 +179,15 @@ namespace Plugin
 				// live while it is dragged, on its step (his report: "the sliders also stopped working live during sliding and only
 				// work after the click is released") - SetSetting queues one task however many steps it moves
 				int v = a_s.value.load();
-				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, a_s.id == kGlowCountId ? "%d lights" : "%d%%");
+				// the word translated, the number not: a % in a translation is doubled so it can never become a format of its own
+				std::string format = "%d%%";
+				if (a_s.id == kGlowCountId) {
+					format = "%d ";
+					for (const char* c = T("lights"); *c; ++c) {
+						format += *c == '%' ? std::string("%%") : std::string(1, *c);
+					}
+				}
+				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, format.c_str());
 				const bool released = ImGuiMCP::IsItemDeactivatedAfterEdit();
 				if (v = AllowedValue(a_s, v); v != a_s.value) {
 					SetSetting(a_index, v, false);  // applied at once, written when it is let go
@@ -494,7 +504,7 @@ namespace Plugin
 					ImGuiMCP::SetNextItemWidth(220.0f);
 				}
 				DrawSetting(i, s);
-				drawn = s.id;
+				drawn = SettingAvailable(s) ? std::string_view(s.id) : std::string_view{};  // nothing goes beside a "not installed" line
 			}
 			presets();
 		}
