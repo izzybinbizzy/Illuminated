@@ -209,15 +209,12 @@ namespace Plugin
 		{
 			const auto& shaders = FleshShaders();
 			const auto  it = a_effect->effectData ? shaders.find(a_effect->effectData) : shaders.end();
-			if (it == shaders.end()) {
-				return;
+			const auto* record = it != shaders.end() ? RecordLightFor(it->second) : nullptr;
+			if (!record || FecBodyFade(a_effect) <= 0.0f) {
+				return;  // no lit row, or faded out on its pick: not seen, so the sweep drops it and its place under the glow cap
 			}
-			if (FecBodyFade(a_effect) <= 0.0f) {
-				return;  // faded out on its pick: not seen, so the sweep drops it and its place under the glow cap
-			}
-			const auto* record = RecordLightFor(it->second);
-			const auto  ref = record ? a_effect->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
-			auto*       root = ref ? FleshBodyNode(ref.get(), a_effect->GetAttachRoot()) : nullptr;
+			const auto ref = record ? a_effect->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
+			auto*      root = ref ? FleshBodyNode(ref.get(), a_effect->GetAttachRoot()) : nullptr;
 			if (!root) {
 				return;
 			}
