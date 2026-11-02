@@ -313,6 +313,7 @@ namespace Plugin
 		std::vector<CloudWait>  gCloudWait;
 		constexpr std::uint32_t kCloudTries = 600;  // about ten seconds of frames: a cone's cast and its cloud's life
 		constexpr const char*   kCloudName = "IlluminatedStreamCloud";
+		constexpr float         kCloudReachShaders = 3.0f;  // a row's x1 left Ice Storm's cloud faint on Community Shaders
 
 		// every ward belongs to Dynamic Wards: when that mod is here, this pass does not light a ward
 		bool WardLightsOn()
@@ -707,8 +708,10 @@ namespace Plugin
 			if (!light || !a_c.holder || !a_c.holder->parent || rec == gRows.end() || left <= 0.0f || !CloudOn(a_c.base)) {
 				return false;
 			}
-			const bool  isl = InverseSquare();
-			const float reach = rec->second.reach * Percent("IlluminatedReach") * RowReachFor(LightingFound());
+			const bool isl = InverseSquare();
+			// one light, not a row: on Community Shaders its reach (and with it the strength cap) is its own
+			const float cloudReach = LightingFound() == Lighting::kShaders ? kCloudReachShaders : RowReachFor(LightingFound());
+			const float reach = rec->second.reach * Percent("IlluminatedReach") * cloudReach;
 			const float want = rec->second.fade * BrightnessNow() * RowStrengthFor(LightingFound());
 			const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow(), 1.0f) : 0.0f);
 			RE::NiColor color = rec->second.color;
