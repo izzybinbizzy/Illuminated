@@ -594,6 +594,9 @@ namespace ConfigText
 	// a FEC body's glow on its fade-out pick: full until a_hold seconds, then out over a_out (none: at once)
 	[[nodiscard]] constexpr float BodyFadeAt(float a_age, float a_hold, float a_out) noexcept
 	{
+		if (a_age != a_age) {
+			return 0.0f;  // not a number: out, as BeamRow::CloudFade
+		}
 		if (a_out <= 0.0f) {
 			return a_age < a_hold ? 1.0f : 0.0f;
 		}

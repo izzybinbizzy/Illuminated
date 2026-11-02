@@ -155,13 +155,6 @@ namespace Plugin
 			if (!a_owner || !root || !a_record) {
 				return;
 			}
-			if (a_shader && FecBodyFade(a_shader) <= 0.0f) {
-				// faded out on its pick: dropped, so it holds no place under the Performance glow cap
-				if (const auto it = gKept.find(a_owner); it != gKept.end() && it->second.light) {
-					Drop(it->second, a_scene);
-				}
-				return;
-			}
 			auto& kept = gKept[a_owner];
 			if (kept.light && (kept.root.get() != root || kept.light->parent != root)) {
 				Drop(kept, a_scene);  // the model was rebuilt (a draw, a view change): a new one
@@ -214,6 +207,13 @@ namespace Plugin
 		// full strength, Dynamic Lighting); a sneaking caster's fades (SneakFade.cpp)
 		void KeepFlesh(RE::ShaderReferenceEffect* a_effect, RE::ShadowSceneNode* a_scene)
 		{
+			if (FecBodyFade(a_effect) <= 0.0f) {
+				// faded out on its pick: dropped, so it holds no place under the Performance glow cap
+				if (const auto kept = gKept.find(a_effect); kept != gKept.end() && kept->second.light) {
+					Drop(kept->second, a_scene);
+				}
+				return;
+			}
 			const auto& shaders = FleshShaders();
 			const auto  it = a_effect->effectData ? shaders.find(a_effect->effectData) : shaders.end();
 			const auto* record = it != shaders.end() ? RecordLightFor(it->second) : nullptr;

@@ -152,6 +152,14 @@ namespace Plugin
 			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
 				auto* shader = a_effect ? netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect) : nullptr;
 				if (shader && !shader->finished && (LightKit::FleshFx::HueOf(shader->effectData) || TrackedFade(shader))) {
+					if (!LightKit::FleshFx::HueOf(shader->effectData) && FecBodyFade(shader) <= 0.0f) {
+						// faded out: its lights as noted, no body walk (their base is kept for a pick turned back to stay)
+						std::scoped_lock lock{ gRootLock };
+						if (const auto old = gRoots.find(shader); old != gRoots.end() && old->second.effectID == shader->effectID) {
+							roots.emplace(shader, old->second);
+							return RE::BSContainer::ForEachResult::kContinue;
+						}
+					}
 					const auto ref = shader->target.get();
 					if (auto* node = FleshBodyNode(ref.get(), shader->GetAttachRoot())) {
 						NotedLights            noted{ shader->effectID, {} };
