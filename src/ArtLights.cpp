@@ -207,6 +207,11 @@ namespace Plugin
 		// full strength, Dynamic Lighting); a sneaking caster's fades (SneakFade.cpp)
 		void KeepFlesh(RE::ShaderReferenceEffect* a_effect, RE::ShadowSceneNode* a_scene)
 		{
+			const auto& shaders = FleshShaders();
+			const auto  it = a_effect->effectData ? shaders.find(a_effect->effectData) : shaders.end();
+			if (it == shaders.end()) {
+				return;
+			}
 			if (FecBodyFade(a_effect) <= 0.0f) {
 				// faded out on its pick: dropped, so it holds no place under the Performance glow cap
 				if (const auto kept = gKept.find(a_effect); kept != gKept.end() && kept->second.light) {
@@ -214,9 +219,7 @@ namespace Plugin
 				}
 				return;
 			}
-			const auto& shaders = FleshShaders();
-			const auto  it = a_effect->effectData ? shaders.find(a_effect->effectData) : shaders.end();
-			const auto* record = it != shaders.end() ? RecordLightFor(it->second) : nullptr;
+			const auto* record = RecordLightFor(it->second);
 			const auto  ref = record ? a_effect->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
 			auto*       root = ref ? FleshBodyNode(ref.get(), a_effect->GetAttachRoot()) : nullptr;
 			if (!root) {
