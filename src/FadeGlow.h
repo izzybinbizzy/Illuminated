@@ -36,7 +36,7 @@ namespace Glow
 	struct Tuning
 	{
 		float floor{ 0.10f };           // brightness left at 0% charge
-		Curve curve{ Curve::kLinear };  // his 398: the light shrinks and dims evenly with the magicka, seen while casting
+		Curve curve{ Curve::kLinear };  // the light shrinks and dims evenly with the magicka, seen while casting
 		float reachFollows{ 1.0f };     // 0: reach never changes, 1: reach follows the brightness curve fully
 		float minReach{ 0.35f };        // reach never drops below this share of the light's own
 		bool  sputter{ true };

@@ -42,11 +42,13 @@ namespace Plugin
 		std::unordered_map<const RE::TESEffectShader*, BodyFade>    gFades;   // frozen and burning, at data load
 
 		// the fade this effect's light can follow, on either pick (turned back to stay, the light comes back); none when FEC ends
-		// the effect itself
+		// the effect itself before the fade would
 		[[nodiscard]] const BodyFade* TrackedFade(const RE::ShaderReferenceEffect* a_effect)
 		{
 			const auto it = a_effect ? gFades.find(a_effect->effectData) : gFades.end();
-			if (it == gFades.end() || (it->second.endlessOnly && a_effect->lifetime > 0.0f)) {
+			const bool endsFirst = it != gFades.end() && it->second.endlessOnly && a_effect->lifetime > 0.0f &&
+			                       a_effect->lifetime <= it->second.hold + it->second.out;
+			if (it == gFades.end() || endsFirst) {
 				return nullptr;
 			}
 			return &it->second;
@@ -97,24 +99,31 @@ namespace Plugin
 	{
 		gFecKey.clear();
 		gFades.clear();
-		std::array<bool, kFadeShaders.size()> found{};
+		std::array<bool, kFadeShaders.size()> present{};
+		std::array<bool, kFadeShaders.size()> lit{};
 		for (auto* shader : LightKit::FormsOf<RE::TESEffectShader>()) {
 			const auto low = shader ? Lower(EditorID(shader)) : std::string{};
-			if (!low.starts_with("fec_") || !a_cov.shaders.contains(low)) {
+			if (!low.starts_with("fec_")) {
 				continue;
 			}
-			gFecKey.emplace(shader, FormKey(low));
+			const bool covered = a_cov.shaders.contains(low);
+			if (covered) {
+				gFecKey.emplace(shader, FormKey(low));
+			}
 			for (std::size_t i = 0; i < kFadeShaders.size(); ++i) {
 				if (low == kFadeShaders[i].first) {
-					gFades.emplace(shader, kFadeShaders[i].second);
-					found[i] = true;
+					present[i] = true;
+					if (covered) {
+						gFades.emplace(shader, kFadeShaders[i].second);
+						lit[i] = true;
+					}
 				}
 			}
 		}
 		if (!gFecKey.empty()) {
 			std::string unlit;
 			for (std::size_t i = 0; i < kFadeShaders.size(); ++i) {
-				if (!found[i]) {
+				if (present[i] && !lit[i]) {
 					unlit += (unlit.empty() ? " (no light, so no fade pick, on " : ", ") + std::string(kFadeShaders[i].first);
 				}
 			}

@@ -213,11 +213,7 @@ namespace Plugin
 				return;
 			}
 			if (FecBodyFade(a_effect) <= 0.0f) {
-				// faded out on its pick: dropped, so it holds no place under the Performance glow cap
-				if (const auto kept = gKept.find(a_effect); kept != gKept.end() && kept->second.light) {
-					Drop(kept->second, a_scene);
-				}
-				return;
+				return;  // faded out on its pick: not seen, so the sweep drops it and its place under the glow cap
 			}
 			const auto* record = RecordLightFor(it->second);
 			const auto  ref = record ? a_effect->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
