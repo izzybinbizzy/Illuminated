@@ -29,12 +29,12 @@ namespace WardColor
 		return std::abs(a_a.r - a_b.r) < 0.05f && std::abs(a_a.g - a_b.g) < 0.05f && std::abs(a_a.b - a_b.b) < 0.05f;
 	}
 
-	// a white or grey block carries no hue of the model's own
+	// a white or grey block carries no hue of the model's own; a pale tint does
 	[[nodiscard]] inline bool Colored(const Rgb& a_c)
 	{
 		const float hi = (std::max)({ a_c.r, a_c.g, a_c.b });
 		const float lo = (std::min)({ a_c.r, a_c.g, a_c.b });
-		return hi > 0.0f && (hi - lo) / hi > 0.2f;
+		return hi > 0.0f && (hi - lo) / hi > 0.05f;
 	}
 
 	// none = 360 Ward's own (a block in its orange) or nothing read; else the average of the colored blocks, or of every block
