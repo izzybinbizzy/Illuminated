@@ -60,9 +60,9 @@ namespace Plugin
 		std::atomic<std::size_t>                           gMade{ 0 };       // the testing DLL's Diagnostics page reads these two
 		std::atomic<std::size_t>                           gKeptCount{ 0 };  // from the render thread
 		// the Performance cap on glows on people (his checklist 336): how many of gKept are lit now, the cap this frame
-		std::size_t gLit{ 0 };
-		std::size_t gCap{ (std::numeric_limits<std::size_t>::max)() };
-		bool        gCapLogged{ false };
+		std::atomic<std::size_t> gLit{ 0 };  // the testing page reads it from the render thread
+		std::size_t              gCap{ (std::numeric_limits<std::size_t>::max)() };
+		bool                     gCapLogged{ false };
 
 		[[nodiscard]] const std::string& ModelKey(const RE::TESForm* a_form, const char* a_model)
 		{
@@ -471,7 +471,7 @@ namespace Plugin
 				Drop(it->second, scene);
 			}
 		}
-		gKeptCount = gLit;  // a glow waiting past the limit is kept, not lit
+		gKeptCount = gKept.size();
 		// the lights that went to the body for a hand, now that the walk is over: the fading module and Lights by Item reach
 		// them as that hand's (both run after this in the player update)
 		for (const auto& b : gOnBody) {
@@ -483,7 +483,7 @@ namespace Plugin
 
 	std::size_t ArtGlowsLit()
 	{
-		return gLit;
+		return gLit.load();
 	}
 
 	void DropArtLights()
