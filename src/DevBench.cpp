@@ -30,7 +30,7 @@ namespace Plugin
 			R"json({"description":"Illuminated - every setting's value, and every light copy (id, base light, flicker, the fade, radius and cutoff it holds now and the ones it was made with). Read only.","inputSchema":{"type":"object","properties":{}},"readOnly":true})json";
 
 		constexpr const char* kTool =
-			R"json({"description":"Illuminated (spell, weapon and effect lights on Vanilla, ENB or Community Shaders, with an SKSE menu): change its settings. action=setting sets one setting by its id or INI key to a whole number exactly as the menu does (saved, applied at the next frame) and replies with the value it now holds; action=settings lists every setting with its id, INI key, value, range and menu page; action=item sets one spell's or weapon's Lights by Item choice (form, choice = auto, off or r,g,b) as the page does. Read the lights with inspect kind=illuminated.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["setting","settings","item"]},"key":{"type":"string","description":"setting: a setting id or INI key (action=settings lists them)"},"value":{"type":"number","description":"setting: a whole number (a switch 0/1, a choice's index, a slider's percent)"},"form":{"type":"string","description":"item: the spell's or weapon's form id, e.g. 0x0002B96B"},"choice":{"type":"string","description":"item: auto, off, or a color r,g,b (0-255 each)"}},"required":["action"]}})json";
+			R"json({"description":"Illuminated (spell, weapon and effect lights on Vanilla, ENB or Community Shaders, with an SKSE menu): change its settings. action=setting sets one setting by its id or INI key to a whole number exactly as the menu does (saved, applied at the next frame) and replies with the value it now holds; action=settings lists every setting with its id, INI key, value, range and menu page; action=item sets one spell's or weapon's Lights by Item choice (form, choice = auto, off or r,g,b) as the page does; action=lights lists every light hung on the player (its place from her root, fade, radius x / y / size, diffuse, culled, the two words Community Shaders reads: flags and cutoff), read only. Read the lights with inspect kind=illuminated.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["setting","settings","item","lights"]},"key":{"type":"string","description":"setting: a setting id or INI key (action=settings lists them)"},"value":{"type":"number","description":"setting: a whole number (a switch 0/1, a choice's index, a slider's percent)"},"form":{"type":"string","description":"item: the spell's or weapon's form id, e.g. 0x0002B96B"},"choice":{"type":"string","description":"item: auto, off, or a color r,g,b (0-255 each)"}},"required":["action"]}})json";
 
 		constexpr const char* kMenu =
 			R"json({"description":"Illuminated - set=setting key=<setting id or INI key> value=<whole number> changes a setting exactly as the menu does: saved, and applied at the next frame. The same as the illuminated.control tool.","inputSchema":{"type":"object","properties":{"set":{"type":"string"},"key":{"type":"string"},"value":{"type":"number"}}}})json";
@@ -96,8 +96,39 @@ namespace Plugin
 				}
 				return json{ { "ok", true }, { "form", form }, { "choice", DevBenchGlue::Text(a_args, "choice") }, { "note", "applied to the lights at the next frame" } };
 			}
+			if (action == "lights") {
+				// read only: every light hung on the player, with what the shader reads beside what devbench shows (our route vs Light
+				// Placer's on Community Shaders, compared field by field)
+				json  out = json::array();
+				auto* player = RE::PlayerCharacter::GetSingleton();
+				for (const bool first : { false, true }) {
+					auto* root = player ? player->Get3D(first) : nullptr;
+					if (!root) {
+						continue;
+					}
+					const auto her = root->world.translate;
+					RE::BSVisit::TraverseScenegraphLights(root, [&](RE::NiPointLight* a_light) {
+						RE::NiLight::LIGHT_RUNTIME_DATA d{};
+						std::array<std::uint32_t, 2>    w{};
+						{
+							const auto turn = LightKit::Turn();  // the sliders write a light's fade on worker threads under it
+							d = a_light->GetLightRuntimeData();
+							w = LightKit::Isl::Read(a_light);
+						}
+						const auto at = a_light->world.translate - her;
+						out.push_back(json{ { "name", a_light->name.c_str() }, { "parent", a_light->parent ? a_light->parent->name.c_str() : "" },
+							{ "fromHer", json::array({ at.x, at.y, at.z }) },
+							{ "firstPerson", first }, { "culled", a_light->GetAppCulled() }, { "fade", d.fade },
+							{ "radius", json::array({ d.radius.x, d.radius.y, d.radius.z }) },
+							{ "diffuse", json::array({ d.diffuse.red, d.diffuse.green, d.diffuse.blue }) },
+							{ "word0", std::format("{:08X}", w[0]) }, { "cutoff", std::bit_cast<float>(w[1]) } });
+						return RE::BSVisit::BSVisitControl::kContinue;
+					});
+				}
+				return json{ { "ok", true }, { "lights", out } };
+			}
 			if (action != "setting") {
-				return DevBenchGlue::Refusal("unknown action '" + action + "'", json::array({ "setting", "settings", "item" }));
+				return DevBenchGlue::Refusal("unknown action '" + action + "'", json::array({ "setting", "settings", "item", "lights" }));
 			}
 			const auto key = Lower(DevBenchGlue::Text(a_args, "key"));
 			const auto v = DevBenchGlue::Number(a_args, "value");

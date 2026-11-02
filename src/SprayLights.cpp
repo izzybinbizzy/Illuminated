@@ -64,6 +64,7 @@ namespace Plugin
 				color.green = a_s.own.green;
 				color.blue = a_s.own.blue;
 			}
+			color = VanillaLook(color);
 		}
 
 		constexpr std::string_view FamilyName(Family a_family)
@@ -136,7 +137,7 @@ namespace Plugin
 			copy->fade = family == Family::kFrost ? sc.frostFade : sc.fade;
 			copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(kSprayFlags);
 			copy->data.fallofExponent = sc.falloff;
-			SprayCopy sprayed{ proj, bulb, copy, family, bulb->data.color, VanillaArtModel(model) };
+			SprayCopy sprayed{ proj, bulb, copy, family, ColorAsMade(bulb), VanillaArtModel(model) };  // Recolor adds the look once
 			if (sprayed.vanillaArt && family != Family::kNone) {
 				sprayed.tint = CopyLight(bulb);
 				if (const auto lc = std::ranges::find(LightCopies(), bulb, &LightCopy::form); sprayed.tint && lc != LightCopies().end()) {

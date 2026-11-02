@@ -24,7 +24,7 @@
 //   Truman's (RE::Light's controller.h, GPL-3.0; his permission for RELight's code, credited), each light starting at its
 //   own place in the loop as RE::Light's random start does. Nothing walks the scene: each caster writes the one light it
 //   holds, on the thread the game updates it on. Not in VR (the caster's layout there is not proven; VR is never played here).
-// The color: the row's own, on every lighting. 🚫🚫 The Light colors pick that drew it paler or deeper is gone, twice by his
+// The color: the row's own, on Vanilla through VanillaLook (his 384). 🚫🚫 The Light colors pick that drew it paler or deeper is gone, twice by his
 // word (2026-10-09 "remove all color presets", 2026-10-21 "pale and deep also need to be removed" - CLAUDE.md).
 // On Community Shaders a record light of an inverse-square row is flagged as one, with its cutoff in the falloff field and
 // its size in the field of view - what Community Shaders reads off a record (LightKit.h), as pass 0's lights are.
@@ -42,7 +42,9 @@ namespace Plugin
 {
 	namespace
 	{
-		constexpr std::uint32_t kPortalStrict = 1u << 13;  // TES_LIGHT_FLAGS::kPortalStrict
+		// Community Shaders' Linear falloff flag on a light record; without it a row Light Placer draws Linear came out
+		// about twice as bright on the floor here
+		constexpr std::uint32_t kRecordLinear = 1u << 15;
 
 		// a flicker row's keys, played on the record light's live lights (the hands)
 		struct Flicker
@@ -62,18 +64,19 @@ namespace Plugin
 		{
 			std::vector<std::vector<Clause>> test;  // the settings it waits on
 			RE::TESObjectLIGH*               light{ nullptr };
-			float                            strength{ 0.0f };  // fade x radius², to put the strongest first
+			float                            strength{ 0.0f };  // Strength(), to put the strongest first
 		};
 
 		// written once at data load, read on the main thread after it
-		bool                                                  gOn = false;
-		const char*                                           gWhy = "not decided yet";  // why the route is what it is (DecideRecordRoute)
-		std::unordered_map<std::string, std::vector<Choice>>  gChoices;                  // model -> its record lights, strongest first
-		std::size_t                                           gMade = 0, gRows = 0, gNotOurs = 0, gMissing = 0, gFailed = 0;
-		double                                                gMs = 0.0;
-		std::unordered_map<const RE::TESObjectLIGH*, Flicker> gFlickerOf;      // the record lights of flicker rows
-		std::unordered_set<const RE::TESObjectLIGH*>          gOurRecords;     // every record light made here
-		std::atomic<float>                                    gClock{ 0.0f };  // seconds, advanced once a frame on the main thread
+		bool                                                    gOn = false;
+		const char*                                             gWhy = "not decided yet";  // why the route is what it is (DecideRecordRoute)
+		std::unordered_map<std::string, std::vector<Choice>>    gChoices;                  // model -> its record lights, strongest first
+		std::size_t                                             gMade = 0, gRows = 0, gNotOurs = 0, gMissing = 0, gFailed = 0;
+		double                                                  gMs = 0.0;
+		std::unordered_map<const RE::TESObjectLIGH*, Flicker>   gFlickerOf;      // the record lights of flicker rows
+		std::unordered_set<const RE::TESObjectLIGH*>            gOurRecords;     // every record light made here
+		std::unordered_map<const RE::TESObjectLIGH*, RE::Color> gAsMade;         // a row's record light: its color before VanillaLook
+		std::atomic<float>                                      gClock{ 0.0f };  // seconds, advanced once a frame on the main thread
 
 		// the keys' signature, so two rows that flicker differently never share one record light
 		[[nodiscard]] std::string KeysOf(const ConfigLight& a_row)
@@ -95,6 +98,21 @@ namespace Plugin
 		// every light record of ours a hand can wear: the record lights, the automatic ones, and every light copy
 		// (pass 0's copies of the game's magic lights among them) - filled when the data load is done (RecordTablesReady)
 		std::unordered_set<const RE::TESObjectLIGH*> gAllOurs;
+
+		// a color pushed away from (a_k > 1) or toward (a_k < 1) its own grey; 1 leaves it as it is
+		void Deepen(RE::Color& a_color, float a_k)
+		{
+			if (a_k == 1.0f) {
+				return;
+			}
+			const float grey = (a_color.red + a_color.green + a_color.blue) / 3.0f;
+			const auto  push = [&](std::uint8_t a_c) {
+				return static_cast<std::uint8_t>(std::clamp(std::lround(grey + (a_c - grey) * a_k), 0L, 255L));
+			};
+			a_color.red = push(a_color.red);
+			a_color.green = push(a_color.green);
+			a_color.blue = push(a_color.blue);
+		}
 
 		struct HandRecord
 		{
@@ -142,7 +160,10 @@ namespace Plugin
 		[[nodiscard]] float Strength(const LightCopy& a_copy)
 		{
 			const auto radius = static_cast<float>(a_copy.startRadius);
-			return a_copy.startFade * radius * radius;
+			// an inverse-square record's peak goes by 1 / size^2
+			const bool  isl = a_copy.form && (a_copy.form->data.flags.underlying() & LightKit::kRecordInverseSquare) != 0;
+			const float size = isl ? (std::max)(LightKit::LightPlacerSize(a_copy.form->data.fov), 0.1f) : 1.0f;
+			return a_copy.startFade * radius * radius / (size * size);
 		}
 	}
 
@@ -216,8 +237,10 @@ namespace Plugin
 					// a fade controller's steady share of the fade the copy was made with
 					const float share = row.controller && row.meanFade > 0.0f && copy.fade > 0.0f ? row.meanFade / copy.fade : 1.0f;
 					const bool  flickers = row.controller && !row.flash && row.keys.size() > 1 && row.meanFade > 0.0f;
-					const auto  key = std::format("{}|{}|{},{},{}|{}|{:.4f}|{}", copy.id, row.hasColor, row.r, row.g, row.b, row.portalStrict, share,
-						flickers ? KeysOf(row) : std::string());
+					// size and Linear count only on the inverse-square records that take them
+					const bool isl = InverseSquare() && copy.startCutoff > 0.0f;
+					const auto key = std::format("{}|{}|{},{},{}|{}|{}|{:.3f}|{:.4f}|{}", copy.id, row.hasColor, row.r, row.g, row.b,
+						row.portalStrict, isl && row.linear, isl ? row.size : 0.0f, share, flickers ? KeysOf(row) : std::string());
 					auto [slot, isNew] = made.try_emplace(key, added.size());
 					if (isNew) {
 						auto* light = CopyLight(copy.form);
@@ -231,14 +254,18 @@ namespace Plugin
 							light->data.color.green = row.g;
 							light->data.color.blue = row.b;
 						}
+						gAsMade.emplace(light, light->data.color);
+						light->data.color = VanillaLook(light->data.color);
 						if (row.portalStrict) {
-							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | kPortalStrict);
+							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | kRecordPortalStrict);
 						}
-						if (InverseSquare() && copy.startCutoff > 0.0f) {
+						if (isl) {
 							// Community Shaders reads an inverse-square record's falloff as its cutoff (the sliders write it there,
 							// LightCopies.cpp) and its field of view as its size (Light Placer's GetSize)
-							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | LightKit::kRecordInverseSquare);
-							light->data.fov = LightKit::LightPlacerSize(light->data.fov);
+							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | LightKit::kRecordInverseSquare |
+																				 (row.linear ? kRecordLinear : 0u));
+							// the row's own size, as Light Placer reads it: the record's 1.414 drew a size-2 row's pool ~2x as bright
+							light->data.fov = row.size > 0.0f ? LightKit::LightPlacerSize(row.size) : LightKit::LightPlacerSize(light->data.fov);
 						}
 						gOurRecords.insert(light);
 						if (flickers) {
@@ -277,6 +304,20 @@ namespace Plugin
 			"record lights: {} made ({} flicker) for {} lit models from {} config rows ({} name a light that is not one of ours, {} "
 			"a copy whose light is not in this load order, {} failed) in {:.1f} ms",
 			gMade, gFlickerOf.size(), gChoices.size(), gRows, gNotOurs, gMissing, gFailed, gMs);
+	}
+
+	RE::Color VanillaLook(RE::Color a_color)
+	{
+		if (LightingFound() == Lighting::kVanilla) {
+			Deepen(a_color, gVanillaSaturation.load(std::memory_order_relaxed));
+		}
+		return a_color;
+	}
+
+	RE::Color ColorAsMade(const RE::TESObjectLIGH* a_light)
+	{
+		const auto it = gAsMade.find(a_light);
+		return it != gAsMade.end() ? it->second : a_light->data.color;
 	}
 
 	RE::TESObjectLIGH* AutoLight(RE::Color a_color, const std::vector<const RE::TESObjectLIGH*>& a_tuned)

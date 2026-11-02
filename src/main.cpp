@@ -45,6 +45,7 @@
 //   GroundLights.cpp   without Light Placer: a twin of each hand light that lights the ground
 //   ArtLights.cpp      without Light Placer: lights of ours on lit art and weapon models (bound weapons) and flesh spells
 //   FleshLights.cpp    the flesh spells' lights in FleshFX's hue, where FleshFX's look wins (LightKit.h FleshFx)
+//   AtronachLights.cpp a glow on the atronach races an add-on's settings file names
 //   Fade*.cpp, Fade*.h the fading module (identical in RELight - Spell Addon but for FadeConfig.h and FadeDevBench.cpp -
 //                      PC Runner\fade copies check.py); its hooks are in FadeMain.cpp
 //   SKSEMenuFramework.h, DevBenchAPI.*  those mods' own files; DevBenchGlue.h, MenuStyle.h, Translation.h are
@@ -72,6 +73,8 @@ namespace
 				"VR only - 1: a hand's ground light hangs at your VR hand; 0: at the body's hand (the default)", gGroundLightVRHand);
 		}
 		Fade::Tuning::Register("Vanilla and ENB", "ArtLights", 1.0f, 0.0f, 1.0f, "1: bound weapons and lit art and weapons get their light on Vanilla and ENB (and without Light Placer); 0: off", gArtLightsOn);
+		Fade::Tuning::Register("Vanilla and ENB", "VanillaColorStrength", 1.4f, 0.5f, 3.0f, "Vanilla only - how strong a spell light's color is: 1 as made, above 1 deeper, below paler", gVanillaSaturation);
+		Fade::Tuning::Register("Vanilla and ENB", "VanillaBrightness", 1.35f, 0.5f, 3.0f, "Vanilla only - every light this strong before the Brightness slider: 1 as made", gVanillaStrength);
 		LoadSettings();  // first: Light Placer reads the settings' globals in its conditions
 		ReadLighting();  // before pass 0: on ENB and Vanilla its lights are made plain
 		RegisterMenu();
@@ -89,7 +92,8 @@ namespace
 		LightKit::FleshFx::Find();  // which flesh spells wear FleshFX's look: their lights take its hue (FleshLights.cpp)
 		NoteFecShaders(cov);        // before the passes forget the editor IDs
 		NoteSpellHazards();
-		FindShadowSigns();  // once here, never on the first frame of play
+		FindShadowSigns();    // once here, never on the first frame of play
+		ReadAtronachRaces();  // the same
 		if (record) {
 			MakeRecordLights();    // before passes 1 and 2, which point the records at them
 			NoteEnchantShaders();  // a drawn weapon's enchantment shader -> its rows (ArtLights.cpp), before the editor IDs go
@@ -137,6 +141,7 @@ namespace
 	void ForgetOldGame()
 	{
 		DropArtLights();
+		DropAtronachLights();
 		DropGroundLights();
 		DropStreamLights();
 		DropSneakFade();

@@ -122,7 +122,7 @@ namespace Plugin
 
 		void PickColor(const StreamColor& a_c, RE::TESObjectLIGH* a_copy, const SprayChoice& a_sc)
 		{
-			SetColor(a_copy, ColorFor(a_c, a_sc));
+			SetColor(a_copy, VanillaLook(ColorFor(a_c, a_sc)));
 		}
 
 		// the light a beam with none of its own borrows: its Streams row's light - one of our copies (pass 0's look), else the record
@@ -1081,7 +1081,7 @@ namespace Plugin
 			const auto   family = FamilyOf(id, true);
 			const Raised raised = Raise(copy, base, range);
 			const float  reach = raised.reach, fade = raised.fade, cutoff = raised.cutoff;
-			const auto&  color = gStreamColor[proj->GetFormID()] = { model, family, beam, base->data.color, own ? nullptr : base, range,
+			const auto&  color = gStreamColor[proj->GetFormID()] = { model, family, beam, ColorAsMade(base), own ? nullptr : base, range,
 				VanillaArtModel(model), cloud };
 			PickColor(color, copy, sc);  // and again on every refresh (ApplyStreamLights)
 			// his checklist 140: a bolt wears a row of lights (BeamRow.h) whose middle glows as its OWN light would right under
@@ -1274,7 +1274,7 @@ namespace Plugin
 					lc->startCutoff = r.cutoff;
 				}
 				c.borrowed = now;
-				c.own = now->data.color;
+				c.own = ColorAsMade(now);
 				++reborrowed;
 			}
 			PickColor(c, copy->second, sc);
@@ -1312,7 +1312,7 @@ namespace Plugin
 			auto* worn = own;
 			if (const auto tint = gOwnTint.find(formID); want && tint != gOwnTint.end()) {
 				if (const auto c = gStreamColor.find(formID); c != gStreamColor.end()) {
-					SetColor(tint->second, ColorFor(c->second, sc));
+					SetColor(tint->second, VanillaLook(ColorFor(c->second, sc)));
 				}
 				HoldFlicker(tint->second, FlickerOn());
 				worn = tint->second;

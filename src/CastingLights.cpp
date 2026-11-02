@@ -197,7 +197,8 @@ namespace Plugin
 					++dark;
 					continue;
 				}
-				auto* light = AutoLight(*color, tuned);
+				// a group's color comes off a record that already wears Vanilla's look
+				auto* light = AutoLight(from == "its resistance group" ? *color : VanillaLook(*color), tuned);
 				if (!light) {
 					continue;
 				}

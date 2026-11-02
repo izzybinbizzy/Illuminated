@@ -512,6 +512,7 @@ namespace Plugin
 					Frame();
 					TickSwapped(a_delta);     // the Dynamic Lighting swap's lights back to Light Placer's own verdict
 					TickArtLights();          // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
+					TickAtronachLights();     // the HexRim add-on's atronachs (AtronachLights.cpp)
 					KeepCastingLights();      // a held spell's Light Placer lights after a cell change (LightPlacerQueue.cpp)
 					KeepBlockWatch(a_delta);  // the shield ward's block watch follows a rebuilt animation graph (Wards.cpp)
 					if (!RecordRoute()) {
@@ -687,7 +688,7 @@ namespace Plugin
 				}
 				family = it->second;
 			}
-			const auto                  color = family == Family::kNone ? std::nullopt : ArtHandColor(family);
+			const auto                  color = family == Family::kNone ? std::nullopt : ArtHandLook(family);
 			[[maybe_unused]] const auto tinted = color ? PaintLightsUnder(root, *color) : 0;
 #ifdef FADE_DEBUG_PAGE
 			if (static std::atomic<int> told = 0; family != Family::kNone && told < 12 && ++told) {
@@ -745,7 +746,7 @@ namespace Plugin
 				return;
 			}
 			auto*      own = netimmerse_cast<RE::NiPointLight*>(a_hazard->GetHazardRuntimeData().light.get());
-			const auto color = LightsOff() ? std::nullopt : ArtHandColor(family);
+			const auto color = LightsOff() ? std::nullopt : ArtHandLook(family);
 			if (!color) {
 				// all lights off, or a pick with no color: its own light back in its record's color (a hazard lives long enough to keep a stale tint)
 				if (form->data.light) {
@@ -1013,7 +1014,9 @@ namespace Plugin
 		// load the player is in no cell yet, so 1
 		gDaylight = DaylightFactor();
 		const float daylight = gDaylight.load();
-		const float scale = static_cast<float>(brightness) / 100.0f * daylight;
+		// Vanilla's lights a third brighter, under the slider
+		const float vanilla = LightingFound() == Lighting::kVanilla ? gVanillaStrength.load(std::memory_order_relaxed) : 1.0f;
+		const float scale = static_cast<float>(brightness) / 100.0f * daylight * vanilla;
 		const float stretch = (std::max)(static_cast<float>(reach) / 100.0f, 0.01f);
 		gBrightness = scale;
 		const bool off = LightsOff();
@@ -1049,8 +1052,8 @@ namespace Plugin
 			++set;
 		}
 		if (!a_quiet) {
-			SKSE::log::info("light strength: brightness {}% x daylight {:.2f}, reach {}%, hand lights for {}, on {} light copies", brightness, daylight,
-				reach, gHandBudget.load(), set);
+			SKSE::log::info("light strength: brightness {}% x daylight {:.2f} = {:.2f} with the lighting's own strength, reach {}%, hand lights for {}, on {} light copies", brightness,
+				daylight, BrightnessNow(), reach, gHandBudget.load(), set);
 		}
 		if (a_log) {
 			for (const auto& c : LightCopies()) {

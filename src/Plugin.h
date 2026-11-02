@@ -26,6 +26,8 @@ namespace Plugin
 	inline std::atomic<float> gGroundLightsOn{ 1.0f };     // [Vanilla and ENB] GroundLights
 	inline std::atomic<float> gGroundLightVRHand{ 0.0f };  // [Vanilla and ENB] GroundLightAtVRHand - VR only (his answer 2026-10-16)
 	inline std::atomic<float> gArtLightsOn{ 1.0f };        // [Vanilla and ENB] ArtLights
+	inline std::atomic<float> gVanillaSaturation{ 1.4f };  // [Vanilla and ENB] VanillaColorStrength - Vanilla only
+	inline std::atomic<float> gVanillaStrength{ 1.35f };   // [Vanilla and ENB] VanillaBrightness - Vanilla only
 
 	// ------------------------------------------------------------------ Text.cpp: small text helpers
 	using LightKit::Lower;  // LightMath.h: the one lower-casing helper
@@ -115,6 +117,12 @@ namespace Plugin
 		std::string                      values;  // key=value;key=value
 	};
 
+	struct AtronachRow
+	{
+		std::string race;  // the race's editor id
+		RE::NiColor color;
+	};
+
 	using ConfigText::ParseConditions;  // ConfigText.h (game-free)
 	[[nodiscard]] bool                            ConditionsHold(const std::vector<std::vector<Clause>>& a_tests);
 	void                                          LoadSettings();
@@ -125,6 +133,7 @@ namespace Plugin
 	[[nodiscard]] std::vector<Setting>&           Settings();
 	[[nodiscard]] const std::vector<MenuNote>&    Notes();
 	[[nodiscard]] const std::vector<SprayMarker>& SprayMarkers();
+	[[nodiscard]] const std::vector<AtronachRow>& AtronachRows();  // the HexRim add-on's [atronach] blocks
 	[[nodiscard]] bool                            PluginLoaded(std::string_view a_plugin);
 	[[nodiscard]] bool                            PluginLoadedStartingWith(std::initializer_list<std::string_view> a_lowerPrefixes);  // lower-case name starts: a mod shipped under several plugin names
 	[[nodiscard]] bool                            SettingAvailable(const Setting& a_setting);
@@ -138,7 +147,7 @@ namespace Plugin
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
 	void                                          MakeLightCopies();   // LightCopies.cpp
 	void                                          NoteSpellHazards();  // LightCopies.cpp: the hazard tint's tables, while editor IDs are kept
-	[[nodiscard]] float                           BrightnessNow();     // LightCopies.cpp: Brightness x Dim in daylight, as the copies take it
+	[[nodiscard]] float                           BrightnessNow();     // LightCopies.cpp: Brightness x Dim in daylight x Vanilla's strength, as the copies take it
 	// StreamLights.cpp: pass 6 - each spray, stream and bolt keeps its own light record and wears a row of small lights along it
 	// (his stream rule), and a ward dome's light when Dynamic Wards is not here
 	void               StreamLights();
@@ -163,6 +172,8 @@ namespace Plugin
 		std::uint8_t                         r{ 0 }, g{ 0 }, b{ 0 };
 		bool                                 hasColor{ false };      // false: the copy's own color
 		bool                                 portalStrict{ false };  // kept inside its cell, as Light Placer keeps it
+		bool                                 linear{ false };        // the row's Linear falloff, as Light Placer draws it
+		float                                size{ 0.0f };           // the row's own light size (0: the record's), as Light Placer reads it
 		bool                                 controller{ false };    // a fadeController drives its fade
 		bool                                 flash{ false };         // that controller is a one-off flash (it ends at 0), not a flicker
 		float                                meanFade{ 0.0f };       // the controller's fade, averaged over the time it runs
@@ -181,6 +192,7 @@ namespace Plugin
 	[[nodiscard]] bool CloudModel(const std::string& a_model);
 	// the color an element's own hand light wears for its art pick as the settings hold now, or none
 	[[nodiscard]] std::optional<RE::Color> ArtHandColor(Family a_family);
+	[[nodiscard]] std::optional<RE::Color> ArtHandLook(Family a_family);  // Configs.cpp: ArtHandColor as a light wears it (VanillaLook)
 	// a model one of the game's own projectiles or explosions uses (a_hazard: one of its hazards): the art the spell art picks recolor
 	[[nodiscard]] bool VanillaArtModel(const std::string& a_model, bool a_hazard = false);
 	// which Dynamic Lighting twin a Light Placer light's "<config>|<light>" is (made by ConfigText.h TwinKey; TwinOf), for
@@ -208,11 +220,18 @@ namespace Plugin
 	[[nodiscard]] float              RecordFadeNow(const RE::TESObjectLIGH* a_record, const void* a_light);  // its fade now, a flicker's keys played
 	// ArtLights.cpp (his report: "bound weapons not lighting up on vanilla"): a light of ours on every art effect and
 	// drawn weapon whose model a config row lights now; once a frame on the main thread
-	void                      NoteEnchantShaders();  // at load, while the passes' editor IDs are still known (record route)
-	void                      TickArtLights();
-	void                      DropArtLights();  // a game loads, or a new one starts
-	[[nodiscard]] std::size_t ArtLightCount();
-	[[nodiscard]] std::size_t ArtLightsMade();
+	void                           NoteEnchantShaders();  // at load, while the passes' editor IDs are still known (record route)
+	void                           TickArtLights();
+	void                           DropArtLights();                                // a game loads, or a new one starts
+	[[nodiscard]] RE::Color        VanillaLook(RE::Color a_color);                 // RecordLights.cpp: a light's color as Vanilla wears it
+	[[nodiscard]] RE::Color        ColorAsMade(const RE::TESObjectLIGH* a_light);  // a record light's color before VanillaLook, else its own
+	void                           ReadAtronachRaces();                            // AtronachLights.cpp: once, at data load
+	void                           TickAtronachLights();                           // AtronachLights.cpp: once a frame, in the player update
+	[[nodiscard]] std::size_t      ArtGlowsLit();                                  // ArtLights.cpp: the glows lit now, which count against the same limit
+	inline constexpr std::uint32_t kRecordPortalStrict = 1u << 13;                 // TES_LIGHT_FLAGS::kPortalStrict
+	void                           DropAtronachLights();                           // a game loads, or a new one starts
+	[[nodiscard]] std::size_t      ArtLightCount();
+	[[nodiscard]] std::size_t      ArtLightsMade();
 	// FleshLights.cpp (his call on FleshFX: "the dim light in its own color"): with Light Placer, a flesh spell's light takes
 	// FleshFX's hue right after Light Placer wrote it (the effect's update, any thread); without it ArtLights.cpp does
 	void FleshLightPlacer(RE::ShaderReferenceEffect* a_effect);

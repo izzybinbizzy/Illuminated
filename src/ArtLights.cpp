@@ -43,7 +43,8 @@ namespace Plugin
 			const RE::NiColor*               hue{ nullptr };     // FleshFX's hue for a flesh spell's light (LightKit.h), or none
 			const RE::ShaderReferenceEffect* shader{ nullptr };  // a body shader's effect, held by owner: FrozenFade reads its age
 			bool                             seen{ false };
-			std::uint32_t                    wait{ 0 };  // frames until a light the scene refused is made again
+			bool                             hers{ false };  // on the player: never put out by the cap
+			std::uint32_t                    wait{ 0 };      // frames until a light the scene refused is made again
 		};
 		// the scene refused a light (its light limit): made again after this many frames, never a clone every frame (L10)
 		constexpr std::uint32_t kRefusedWait = 60;
@@ -98,15 +99,18 @@ namespace Plugin
 			data.diffuse = a_kept.hue ? LightKit::FleshFx::Shown(*a_kept.hue, own) : own;
 			data.fade = RecordFadeNow(a_kept.record, a_kept.light.get()) * FrozenFade(a_kept.shader);
 			const float radius = (std::max)(static_cast<float>(a_kept.record->data.radius), 1.0f);
+			const bool  isl = InverseSquare() && (a_kept.record->data.flags.underlying() & LightKit::kRecordInverseSquare) != 0;
+			// an inverse-square record's field of view is its row's size (RecordLights.cpp): the peak goes by 1 / size^2
+			data.radius.z = isl ? LightKit::LightPlacerSize(a_kept.record->data.fov) : LightKit::kLightSize;
 			if (data.radius.x != radius) {
-				data.radius = { radius, radius, LightKit::kLightSize };
+				data.radius.x = radius;
+				data.radius.y = radius;
 				a_kept.light->SetLightAttenuation(radius);
 			}
 			if (InverseSquare()) {
 				// after SetLightAttenuation, which writes the same two words: a light of our own, its words written whole (LightKit.h);
 				// the record's cutoff when it is an inverse-square light, else the cutoff that reaches its radius at this fade (a
 				// plain record's falloff exponent is no cutoff)
-				const bool isl = (a_kept.record->data.flags.underlying() & LightKit::kRecordInverseSquare) != 0;
 				LightKit::Isl::SetOwn(a_kept.light.get());
 				LightKit::Isl::SetCutoff(a_kept.light.get(), isl ? a_kept.record->data.fallofExponent : LightKit::CutoffFor(data.fade, radius), 0.01f, 1.0f);
 			} else {
@@ -129,7 +133,7 @@ namespace Plugin
 			Follow(a_kept);
 			RE::NiUpdateData update{};
 			light->Update(update);
-			const bool portalStrict = (a_record->data.flags.underlying() & (1u << 13)) != 0;  // the row's PortalStrict
+			const bool portalStrict = (a_record->data.flags.underlying() & kRecordPortalStrict) != 0;
 			auto*      bs = LightKit::AddToScene(a_scene, light, 1.0f, portalStrict);
 			if (!bs) {
 				a_root->DetachChild(light);
@@ -156,6 +160,7 @@ namespace Plugin
 			}
 			kept.hue = a_hue;  // before Make, which draws the light's first color
 			kept.shader = a_shader;
+			kept.hers = a_hers;
 			if (!kept.light) {
 				if (kept.wait) {
 					--kept.wait;
@@ -460,6 +465,12 @@ namespace Plugin
 			}
 			return false;
 		});
+		// a lowered cap, or the limit switched on, puts out the glows on others past it at once; they wait like any other
+		for (auto it = gKept.begin(); gLit > gCap && it != gKept.end(); ++it) {
+			if (it->second.light && !it->second.hers) {
+				Drop(it->second, scene);
+			}
+		}
 		gKeptCount = gKept.size();
 		// the lights that went to the body for a hand, now that the walk is over: the fading module and Lights by Item reach
 		// them as that hand's (both run after this in the player update)
@@ -468,6 +479,11 @@ namespace Plugin
 				Fade::NoteHandLight(b.actor, b.left, it->second.light.get());
 			}
 		}
+	}
+
+	std::size_t ArtGlowsLit()
+	{
+		return gLit;
 	}
 
 	void DropArtLights()

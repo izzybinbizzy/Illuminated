@@ -159,6 +159,23 @@ namespace Plugin
 			return at;
 		}
 
+		// Community Shaders: where Light Placer hangs a hand row's light - every hand row of the data at 0,-40,0 under the art's
+		// root; the art's own light node sits lower, which lit the floor ~1.5x Light Placer's
+		RE::NiPoint3 RowPointUnder(const RE::NiAVObject* a_magic, const RE::NiAVObject* a_light)
+		{
+			constexpr RE::NiPoint3 kRowPoint = LightKit::kHandPoint;
+			const RE::NiAVObject*  root = a_light;
+			while (root && root->parent && root->parent != a_magic) {
+				root = root->parent;
+			}
+			// a casting light hung straight under the magic node (the record route's) takes the point in the magic node's frame
+			if (!root || root == a_light || root->parent != a_magic) {
+				return kRowPoint;
+			}
+			// a billboard turns with the view, not the hand (OffsetUnder)
+			return std::string_view(root->name.c_str()).find("Billboard") != std::string_view::npos ? root->local.translate + kRowPoint : root->local * kRowPoint;
+		}
+
 		// this frame's numbers of the game's light onto the twin, the twin at the magic node's place
 		void Follow(Twin& a_twin)
 		{
@@ -176,7 +193,8 @@ namespace Plugin
 			data = from;
 			// the casting light's place under its own magic node, put under the anchor (the third-person magic node of that name)
 			light->local = anchor ? anchor->local : RE::NiTransform{};
-			light->local.translate = light->local * OffsetUnder(a_twin.magic.get(), source);
+			light->local.translate = light->local * (LightingFound() == Lighting::kShaders ? RowPointUnder(a_twin.magic.get(), source) :
+																							 OffsetUnder(a_twin.magic.get(), source));
 			RE::NiUpdateData update{};
 			light->Update(update);
 			if (!source->GetAppCulled()) {

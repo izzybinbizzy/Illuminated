@@ -95,6 +95,10 @@ namespace Plugin
 			}
 			if (const auto* f = data->Get("flags"); f && f->kind == Json::Kind::kString) {
 				out.portalStrict = Contains(Lower(f->text), "portalstrict");
+				out.linear = Contains(Lower(f->text), "linear");
+			}
+			if (const auto* sz = data->Get("size")) {
+				out.size = Number(sz, 0.0f);
 			}
 			if (const auto* fc = data->Get("fadeController"); fc && fc->kind == Json::Kind::kObject) {
 				ReadFadeController(*fc, out);
@@ -338,6 +342,12 @@ namespace Plugin
 	bool CloudModel(const std::string& a_model)
 	{
 		return gCloudModels.contains(a_model);
+	}
+
+	std::optional<RE::Color> ArtHandLook(Family a_family)
+	{
+		const auto color = ArtHandColor(a_family);
+		return color ? std::optional{ VanillaLook(*color) } : std::nullopt;
 	}
 
 	std::optional<RE::Color> ArtHandColor(Family a_family)
