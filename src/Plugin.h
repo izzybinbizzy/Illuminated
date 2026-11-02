@@ -240,8 +240,8 @@ namespace Plugin
 	// Frozen Electrocuted Combustion's shaders a config row lights (gen.FEC), found at data load while editor IDs are known
 	struct Coverage;
 	void                                                                             NoteFecShaders(const Coverage& a_cov);
-	[[nodiscard]] const std::unordered_map<const RE::TESEffectShader*, std::string>& FecShaders();                                           // shader -> its rows' key
-	[[nodiscard]] float                                                              FrozenFade(const RE::ShaderReferenceEffect* a_effect);  // 1, or the frozen body's fade-out now
+	[[nodiscard]] const std::unordered_map<const RE::TESEffectShader*, std::string>& FecShaders();                                            // shader -> its rows' key
+	[[nodiscard]] float                                                              FecBodyFade(const RE::ShaderReferenceEffect* a_effect);  // 1, or the frozen / burned body's fade-out now
 	// the third-person node of the same name as a_root, where Light Placer and ArtLights.cpp hang a body light (main thread)
 	[[nodiscard]] RE::NiAVObject* FleshBodyNode(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_root);
 	// GroundLights.cpp (his report: no light on the ground on Vanilla): a twin of each hand's casting light, made the

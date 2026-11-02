@@ -41,7 +41,7 @@ namespace Plugin
 			RE::NiPointer<RE::BSLight>       bs;
 			const RE::TESObjectLIGH*         record{ nullptr };
 			const RE::NiColor*               hue{ nullptr };     // FleshFX's hue for a flesh spell's light (LightKit.h), or none
-			const RE::ShaderReferenceEffect* shader{ nullptr };  // a body shader's effect, held by owner: FrozenFade reads its age
+			const RE::ShaderReferenceEffect* shader{ nullptr };  // a body shader's effect, held by owner: FecBodyFade reads its age
 			bool                             seen{ false };
 			bool                             hers{ false };  // on the player: never put out by the cap
 			std::uint32_t                    wait{ 0 };      // frames until a light the scene refused is made again
@@ -98,7 +98,7 @@ namespace Plugin
 			const auto&       c = a_kept.record->data.color;
 			const RE::NiColor own{ c.red / 255.0f, c.green / 255.0f, c.blue / 255.0f };
 			data.diffuse = a_kept.hue ? LightKit::FleshFx::Shown(*a_kept.hue, own) : own;
-			data.fade = RecordFadeNow(a_kept.record, a_kept.light.get()) * FrozenFade(a_kept.shader);
+			data.fade = RecordFadeNow(a_kept.record, a_kept.light.get()) * FecBodyFade(a_kept.shader);
 			const float radius = (std::max)(static_cast<float>(a_kept.record->data.radius), 1.0f);
 			const bool  isl = InverseSquare() && (a_kept.record->data.flags.underlying() & LightKit::kRecordInverseSquare) != 0;
 			// an inverse-square record's field of view is its row's size (RecordLights.cpp): the peak goes by 1 / size^2
@@ -210,8 +210,11 @@ namespace Plugin
 			const auto& shaders = FleshShaders();
 			const auto  it = a_effect->effectData ? shaders.find(a_effect->effectData) : shaders.end();
 			const auto* record = it != shaders.end() ? RecordLightFor(it->second) : nullptr;
-			const auto  ref = record ? a_effect->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
-			auto*       root = ref ? FleshBodyNode(ref.get(), a_effect->GetAttachRoot()) : nullptr;
+			if (!record || FecBodyFade(a_effect) <= 0.0f) {
+				return;  // no lit row, or faded out on its pick: not seen, so the sweep drops it and its place under the glow cap
+			}
+			const auto ref = a_effect->target.get();
+			auto*      root = ref ? FleshBodyNode(ref.get(), a_effect->GetAttachRoot()) : nullptr;
 			if (!root) {
 				return;
 			}

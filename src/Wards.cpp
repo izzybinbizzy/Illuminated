@@ -208,6 +208,50 @@ namespace Plugin
 			return s;
 		}
 
+		// 360 Ward - Other colors (Nexus 156803) recolors 360 Ward's sphere in place: its blocks' base color is no longer the
+		// orange 360 Ward ships, so the sphere and flash are left as they are and the hand light takes their color
+		std::optional<RE::NiColor> ReadSphereColor(const char* a_model)
+		{
+			RE::NiPointer<RE::NiNode> root;
+			if (!a_model || !*a_model || RE::BSModelDB::Demand(a_model, root, RE::BSModelDB::DBTraits::ArgsType{}) != RE::BSResource::ErrorCode::kNone || !root) {
+				return std::nullopt;
+			}
+			RE::NiColor sum{};
+			int         count = 0;
+			RE::BSVisit::TraverseScenegraphGeometries(root.get(), [&](RE::BSGeometry* a_geometry) {
+				auto* shader = a_geometry ? a_geometry->GetGeometryRuntimeData().shaderProperty.get() : nullptr;
+				auto* effect = netimmerse_cast<RE::BSEffectShaderProperty*>(shader);
+				if (auto* material = effect ? static_cast<RE::BSEffectShaderMaterial*>(effect->material) : nullptr) {
+					sum.red += material->baseColor.red;
+					sum.green += material->baseColor.green;
+					sum.blue += material->baseColor.blue;
+					++count;
+				}
+				return RE::BSVisit::BSVisitControl::kContinue;
+			});
+			if (count == 0) {
+				return std::nullopt;
+			}
+			return RE::NiColor{ sum.red / count, sum.green / count, sum.blue / count };
+		}
+
+		// 360 Ward's own orange: a saturated hue between red and yellow (about 10 to 45 degrees), so a red or yellow recolor
+		// counts as another color
+		[[nodiscard]] bool IsOrange(const RE::NiColor& a_color)
+		{
+			const float hi = (std::max)({ a_color.red, a_color.green, a_color.blue });
+			const float lo = (std::min)({ a_color.red, a_color.green, a_color.blue });
+			if (hi <= 0.0f || hi != a_color.red || (hi - lo) / hi < 0.5f) {
+				return false;
+			}
+			const float hue = 60.0f * (a_color.green - a_color.blue) / (hi - lo);
+			return hue >= 10.0f && hue <= 45.0f;
+		}
+
+		std::string                gSphereModel;         // 360 Ward's sphere as the load order gives it, read before we point it anywhere
+		std::optional<RE::NiColor> gOtherColor;          // set when that sphere is not 360 Ward's orange
+		bool                       gFlashOther = false;  // 360 Ward's hit flash recolored too (its Hit FX file is optional)
+
 		const StrangeWards& StrangeWardsLook()
 		{
 			static const StrangeWards look = [] {
@@ -259,7 +303,12 @@ namespace Plugin
 			return;
 		}
 		// loaded, not merely present: LookupModByName also finds a plugin that is installed but not enabled
-		if (PluginLoaded(k360Plugin)) {
+		if (PluginLoaded(k360Plugin) && gOtherColor) {
+			SKSE::log::info("wards: 360 Ward's sphere is recolored by another mod ({}) - left as it is, its light in its color", gSphereModel);
+			if (auto* flash = dh->LookupForm<RE::BGSArtObject>(kFlashArt, k360Plugin); flash && !gFlashOther) {
+				flash->SetModel(kBlueFlash);  // the sphere file alone: the stock orange flash would not match it
+			}
+		} else if (PluginLoaded(k360Plugin)) {
 			dome->SetModel(look == 1 ? kClearSphere : kBlueSphere);
 			if (auto* flash = dh->LookupForm<RE::BGSArtObject>(kFlashArt, k360Plugin)) {
 				flash->SetModel(kBlueFlash);
@@ -317,8 +366,22 @@ namespace Plugin
 		SKSE::log::info("wards: {} effect(s) wear the ward art beside a ward's rank and show no second dome", extras.size());
 
 		const bool has360 = PluginLoaded(k360Plugin);
+		if (auto* dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm"); dome && has360 && gSphereModel.empty()) {
+			gSphereModel = dome->GetModel();
+			const bool ours = LightKit::Lower(gSphereModel).contains("glow wards");  // already pointed at our copy: nothing to read
+			if (const auto color = ours ? std::nullopt : ReadSphereColor(gSphereModel.c_str()); color && !IsOrange(*color)) {
+				gOtherColor = color;
+			}
+			if (auto* flash = dh->LookupForm<RE::BGSArtObject>(kFlashArt, k360Plugin)) {
+				const std::string model = flash->GetModel();
+				const auto        color = LightKit::Lower(model).contains("glow wards") ? std::nullopt : ReadSphereColor(model.c_str());
+				gFlashOther = color && !IsOrange(*color);
+			}
+		}
 		if (auto* hand = dh->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm")) {
-			if (has360) {
+			if (has360 && gOtherColor) {
+				SKSE::log::info("wards: the hand keeps the game's own art beside the recolored 360 Ward sphere");
+			} else if (has360) {
 				hand->SetModel(kSphereHand);
 				SKSE::log::info("wards: the hand wears 360 Ward's sphere blue ({})", kSphereHand);
 			} else if (StrangeWardsInstalled()) {
@@ -334,11 +397,11 @@ namespace Plugin
 			}
 		}
 		// Strange Wards' Amber / Sswaye Special: the game's ward hand light takes the pick's color (not under 360 Ward's sphere)
-		if (const auto color = StrangeWardColor(); color && !has360) {
+		if (const auto color = has360 ? gOtherColor : StrangeWardColor(); color) {
 			if (auto* light = dh->LookupForm<RE::TESObjectLIGH>(kWardHandLight, "Skyrim.esm")) {
 				const auto byte = [](float a_value) { return static_cast<std::uint8_t>(std::lround(std::clamp(a_value, 0.0f, 1.0f) * 255.0f)); };
 				light->data.color = RE::Color{ byte(color->red), byte(color->green), byte(color->blue), 0 };
-				SKSE::log::info("wards: the ward hand light takes Strange Wards' pick color");
+				SKSE::log::info("wards: the ward hand light takes {}", has360 ? "the recolored 360 Ward sphere's color" : "Strange Wards' pick color");
 			}
 		}
 		// the worn wards: their own looping hand always, their own looping dome unless 360 Ward's sphere is the dome (the
@@ -350,7 +413,7 @@ namespace Plugin
 			gWornHand = NewForm<RE::BGSArtObject>();
 		}
 		if (gWornDome && gWornHand) {
-			gWornHand->SetModel(has360 ? kSphereWornHand : kBlueWornHand);
+			gWornHand->SetModel(has360 && !gOtherColor ? kSphereWornHand : kBlueWornHand);
 			auto*                              dome = dh->LookupForm<RE::BGSArtObject>(kDomeArt, "Skyrim.esm");
 			std::set<const RE::EffectSetting*> wornEffects;
 			for (const auto& r : kWorn) {

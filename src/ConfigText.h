@@ -15,6 +15,7 @@
 //   ReadFadeController                  a fadeController's keys: flicker or flash, its mean fade
 //   GroupedOrder                        a menu page's settings, a group's together, the groups where each first appears
 //   GlowWaits                           a glow on a person past the Performance cap waits (ArtLights.cpp)
+//   BodyFadeAt                          a FEC body's glow on its fade-out pick (FleshLights.cpp)
 
 #pragma once
 
@@ -588,5 +589,17 @@ namespace ConfigText
 	[[nodiscard]] constexpr bool GlowWaits(std::size_t a_lit, std::size_t a_cap, bool a_hers) noexcept
 	{
 		return !a_hers && a_lit >= a_cap;
+	}
+
+	// a FEC body's glow on its fade-out pick: full until a_hold seconds, then out over a_out (none: at once)
+	[[nodiscard]] constexpr float BodyFadeAt(float a_age, float a_hold, float a_out) noexcept
+	{
+		if (a_age != a_age) {
+			return 0.0f;  // not a number: out, as BeamRow::CloudFade
+		}
+		if (a_out <= 0.0f) {
+			return a_age < a_hold ? 1.0f : 0.0f;
+		}
+		return std::clamp(1.0f - (a_age - a_hold) / a_out, 0.0f, 1.0f);
 	}
 }

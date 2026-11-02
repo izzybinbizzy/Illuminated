@@ -14,8 +14,8 @@
 //   the game's worker threads, so it never walks the scene: the effect's own lights are found on the main thread once a
 //   frame (NoteFleshRoots, under the node they hang on) and the wrap only writes their color.
 //   Without Light Placer: ArtLights.cpp hangs the flesh row's light itself and gives it the hue as it follows the record.
-// Frozen Electrocuted Combustion's lit shaders (gen.FEC) go the same way. A frozen body stays frozen, so on the
-// "Frozen bodies" fade-out pick the frozen shader's light goes out a few seconds in (FrozenFade).
+// Frozen Electrocuted Combustion's lit shaders (gen.FEC) go the same way. A frozen body stays frozen and a burned one keeps
+// smouldering, so on the "Frozen bodies" / "Burning bodies" fade-out picks their light goes out a few seconds in (FecBodyFade).
 
 #include "Plugin.h"
 
@@ -23,14 +23,43 @@ namespace Plugin
 {
 	namespace
 	{
-		constexpr std::string_view kFrozenPick = "IlluminatedFecFrozenGlow";  // 0 fades out (the default), 1 stays while frozen
-		constexpr float            kFrozenHold = 4.0f;                        // seconds at full strength
-		constexpr float            kFrozenOut = 2.0f;                         // then out over these
+		// a FEC body shader whose light fades out on its pick (0 = fades, the default): seconds lit, then out over `out`
+		struct BodyFade
+		{
+			std::string_view pick;
+			float            hold{ 0.0f };
+			float            out{ 0.0f };
+			bool             endlessOnly{ false };  // FEC plays its fire 2-5 s and the effect ends with it: only a fire with no end fades
+		};
+
+		constexpr std::array<std::pair<std::string_view, BodyFade>, 3> kFadeShaders{ {
+			{ "fec_frostfxs", { "IlluminatedFecFrozenGlow", 4.0f, 2.0f, false } },
+			{ "fec_firefxs", { "IlluminatedFecBurningGlow", 8.0f, 1.0f, true } },
+			{ "fec_fireheavyfxs", { "IlluminatedFecBurningGlow", 8.0f, 1.0f, true } },
+		} };
 
 		std::unordered_map<const RE::TESEffectShader*, std::string> gFecKey;  // FEC's lit shaders -> their rows' key, at data load
-		const RE::TESEffectShader*                                  gFrozen = nullptr;
+		std::unordered_map<const RE::TESEffectShader*, BodyFade>    gFades;   // frozen and burning, at data load
 
-		// one noted light: the fade Light Placer gave it and the fade we wrote, so the frozen fade is base x factor every update
+		// the fade this effect's light can follow, on either pick (turned back to stay, the light comes back); none when FEC ends
+		// the effect itself before the fade would
+		[[nodiscard]] const BodyFade* TrackedFade(const RE::ShaderReferenceEffect* a_effect)
+		{
+			const auto it = a_effect ? gFades.find(a_effect->effectData) : gFades.end();
+			const bool endsFirst = it != gFades.end() && it->second.endlessOnly && a_effect->lifetime > 0.0f &&
+			                       a_effect->lifetime <= it->second.hold + it->second.out;
+			if (it == gFades.end() || endsFirst) {
+				return nullptr;
+			}
+			return &it->second;
+		}
+
+		[[nodiscard]] float FadeNow(const BodyFade* a_fade, const RE::ShaderReferenceEffect* a_effect)
+		{
+			return a_fade && SettingValue(a_fade->pick, 0) == 0 ? ConfigText::BodyFadeAt(a_effect->age, a_fade->hold, a_fade->out) : 1.0f;
+		}
+
+		// one noted light: the fade Light Placer gave it and the fade we wrote, so the body fade is base x factor every update
 		// (Light Placer writes a steady light once - a multiply on the value read would compound)
 		struct NotedLight
 		{
@@ -69,31 +98,44 @@ namespace Plugin
 	void NoteFecShaders(const Coverage& a_cov)
 	{
 		gFecKey.clear();
-		gFrozen = nullptr;
+		gFades.clear();
+		std::array<bool, kFadeShaders.size()> present{};
+		std::array<bool, kFadeShaders.size()> lit{};
 		for (auto* shader : LightKit::FormsOf<RE::TESEffectShader>()) {
 			const auto low = shader ? Lower(EditorID(shader)) : std::string{};
-			if (!low.starts_with("fec_") || !a_cov.shaders.contains(low)) {
+			if (!low.starts_with("fec_")) {
 				continue;
 			}
-			gFecKey.emplace(shader, FormKey(low));
-			if (low == "fec_frostfxs") {
-				gFrozen = shader;
+			const bool covered = a_cov.shaders.contains(low);
+			if (covered) {
+				gFecKey.emplace(shader, FormKey(low));
+			}
+			for (std::size_t i = 0; i < kFadeShaders.size(); ++i) {
+				if (low == kFadeShaders[i].first) {
+					present[i] = true;
+					if (covered) {
+						gFades.emplace(shader, kFadeShaders[i].second);
+						lit[i] = true;
+					}
+				}
 			}
 		}
 		if (!gFecKey.empty()) {
-			SKSE::log::info("Frozen Electrocuted Combustion: {} of its shaders have lights{}", gFecKey.size(),
-				gFrozen ? "" : " (its frozen shader is not one)");
+			std::string unlit;
+			for (std::size_t i = 0; i < kFadeShaders.size(); ++i) {
+				if (present[i] && !lit[i]) {
+					unlit += (unlit.empty() ? " (no light, so no fade pick, on " : ", ") + std::string(kFadeShaders[i].first);
+				}
+			}
+			SKSE::log::info("Frozen Electrocuted Combustion: {} of its shaders have lights{}{}", gFecKey.size(), unlit, unlit.empty() ? "" : ")");
 		}
 	}
 
 	const std::unordered_map<const RE::TESEffectShader*, std::string>& FecShaders() { return gFecKey; }
 
-	float FrozenFade(const RE::ShaderReferenceEffect* a_effect)
+	float FecBodyFade(const RE::ShaderReferenceEffect* a_effect)
 	{
-		if (!a_effect || !gFrozen || a_effect->effectData != gFrozen || SettingValue(kFrozenPick, 0) != 0) {
-			return 1.0f;
-		}
-		return std::clamp(1.0f - (a_effect->age - kFrozenHold) / kFrozenOut, 0.0f, 1.0f);
+		return FadeNow(TrackedFade(a_effect), a_effect);
 	}
 
 	RE::NiAVObject* FleshBodyNode(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_root)
@@ -111,14 +153,15 @@ namespace Plugin
 
 	void NoteFleshRoots()
 	{
-		if (LightKit::FleshFx::Hues().empty() && !gFrozen) {
+		if (LightKit::FleshFx::Hues().empty() && gFades.empty()) {
 			return;  // no flesh spell wears FleshFX's look and FEC is not here: nothing to note, ever
 		}
 		std::unordered_map<const RE::ShaderReferenceEffect*, NotedLights> roots;
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {
 			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
-				auto* shader = a_effect ? netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect) : nullptr;
-				if (shader && !shader->finished && (LightKit::FleshFx::HueOf(shader->effectData) || shader->effectData == gFrozen)) {
+				auto*      shader = a_effect ? netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect) : nullptr;
+				const bool live = shader && !shader->finished;
+				if (live && (LightKit::FleshFx::HueOf(shader->effectData) || TrackedFade(shader))) {
 					const auto ref = shader->target.get();
 					if (auto* node = FleshBodyNode(ref.get(), shader->GetAttachRoot())) {
 						NotedLights            noted{ shader->effectID, {} };
@@ -166,11 +209,11 @@ namespace Plugin
 	{
 		const bool  live = a_effect && !a_effect->finished;
 		const auto* hue = live ? LightKit::FleshFx::HueOf(a_effect->effectData) : nullptr;
-		const bool  frozenShader = live && gFrozen && a_effect->effectData == gFrozen;
-		if (!hue && !frozenShader) {
+		const auto* fade = live ? TrackedFade(a_effect) : nullptr;
+		if (!hue && !fade) {
 			return;
 		}
-		const float   frozen = frozenShader ? FrozenFade(a_effect) : 1.0f;
+		const float   bodyFade = FadeNow(fade, a_effect);
 		std::uint32_t matched = 0;
 		{
 			const auto       turn = LightKit::Turn();  // before gRootLock (LightKit.h's order)
@@ -188,7 +231,7 @@ namespace Plugin
 				if (data.fade != noted.wrote) {
 					noted.base = data.fade;  // Light Placer wrote it since: a flickering row every update, a steady one once
 				}
-				data.fade = noted.base * frozen;
+				data.fade = noted.base * bodyFade;
 				noted.wrote = data.fade;
 			}
 			matched = static_cast<std::uint32_t>(it->second.lights.size());
