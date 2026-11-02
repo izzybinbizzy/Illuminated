@@ -235,14 +235,22 @@ namespace Plugin
 			return RE::NiColor{ sum.red / count, sum.green / count, sum.blue / count };
 		}
 
-		// 360 Ward's own orange: red well above blue and green between them
+		// 360 Ward's own orange: a saturated hue between red and yellow (about 10 to 45 degrees), so a red or yellow recolor
+		// counts as another color
 		[[nodiscard]] bool IsOrange(const RE::NiColor& a_color)
 		{
-			return a_color.red > 0.5f && a_color.blue < a_color.red * 0.5f && a_color.green > a_color.red * 0.25f;
+			const float hi = (std::max)({ a_color.red, a_color.green, a_color.blue });
+			const float lo = (std::min)({ a_color.red, a_color.green, a_color.blue });
+			if (hi <= 0.0f || hi != a_color.red || (hi - lo) / hi < 0.5f) {
+				return false;
+			}
+			const float hue = 60.0f * (a_color.green - a_color.blue) / (hi - lo);
+			return hue >= 10.0f && hue <= 45.0f;
 		}
 
-		std::string                gSphereModel;  // 360 Ward's sphere as the load order gives it, read before we point it anywhere
-		std::optional<RE::NiColor> gOtherColor;   // set when that sphere is not 360 Ward's orange
+		std::string                gSphereModel;         // 360 Ward's sphere as the load order gives it, read before we point it anywhere
+		std::optional<RE::NiColor> gOtherColor;          // set when that sphere is not 360 Ward's orange
+		bool                       gFlashOther = false;  // 360 Ward's hit flash recolored too (its Hit FX file is optional)
 
 		const StrangeWards& StrangeWardsLook()
 		{
@@ -297,6 +305,9 @@ namespace Plugin
 		// loaded, not merely present: LookupModByName also finds a plugin that is installed but not enabled
 		if (PluginLoaded(k360Plugin) && gOtherColor) {
 			SKSE::log::info("wards: 360 Ward's sphere is recolored by another mod ({}) - left as it is, its light in its color", gSphereModel);
+			if (auto* flash = dh->LookupForm<RE::BGSArtObject>(kFlashArt, k360Plugin); flash && !gFlashOther) {
+				flash->SetModel(kBlueFlash);  // the sphere file alone: the stock orange flash would not match it
+			}
 		} else if (PluginLoaded(k360Plugin)) {
 			dome->SetModel(look == 1 ? kClearSphere : kBlueSphere);
 			if (auto* flash = dh->LookupForm<RE::BGSArtObject>(kFlashArt, k360Plugin)) {
@@ -360,6 +371,11 @@ namespace Plugin
 			const bool ours = LightKit::Lower(gSphereModel).contains("glow wards");  // already pointed at our copy: nothing to read
 			if (const auto color = ours ? std::nullopt : ReadSphereColor(gSphereModel.c_str()); color && !IsOrange(*color)) {
 				gOtherColor = color;
+			}
+			if (auto* flash = dh->LookupForm<RE::BGSArtObject>(kFlashArt, k360Plugin)) {
+				const std::string model = flash->GetModel();
+				const auto        color = LightKit::Lower(model).contains("glow wards") ? std::nullopt : ReadSphereColor(model.c_str());
+				gFlashOther = color && !IsOrange(*color);
 			}
 		}
 		if (auto* hand = dh->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm")) {
