@@ -213,7 +213,7 @@ namespace Plugin
 			if (!record || FecBodyFade(a_effect) <= 0.0f) {
 				return;  // no lit row, or faded out on its pick: not seen, so the sweep drops it and its place under the glow cap
 			}
-			const auto ref = record ? a_effect->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
+			const auto ref = a_effect->target.get();
 			auto*      root = ref ? FleshBodyNode(ref.get(), a_effect->GetAttachRoot()) : nullptr;
 			if (!root) {
 				return;
