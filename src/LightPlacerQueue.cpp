@@ -85,11 +85,6 @@ namespace Plugin
 		{
 			static void thunk(RE::ShaderReferenceEffect* a_this)
 			{
-#ifdef FADE_DEBUG_PAGE
-				if (static std::atomic<int> told = 0; told < 8 && ++told) {
-					SKSE::log::info("[RESUME-THREAD] ShaderReferenceEffect::Resume on thread {}", REX::W32::GetCurrentThreadId());
-				}
-#endif
 				auto*  scene = LightKit::Scene();
 				Queued before;
 				if (scene) {
