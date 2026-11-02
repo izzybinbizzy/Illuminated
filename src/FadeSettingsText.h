@@ -6,10 +6,12 @@
 // writes it off the game). FadeSettings.cpp only opens the file and keeps the one shared copy.
 //
 //   [Settings]
+//   Defaults=2                the defaults the file was last moved to: a file without it (written before 2) is moved
+//                             once to Curve=0 and ReachFollows=100, then saved (his checklist 404, "this is a bugfix")
 //   Enabled=1
 //   EmptyBrightness=10        percent, 0 to 50 - what is left of the light at 0% charge
-//   Curve=1                   0 linear, 1 gentle (stays bright longer)
-//   ReachFollows=50           percent, 0 to 100 - how much of the fade the reach follows too
+//   Curve=0                   0 linear, 1 gentle (stays bright longer)
+//   ReachFollows=100          percent, 0 to 100 - how much of the fade the reach follows too
 //   Sputter=1
 //   SputterBelow=15           percent of charge, 1 to 50
 //   SputterStrength=60        percent - the deepest dip, at empty
@@ -71,8 +73,11 @@ namespace Fade
 		kEveryone = 2  // his ask: "can fading not work for npcs as well?"
 	};
 
+	inline constexpr int kDefaultsVersion = 2;  // 2: Curve linear, Reach follows 100 % (his 398 / 404)
+
 	struct Settings
 	{
+		int          defaults{ kDefaultsVersion };  // a file without it predates kDefaultsVersion
 		bool         enabled{ true };
 		Glow::Tuning tuning{};
 		Who          who{ Who::kPlayer };
@@ -161,6 +166,7 @@ namespace Fade
 		};
 
 		inline constexpr Key kKeys[]{
+			{ "Defaults", [](const Settings& s) { return s.defaults; }, [](Settings& s, int v) { s.defaults = v; } },
 			{ "Enabled", [](const Settings& s) { return s.enabled ? 1 : 0; }, [](Settings& s, int v) { s.enabled = v != 0; } },
 			{ "EmptyBrightness", [](const Settings& s) { return ToPct(s.tuning.floor); }, [](Settings& s, int v) { s.tuning.floor = Pct(v, 0, 50); } },
 			{ "Curve", [](const Settings& s) { return static_cast<int>(s.tuning.curve); },
@@ -268,13 +274,15 @@ namespace Fade
 		struct ReadResult
 		{
 			int                      taken{ 0 };
-			std::vector<std::string> problems;  // "Key=value: why", for the log
+			bool                     moved{ false };  // an older file moved to the new defaults (save it)
+			std::vector<std::string> problems;        // "Key=value: why", for the log
 		};
 
 		// reads the [Settings] lines into a_s; a line that cannot be used keeps the default and is reported
 		inline ReadResult Read(std::istream& a_in, Settings& a_s)
 		{
 			ReadResult  r;
+			bool        versioned = false;
 			std::string line;
 			bool        inSettings = false, first = true;
 			while (std::getline(a_in, line)) {
@@ -310,8 +318,16 @@ namespace Fade
 					r.problems.push_back(std::string(key) + "=" + std::string(val) + ": not a whole number; the default stays");
 				} else {
 					Apply(a_s, key, v);
+					versioned = versioned || SameText(key, "Defaults");
 					++r.taken;
 				}
+			}
+			// a file from before the new defaults: moved once to them (Curve linear, Reach follows 100 %)
+			if (r.taken > 0 && (!versioned || a_s.defaults < kDefaultsVersion)) {
+				a_s.tuning.curve = Glow::Curve::kLinear;
+				a_s.tuning.reachFollows = 1.0f;
+				a_s.defaults = kDefaultsVersion;
+				r.moved = true;
 			}
 			return r;
 		}
