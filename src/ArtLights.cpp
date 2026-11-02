@@ -471,7 +471,7 @@ namespace Plugin
 				Drop(it->second, scene);
 			}
 		}
-		gKeptCount = gKept.size();
+		gKeptCount = gLit;  // a glow waiting past the limit is kept, not lit
 		// the lights that went to the body for a hand, now that the walk is over: the fading module and Lights by Item reach
 		// them as that hand's (both run after this in the player update)
 		for (const auto& b : gOnBody) {

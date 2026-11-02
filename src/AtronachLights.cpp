@@ -47,7 +47,7 @@ namespace Plugin
 			const auto      dir = std::filesystem::current_path(ec) / "Data" / "LightPlacer" / "iLluminousElementals";
 			for (auto it = std::filesystem::recursive_directory_iterator(dir, std::filesystem::directory_options::skip_permission_denied, ec);
 				!ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
-				if (const auto stem = Lower(Fade::PathText(it->path().stem())); stem.starts_with("atronach")) {
+				if (const auto stem = Lower(Fade::PathText(it->path().stem())); stem.starts_with("atronach") && Lower(Fade::PathText(it->path().extension())) == ".json") {
 					out.insert(stem + "race");
 				}
 			}
