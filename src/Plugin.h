@@ -222,13 +222,14 @@ namespace Plugin
 	// drawn weapon whose model a config row lights now; once a frame on the main thread
 	void                           NoteEnchantShaders();  // at load, while the passes' editor IDs are still known (record route)
 	void                           TickArtLights();
-	void                           DropArtLights();                 // a game loads, or a new one starts
-	[[nodiscard]] RE::Color        VanillaLook(RE::Color a_color);  // RecordLights.cpp: a light's color as Vanilla wears it
-	void                           ReadAtronachRaces();             // AtronachLights.cpp: once, at data load
-	void                           TickAtronachLights();            // AtronachLights.cpp: once a frame, in the player update
-	[[nodiscard]] std::size_t      ArtGlowsLit();                   // ArtLights.cpp: the glows lit now, which count against the same limit
-	inline constexpr std::uint32_t kRecordPortalStrict = 1u << 13;  // TES_LIGHT_FLAGS::kPortalStrict
-	void                           DropAtronachLights();            // a game loads, or a new one starts
+	void                           DropArtLights();                                // a game loads, or a new one starts
+	[[nodiscard]] RE::Color        VanillaLook(RE::Color a_color);                 // RecordLights.cpp: a light's color as Vanilla wears it
+	[[nodiscard]] RE::Color        ColorAsMade(const RE::TESObjectLIGH* a_light);  // a record light's color before VanillaLook, else its own
+	void                           ReadAtronachRaces();                            // AtronachLights.cpp: once, at data load
+	void                           TickAtronachLights();                           // AtronachLights.cpp: once a frame, in the player update
+	[[nodiscard]] std::size_t      ArtGlowsLit();                                  // ArtLights.cpp: the glows lit now, which count against the same limit
+	inline constexpr std::uint32_t kRecordPortalStrict = 1u << 13;                 // TES_LIGHT_FLAGS::kPortalStrict
+	void                           DropAtronachLights();                           // a game loads, or a new one starts
 	[[nodiscard]] std::size_t      ArtLightCount();
 	[[nodiscard]] std::size_t      ArtLightsMade();
 	// FleshLights.cpp (his call on FleshFX: "the dim light in its own color"): with Light Placer, a flesh spell's light takes

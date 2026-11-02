@@ -1081,7 +1081,7 @@ namespace Plugin
 			const auto   family = FamilyOf(id, true);
 			const Raised raised = Raise(copy, base, range);
 			const float  reach = raised.reach, fade = raised.fade, cutoff = raised.cutoff;
-			const auto&  color = gStreamColor[proj->GetFormID()] = { model, family, beam, base->data.color, own ? nullptr : base, range,
+			const auto&  color = gStreamColor[proj->GetFormID()] = { model, family, beam, ColorAsMade(base), own ? nullptr : base, range,
 				VanillaArtModel(model), cloud };
 			PickColor(color, copy, sc);  // and again on every refresh (ApplyStreamLights)
 			// his checklist 140: a bolt wears a row of lights (BeamRow.h) whose middle glows as its OWN light would right under
@@ -1274,7 +1274,7 @@ namespace Plugin
 					lc->startCutoff = r.cutoff;
 				}
 				c.borrowed = now;
-				c.own = now->data.color;
+				c.own = ColorAsMade(now);
 				++reborrowed;
 			}
 			PickColor(c, copy->second, sc);

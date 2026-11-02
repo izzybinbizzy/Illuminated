@@ -68,14 +68,15 @@ namespace Plugin
 		};
 
 		// written once at data load, read on the main thread after it
-		bool                                                  gOn = false;
-		const char*                                           gWhy = "not decided yet";  // why the route is what it is (DecideRecordRoute)
-		std::unordered_map<std::string, std::vector<Choice>>  gChoices;                  // model -> its record lights, strongest first
-		std::size_t                                           gMade = 0, gRows = 0, gNotOurs = 0, gMissing = 0, gFailed = 0;
-		double                                                gMs = 0.0;
-		std::unordered_map<const RE::TESObjectLIGH*, Flicker> gFlickerOf;      // the record lights of flicker rows
-		std::unordered_set<const RE::TESObjectLIGH*>          gOurRecords;     // every record light made here
-		std::atomic<float>                                    gClock{ 0.0f };  // seconds, advanced once a frame on the main thread
+		bool                                                    gOn = false;
+		const char*                                             gWhy = "not decided yet";  // why the route is what it is (DecideRecordRoute)
+		std::unordered_map<std::string, std::vector<Choice>>    gChoices;                  // model -> its record lights, strongest first
+		std::size_t                                             gMade = 0, gRows = 0, gNotOurs = 0, gMissing = 0, gFailed = 0;
+		double                                                  gMs = 0.0;
+		std::unordered_map<const RE::TESObjectLIGH*, Flicker>   gFlickerOf;      // the record lights of flicker rows
+		std::unordered_set<const RE::TESObjectLIGH*>            gOurRecords;     // every record light made here
+		std::unordered_map<const RE::TESObjectLIGH*, RE::Color> gAsMade;         // a row's record light: its color before VanillaLook
+		std::atomic<float>                                      gClock{ 0.0f };  // seconds, advanced once a frame on the main thread
 
 		// the keys' signature, so two rows that flicker differently never share one record light
 		[[nodiscard]] std::string KeysOf(const ConfigLight& a_row)
@@ -253,6 +254,7 @@ namespace Plugin
 							light->data.color.green = row.g;
 							light->data.color.blue = row.b;
 						}
+						gAsMade.emplace(light, light->data.color);
 						light->data.color = VanillaLook(light->data.color);
 						if (row.portalStrict) {
 							light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() | kRecordPortalStrict);
@@ -310,6 +312,12 @@ namespace Plugin
 			Deepen(a_color, gVanillaSaturation.load(std::memory_order_relaxed));
 		}
 		return a_color;
+	}
+
+	RE::Color ColorAsMade(const RE::TESObjectLIGH* a_light)
+	{
+		const auto it = gAsMade.find(a_light);
+		return it != gAsMade.end() ? it->second : a_light->data.color;
 	}
 
 	RE::TESObjectLIGH* AutoLight(RE::Color a_color, const std::vector<const RE::TESObjectLIGH*>& a_tuned)
