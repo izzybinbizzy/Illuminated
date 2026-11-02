@@ -23,20 +23,26 @@ namespace Plugin
 {
 	namespace
 	{
-		constexpr std::string_view kFrozenPick = "IlluminatedFecFrozenGlow";    // 0 fades out (the default), 1 stays while frozen
-		constexpr float            kFrozenHold = 4.0f;                          // seconds at full strength
-		constexpr float            kFrozenOut = 2.0f;                           // then out over these
-		constexpr std::string_view kBurningPick = "IlluminatedFecBurningGlow";  // 0 fades out (the default), 1 stays while burning
-		constexpr float            kBurningHold = 8.0f;                         // played with no end: the char darkening ends at 8 s
-		constexpr float            kBurningOut = 1.0f;                          // the flames die over this
+		// a FEC body shader whose light fades out on its pick (0 = fades, the default): seconds lit, then out over `out`
+		struct BodyFade
+		{
+			std::string_view pick;
+			float            hold{ 0.0f };
+			float            out{ 0.0f };
+			bool             endlessOnly{ false };  // FEC plays its fire 2-5 s and the effect ends with it: only a fire with no end fades
+		};
 
 		std::unordered_map<const RE::TESEffectShader*, std::string> gFecKey;  // FEC's lit shaders -> their rows' key, at data load
-		const RE::TESEffectShader*                                  gFrozen = nullptr;
-		std::vector<const RE::TESEffectShader*>                     gBurning;  // FEC_FireFXS, FEC_FireHeavyFXS
+		std::unordered_map<const RE::TESEffectShader*, BodyFade>    gFades;   // frozen and burning, at data load
 
-		[[nodiscard]] bool Fades(const RE::TESEffectShader* a_shader)
+		// the fade this effect's light follows now; none when its pick says stay or FEC ends the effect itself
+		[[nodiscard]] const BodyFade* FadeOf(const RE::ShaderReferenceEffect* a_effect)
 		{
-			return a_shader && (a_shader == gFrozen || std::ranges::find(gBurning, a_shader) != gBurning.end());
+			const auto it = a_effect ? gFades.find(a_effect->effectData) : gFades.end();
+			if (it == gFades.end() || SettingValue(it->second.pick, 0) != 0 || (it->second.endlessOnly && a_effect->lifetime > 0.0f)) {
+				return nullptr;
+			}
+			return &it->second;
 		}
 
 		// one noted light: the fade Light Placer gave it and the fade we wrote, so the body fade is base x factor every update
@@ -78,8 +84,7 @@ namespace Plugin
 	void NoteFecShaders(const Coverage& a_cov)
 	{
 		gFecKey.clear();
-		gFrozen = nullptr;
-		gBurning.clear();
+		gFades.clear();
 		for (auto* shader : LightKit::FormsOf<RE::TESEffectShader>()) {
 			const auto low = shader ? Lower(EditorID(shader)) : std::string{};
 			if (!low.starts_with("fec_") || !a_cov.shaders.contains(low)) {
@@ -87,14 +92,14 @@ namespace Plugin
 			}
 			gFecKey.emplace(shader, FormKey(low));
 			if (low == "fec_frostfxs") {
-				gFrozen = shader;
+				gFades.emplace(shader, BodyFade{ "IlluminatedFecFrozenGlow", 4.0f, 2.0f, false });
 			} else if (low == "fec_firefxs" || low == "fec_fireheavyfxs") {
-				gBurning.push_back(shader);
+				gFades.emplace(shader, BodyFade{ "IlluminatedFecBurningGlow", 8.0f, 1.0f, true });
 			}
 		}
 		if (!gFecKey.empty()) {
 			SKSE::log::info("Frozen Electrocuted Combustion: {} of its shaders have lights{}", gFecKey.size(),
-				gFrozen ? "" : " (its frozen shader is not one)");
+				gFades.size() == 3 ? "" : " (not all of its frozen / burning shaders are)");
 		}
 	}
 
@@ -102,20 +107,8 @@ namespace Plugin
 
 	float FecBodyFade(const RE::ShaderReferenceEffect* a_effect)
 	{
-		const auto* shader = a_effect ? a_effect->effectData : nullptr;
-		if (!Fades(shader)) {
-			return 1.0f;
-		}
-		const bool frozen = shader == gFrozen;
-		if (SettingValue(frozen ? kFrozenPick : kBurningPick, 0) != 0) {
-			return 1.0f;
-		}
-		if (frozen) {
-			return std::clamp(1.0f - (a_effect->age - kFrozenHold) / kFrozenOut, 0.0f, 1.0f);
-		}
-		// FEC plays its fire for 2-5 s, then the effect lingers while its art fades: the light goes with the flames
-		const float flames = a_effect->lifetime > 0.0f ? a_effect->lifetime : kBurningHold;
-		return std::clamp(1.0f - (a_effect->age - flames) / kBurningOut, 0.0f, 1.0f);
+		const auto* fade = FadeOf(a_effect);
+		return fade ? std::clamp(1.0f - (a_effect->age - fade->hold) / fade->out, 0.0f, 1.0f) : 1.0f;
 	}
 
 	RE::NiAVObject* FleshBodyNode(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_root)
@@ -133,14 +126,14 @@ namespace Plugin
 
 	void NoteFleshRoots()
 	{
-		if (LightKit::FleshFx::Hues().empty() && !gFrozen && gBurning.empty()) {
+		if (LightKit::FleshFx::Hues().empty() && gFades.empty()) {
 			return;  // no flesh spell wears FleshFX's look and FEC is not here: nothing to note, ever
 		}
 		std::unordered_map<const RE::ShaderReferenceEffect*, NotedLights> roots;
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {
 			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
 				auto* shader = a_effect ? netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect) : nullptr;
-				if (shader && !shader->finished && (LightKit::FleshFx::HueOf(shader->effectData) || Fades(shader->effectData))) {
+				if (shader && !shader->finished && (LightKit::FleshFx::HueOf(shader->effectData) || FadeOf(shader))) {
 					const auto ref = shader->target.get();
 					if (auto* node = FleshBodyNode(ref.get(), shader->GetAttachRoot())) {
 						NotedLights            noted{ shader->effectID, {} };
@@ -188,7 +181,7 @@ namespace Plugin
 	{
 		const bool  live = a_effect && !a_effect->finished;
 		const auto* hue = live ? LightKit::FleshFx::HueOf(a_effect->effectData) : nullptr;
-		if (!hue && !(live && Fades(a_effect->effectData))) {
+		if (!hue && !(live && FadeOf(a_effect))) {
 			return;
 		}
 		const float   bodyFade = FecBodyFade(a_effect);
