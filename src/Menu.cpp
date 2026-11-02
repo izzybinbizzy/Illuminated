@@ -497,11 +497,13 @@ namespace Plugin
 					}
 				}
 				if (!s.follows.empty()) {
-					if (s.follows != drawn || !SettingAvailable(s)) {
+					if (!SettingAvailable(s)) {
 						continue;
 					}
-					ImGuiMCP::SameLine(0.0f, 24.0f);
-					ImGuiMCP::SetNextItemWidth(220.0f);
+					if (s.follows == drawn) {  // beside the setting it follows; on its own line when that one is not installed
+						ImGuiMCP::SameLine(0.0f, 24.0f);
+						ImGuiMCP::SetNextItemWidth(220.0f);
+					}
 				}
 				DrawSetting(i, s);
 				drawn = SettingAvailable(s) ? std::string_view(s.id) : std::string_view{};  // nothing goes beside a "not installed" line

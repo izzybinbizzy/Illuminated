@@ -108,9 +108,14 @@ namespace Plugin
 					}
 					const auto her = root->world.translate;
 					RE::BSVisit::TraverseScenegraphLights(root, [&](RE::NiPointLight* a_light) {
-						const auto& d = a_light->GetLightRuntimeData();
-						const auto  w = LightKit::Isl::Read(a_light);
-						const auto  at = a_light->world.translate - her;
+						RE::NiLight::LIGHT_RUNTIME_DATA d{};
+						std::array<std::uint32_t, 2>    w{};
+						{
+							const auto turn = LightKit::Turn();  // the sliders write a light's fade on worker threads under it
+							d = a_light->GetLightRuntimeData();
+							w = LightKit::Isl::Read(a_light);
+						}
+						const auto at = a_light->world.translate - her;
 						out.push_back(json{ { "name", a_light->name.c_str() }, { "parent", a_light->parent ? a_light->parent->name.c_str() : "" },
 							{ "fromHer", json::array({ at.x, at.y, at.z }) },
 							{ "firstPerson", first }, { "culled", a_light->GetAppCulled() }, { "fade", d.fade },
