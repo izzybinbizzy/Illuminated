@@ -47,7 +47,9 @@ namespace Plugin
 			const auto      dir = std::filesystem::current_path(ec) / "Data" / "LightPlacer" / "iLluminousElementals";
 			for (auto it = std::filesystem::recursive_directory_iterator(dir, std::filesystem::directory_options::skip_permission_denied, ec);
 				!ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
-				if (const auto stem = Lower(Fade::PathText(it->path().stem())); stem.starts_with("atronach")) {
+				std::error_code one;
+				if (const auto stem = Lower(Fade::PathText(it->path().stem()));
+					!it->is_directory(one) && stem.starts_with("atronach") && Lower(Fade::PathText(it->path().extension())) == ".json") {
 					out.insert(stem + "race");
 				}
 			}
@@ -141,15 +143,21 @@ namespace Plugin
 		if (AtronachRows().empty() || !data) {
 			return;
 		}
-		const auto theirs = ElementalRaces();
+		const auto  theirs = ElementalRaces();
+		std::size_t left = 0;
 		for (auto* race : data->GetFormArray<RE::TESRace>()) {
 			const char* id = race ? race->formEditorID.c_str() : nullptr;
 			const auto  row = id ? std::ranges::find_if(AtronachRows(), [id](const AtronachRow& a_r) { return LightKit::SameText(a_r.race, id); }) : AtronachRows().end();
-			if (row != AtronachRows().end() && !theirs.contains(Lower(id))) {
+			if (row == AtronachRows().end()) {
+				continue;
+			}
+			if (theirs.contains(Lower(id))) {
+				++left;
+			} else {
 				gRaces.emplace(race, row->color);
 			}
 		}
-		SKSE::log::info("atronach lights: {} of {} race(s) in this load order, {} name(s) left to iLluminous Elementals", gRaces.size(), AtronachRows().size(), theirs.size());
+		SKSE::log::info("atronach lights: {} of {} race(s) in this load order, {} left to iLluminous Elementals", gRaces.size(), AtronachRows().size(), left);
 	}
 
 	void TickAtronachLights()
@@ -169,7 +177,8 @@ namespace Plugin
 		gWait -= gWait > 0 ? 1 : 0;
 		// one limit with the art glows, which go first; a lowered limit puts out the lights past it at once
 		const auto cap = GlowLimit();
-		gRoom = (std::min)(kMostLights, cap > ArtGlowsLit() ? cap - ArtGlowsLit() : std::size_t{ 0 });
+		const auto glows = ArtGlowsLit();
+		gRoom = (std::min)(kMostLights, cap > glows ? cap - glows : std::size_t{ 0 });
 		for (auto& [id, lit] : gLit) {
 			lit.seen = false;
 		}

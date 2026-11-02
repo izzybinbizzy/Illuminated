@@ -231,6 +231,7 @@ namespace Plugin
 	inline constexpr std::uint32_t kRecordPortalStrict = 1u << 13;                 // TES_LIGHT_FLAGS::kPortalStrict
 	void                           DropAtronachLights();                           // a game loads, or a new one starts
 	[[nodiscard]] std::size_t      ArtLightCount();
+	[[nodiscard]] std::size_t      ArtLightsLitNow();
 	[[nodiscard]] std::size_t      ArtLightsMade();
 	// FleshLights.cpp (his call on FleshFX: "the dim light in its own color"): with Light Placer, a flesh spell's light takes
 	// FleshFX's hue right after Light Placer wrote it (the effect's update, any thread); without it ArtLights.cpp does

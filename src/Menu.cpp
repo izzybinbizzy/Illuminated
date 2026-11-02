@@ -115,7 +115,7 @@ namespace Plugin
 			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Made"));
 			ImGuiMCP::Text(T("Automatic lights: %zu, for %zu spell(s) without a patch"), AutoLightCount(), AutoCastingCount());
 			ImGuiMCP::Text(T("Ground lights: %zu now, %zu made"), GroundLightCount(), GroundLightsMade());
-			ImGuiMCP::Text(T("Art lights: %zu now, %zu made"), ArtLightCount(), ArtLightsMade());
+			ImGuiMCP::Text(T("Art lights: %zu lit, %zu kept, %zu made"), ArtLightsLitNow(), ArtLightCount(), ArtLightsMade());
 			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Hands and the log"));
 			ImGuiMCP::TextWrapped("%s", T("Each hand's lights right now and the debug log switch are on the Fading - debug page."));
 		}
