@@ -59,10 +59,11 @@ namespace Plugin
 		std::unordered_map<const RE::TESForm*, ModelKeyOf> gModelKey;
 		std::atomic<std::size_t>                           gMade{ 0 };       // the testing DLL's Diagnostics page reads these two
 		std::atomic<std::size_t>                           gKeptCount{ 0 };  // from the render thread
+		std::atomic<std::size_t>                           gLitCount{ 0 };
 		// the Performance cap on glows on people (his checklist 336): how many of gKept are lit now, the cap this frame
-		std::atomic<std::size_t> gLit{ 0 };  // the testing page reads it from the render thread
-		std::size_t              gCap{ (std::numeric_limits<std::size_t>::max)() };
-		bool                     gCapLogged{ false };
+		std::size_t gLit{ 0 };
+		std::size_t gCap{ (std::numeric_limits<std::size_t>::max)() };
+		bool        gCapLogged{ false };
 
 		[[nodiscard]] const std::string& ModelKey(const RE::TESForm* a_form, const char* a_model)
 		{
@@ -414,6 +415,7 @@ namespace Plugin
 			}
 			gKept.clear();
 			gKeptCount = 0;
+			gLitCount = 0;
 			gLit = 0;
 			return;
 		}
@@ -472,6 +474,7 @@ namespace Plugin
 			}
 		}
 		gKeptCount = gKept.size();
+		gLitCount = gLit;
 		// the lights that went to the body for a hand, now that the walk is over: the fading module and Lights by Item reach
 		// them as that hand's (both run after this in the player update)
 		for (const auto& b : gOnBody) {
@@ -483,7 +486,7 @@ namespace Plugin
 
 	std::size_t ArtGlowsLit()
 	{
-		return gLit.load();
+		return gLit;
 	}
 
 	void DropArtLights()
@@ -494,10 +497,12 @@ namespace Plugin
 		}
 		gKept.clear();
 		gKeptCount = 0;
+		gLitCount = 0;
 		gLit = 0;
 		gModelKey.clear();  // keyed by form address: a form made in memory and freed could hand its address to another
 	}
 
 	std::size_t ArtLightCount() { return gKeptCount.load(); }
+	std::size_t ArtLightsLitNow() { return gLitCount.load(); }
 	std::size_t ArtLightsMade() { return gMade.load(); }
 }

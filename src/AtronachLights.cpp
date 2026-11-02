@@ -49,7 +49,7 @@ namespace Plugin
 				!ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
 				std::error_code one;
 				if (const auto stem = Lower(Fade::PathText(it->path().stem()));
-					it->is_regular_file(one) && stem.starts_with("atronach") && Lower(Fade::PathText(it->path().extension())) == ".json") {
+					!it->is_directory(one) && stem.starts_with("atronach") && Lower(Fade::PathText(it->path().extension())) == ".json") {
 					out.insert(stem + "race");
 				}
 			}
@@ -177,7 +177,8 @@ namespace Plugin
 		gWait -= gWait > 0 ? 1 : 0;
 		// one limit with the art glows, which go first; a lowered limit puts out the lights past it at once
 		const auto cap = GlowLimit();
-		gRoom = (std::min)(kMostLights, cap > ArtGlowsLit() ? cap - ArtGlowsLit() : std::size_t{ 0 });
+		const auto glows = ArtGlowsLit();
+		gRoom = (std::min)(kMostLights, cap > glows ? cap - glows : std::size_t{ 0 });
 		for (auto& [id, lit] : gLit) {
 			lit.seen = false;
 		}
