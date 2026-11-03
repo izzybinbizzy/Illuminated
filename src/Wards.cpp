@@ -270,8 +270,19 @@ namespace Plugin
 		if (!gOtherColor || DynamicWardsLoaded() || !a_caster || a_caster->flags.none(RE::ActorMagicCaster::Flags::kCastingArtAttached)) {
 			return;
 		}
-		static const auto* hand = RE::TESDataHandler::GetSingleton()->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm");
+		auto* dh = RE::TESDataHandler::GetSingleton();
+		if (!dh) {
+			return;
+		}
+		static const auto* hand = dh->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm");
+		auto*              actor = a_caster->GetCasterAsActor();
 		const auto*        spell = a_caster->currentSpell;
+		// a readied ward not cast yet has no current spell: its hand's equipped one (RecordLights.cpp RecordOf does the same)
+		if (const auto source = a_caster->GetCastingSource(); !spell && actor &&
+															  (source == RE::MagicSystem::CastingSource::kLeftHand || source == RE::MagicSystem::CastingSource::kRightHand)) {
+			auto* equipped = actor->GetEquippedObject(source == RE::MagicSystem::CastingSource::kLeftHand);
+			spell = equipped ? equipped->As<RE::MagicItem>() : nullptr;
+		}
 		if (!hand || !spell || std::ranges::none_of(spell->effects, [](const RE::Effect* a_e) {
 				return a_e && a_e->baseEffect && a_e->baseEffect->data.castingArt == hand;
 			})) {
@@ -292,7 +303,6 @@ namespace Plugin
 		const auto turn = LightKit::Turn();
 		paint(a_caster->castingArtData.attachedArt.get());
 		// in first person Light Placer hangs them on the third-person node of the magic node's name
-		auto* actor = a_caster->GetCasterAsActor();
 		if (auto* third = actor ? actor->Get3D(false) : nullptr; third && a_caster->magicNode) {
 			paint(third->GetObjectByName(a_caster->magicNode->name));
 		}
@@ -304,7 +314,8 @@ namespace Plugin
 		if (!gOtherColor || DynamicWardsLoaded() || !RecordRoute()) {
 			return;
 		}
-		const auto* hand = RE::TESDataHandler::GetSingleton()->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm");
+		auto*       dh = RE::TESDataHandler::GetSingleton();
+		const auto* hand = dh ? dh->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm") : nullptr;
 		if (hand && hand->GetModel()) {
 			RecolorRecordModel(NormalPath(hand->GetModel()), ToColor(*gOtherColor));
 		}

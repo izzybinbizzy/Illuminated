@@ -313,11 +313,13 @@ namespace Plugin
 			return;
 		}
 		// copies of its own: another model's rows may share a record light
-		auto& copies = LightCopies();
+		auto&       copies = LightCopies();
+		std::size_t failed = 0;
 		for (auto& c : it->second) {
 			const auto source = std::ranges::find(copies, c.light, &LightCopy::form);
 			auto*      light = source != copies.end() ? CopyLight(c.light) : nullptr;
 			if (!light) {
+				++failed;  // this choice keeps its own color
 				continue;
 			}
 			LightCopy copy = *source;
@@ -333,7 +335,8 @@ namespace Plugin
 			copies.push_back(std::move(copy));
 			c.light = light;
 		}
-		SKSE::log::info("record lights: {} light(s) of {} take {},{},{}", it->second.size(), a_model, a_color.red, a_color.green, a_color.blue);
+		SKSE::log::info("record lights: {} of {} light(s) of {} take {},{},{} ({} could not be copied)", it->second.size() - failed,
+			it->second.size(), a_model, a_color.red, a_color.green, a_color.blue, failed);
 	}
 
 	RE::Color VanillaLook(RE::Color a_color)
