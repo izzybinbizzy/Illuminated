@@ -404,6 +404,9 @@ namespace Plugin
 			if (ImGuiMCP::Button(T("HexRim"))) {
 				SetById("IlluminatedBrightness", 100);
 				SetById("IlluminatedReach", 100);
+				SetById("IlluminatedDynamicLighting", 1);
+				SetById("IlluminatedHandLights", 0);
+				SetById("IlluminatedStreamLights", 1);
 				SetById("IlluminatedFireArt", 2);   // Embers XD
 				SetById("IlluminatedFrostArt", 1);  // Kittytail
 				SetById("IlluminatedHealingArt", 1);
