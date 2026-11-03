@@ -239,6 +239,12 @@ namespace Plugin
 		std::optional<RE::NiColor> gOtherColor;          // set when that sphere is not 360 Ward's orange
 		bool                       gFlashOther = false;  // 360 Ward's hit flash recolored too (its Hit FX file is optional)
 
+		RE::Color ToColor(const RE::NiColor& a_color)
+		{
+			const auto byte = [](float a_value) { return static_cast<std::uint8_t>(std::lround(std::clamp(a_value, 0.0f, 1.0f) * 255.0f)); };
+			return RE::Color{ byte(a_color.red), byte(a_color.green), byte(a_color.blue), 0 };
+		}
+
 		const StrangeWards& StrangeWardsLook()
 		{
 			static const StrangeWards look = [] {
@@ -289,6 +295,18 @@ namespace Plugin
 		auto* actor = a_caster->GetCasterAsActor();
 		if (auto* third = actor ? actor->Get3D(false) : nullptr; third && a_caster->magicNode) {
 			paint(third->GetObjectByName(a_caster->magicNode->name));
+		}
+	}
+
+	// on the record route the ward hand's casting light is a record light made from the config's blue row, not the game's hand light
+	void TintWardRecords()
+	{
+		if (!gOtherColor || DynamicWardsLoaded() || !RecordRoute()) {
+			return;
+		}
+		const auto* hand = RE::TESDataHandler::GetSingleton()->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm");
+		if (hand && hand->GetModel()) {
+			RecolorRecordModel(NormalPath(hand->GetModel()), ToColor(*gOtherColor));
 		}
 	}
 
@@ -416,8 +434,7 @@ namespace Plugin
 		// Strange Wards' Amber / Sswaye Special: the game's ward hand light takes the pick's color (not under 360 Ward's sphere)
 		if (const auto color = has360 ? gOtherColor : StrangeWardColor(); color) {
 			if (auto* light = dh->LookupForm<RE::TESObjectLIGH>(kWardHandLight, "Skyrim.esm")) {
-				const auto byte = [](float a_value) { return static_cast<std::uint8_t>(std::lround(std::clamp(a_value, 0.0f, 1.0f) * 255.0f)); };
-				light->data.color = RE::Color{ byte(color->red), byte(color->green), byte(color->blue), 0 };
+				light->data.color = ToColor(*color);
 				SKSE::log::info("wards: the ward hand light takes {}", has360 ? "the recolored 360 Ward sphere's color" : "Strange Wards' pick color");
 			}
 		}

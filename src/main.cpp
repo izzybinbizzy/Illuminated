@@ -96,6 +96,7 @@ namespace
 		ReadAtronachRaces();  // the same
 		if (record) {
 			MakeRecordLights();    // before passes 1 and 2, which point the records at them
+			TintWardRecords();     // a recolored 360 Ward's color onto the ward hand's record lights
 			NoteEnchantShaders();  // a drawn weapon's enchantment shader -> its rows (ArtLights.cpp), before the editor IDs go
 		}
 		if (cov.files == 0) {
