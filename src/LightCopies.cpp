@@ -551,6 +551,9 @@ namespace Plugin
 						ApplyHandBudget(a_this);
 						Fade::AfterCaster(a_this);  // Lights by Item over Light Placer's animation of the casting lights
 					}
+					if (!RecordRoute()) {
+						TintWardHands(a_this);
+					}
 					ApplyRecordHand(a_this);  // last: the sneak fade over everything written above
 				});
 			}

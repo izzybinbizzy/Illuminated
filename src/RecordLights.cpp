@@ -306,6 +306,39 @@ namespace Plugin
 			gMade, gFlickerOf.size(), gChoices.size(), gRows, gNotOurs, gMissing, gFailed, gMs);
 	}
 
+	void RecolorRecordModel(const std::string& a_model, RE::Color a_color)
+	{
+		const auto it = gChoices.find(a_model);
+		if (!gOn || it == gChoices.end()) {
+			return;
+		}
+		// copies of its own: another model's rows may share a record light
+		auto&       copies = LightCopies();
+		std::size_t failed = 0;
+		for (auto& c : it->second) {
+			const auto source = std::ranges::find(copies, c.light, &LightCopy::form);
+			auto*      light = source != copies.end() ? CopyLight(c.light) : nullptr;
+			if (!light) {
+				++failed;  // this choice keeps its own color
+				continue;
+			}
+			LightCopy copy = *source;
+			copy.id = std::format("{} recolored {},{},{}", source->id, a_color.red, a_color.green, a_color.blue);
+			copy.form = light;
+			light->data.color = RE::Color{ a_color.red, a_color.green, a_color.blue, light->data.color.alpha };
+			gAsMade.insert_or_assign(light, light->data.color);
+			light->data.color = VanillaLook(light->data.color);
+			gOurRecords.insert(light);
+			if (const auto flicker = gFlickerOf.find(c.light); flicker != gFlickerOf.end()) {
+				gFlickerOf.emplace(light, flicker->second);
+			}
+			copies.push_back(std::move(copy));
+			c.light = light;
+		}
+		SKSE::log::info("record lights: {} of {} light(s) of {} take {},{},{} ({} could not be copied)", it->second.size() - failed,
+			it->second.size(), a_model, a_color.red, a_color.green, a_color.blue, failed);
+	}
+
 	RE::Color VanillaLook(RE::Color a_color)
 	{
 		if (LightingFound() == Lighting::kVanilla) {
