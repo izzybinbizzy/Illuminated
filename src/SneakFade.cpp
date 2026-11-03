@@ -20,6 +20,7 @@
 // nobody wrote since; after them it is dimmed again. So Brightness, the fading module, Light Placer and the game only ever read
 // their own numbers. A listed light is held, so its address is never another light's while it is listed.
 
+#include "Fade.h"
 #include "Plugin.h"
 
 namespace Plugin
@@ -29,12 +30,13 @@ namespace Plugin
 		constexpr std::string_view kSneaking = "IlluminatedSneaking";  // 0 fade (the default), 1 stay on
 		constexpr std::string_view kSneakBrightness = "IlluminatedSneakingBrightness";
 		// a new name so the old setting's saved "fade out" default (1.8 wrote it into every settings file) is not read
-		constexpr std::string_view kInvisible = "IlluminatedInShadow";   // 0 stay on (the default), 1 fade out
-		constexpr std::string_view kRunes = "IlluminatedSneakingRunes";  // 0 fade with their caster (the default), 1 stay lit
-		constexpr std::string_view kArtLight = "IlluminatedArtLight";    // ArtLights.cpp
-		constexpr std::string_view kRowLight = "IlluminatedStreamRow";   // StreamLights.cpp: a bolt's row
-		constexpr std::string_view kWardLight = "IlluminatedStream";     // StreamLights.cpp: the ward dome
-		constexpr float            kTopCutoff = 1.0f;                    // the highest cutoff Light Placer and our lights write
+		constexpr std::string_view kInvisible = "IlluminatedInShadow";     // 0 stay on (the default), 1 fade out
+		constexpr std::string_view kRunes = "IlluminatedSneakingRunes";    // 0 fade with their caster (the default), 1 stay lit
+		constexpr std::string_view kSwirls = "IlluminatedSneakingSwirls";  // 0 her weapons' art stays (the default), 1 fades too
+		constexpr std::string_view kArtLight = "IlluminatedArtLight";      // ArtLights.cpp
+		constexpr std::string_view kRowLight = "IlluminatedStreamRow";     // StreamLights.cpp: a bolt's row
+		constexpr std::string_view kWardLight = "IlluminatedStream";       // StreamLights.cpp: the ward dome
+		constexpr float            kTopCutoff = 1.0f;                      // the highest cutoff Light Placer and our lights write
 		constexpr float            kFadeSeconds = 0.5f;
 		constexpr std::uint32_t    kForgetFrames = 3;
 
@@ -284,6 +286,13 @@ namespace Plugin
 
 	void SneakFrameEnd(float a_delta)
 	{
+		// her weapons' enchantment art (VAER's swirls) glides with her sneaking alone while "Weapon swirls" says Fade too
+		static float swirls = 1.0f;
+		const auto*  me = RE::PlayerCharacter::GetSingleton();
+		const float  swirlTarget = me && SettingValue(kSwirls, 0) == 1 && Fades() && me->IsSneaking() ? SneakLow() : 1.0f;
+		const float  swirlStep = std::clamp(a_delta, 0.0f, 0.25f) / kFadeSeconds;
+		swirls = swirls < swirlTarget ? (std::min)(swirls + swirlStep, swirlTarget) : (std::max)(swirls - swirlStep, swirlTarget);
+		Fade::SetSneakArt(swirls);
 		const bool              fades = Fades() || FadesInvisible();
 		std::vector<RE::FormID> listed;
 		{
