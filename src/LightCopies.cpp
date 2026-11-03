@@ -536,6 +536,7 @@ namespace Plugin
 						Fade::UpdateHands(a_delta);
 					}
 					SneakFrameEnd(a_delta);  // over every fade written above (SneakFade.cpp)
+					PlaceHerShadow();        // with the shadow download: her two hands' lights at one point (HerShadow.cpp)
 					TickGroundLights();      // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
 				});
 			}

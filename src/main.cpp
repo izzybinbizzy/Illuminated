@@ -151,6 +151,7 @@ namespace
 		DropArtLights();
 		DropAtronachLights();
 		DropGroundLights();
+		DropHerShadow();
 		DropStreamLights();
 		DropSneakFade();
 		DropCastingLights();
