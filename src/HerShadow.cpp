@@ -7,6 +7,10 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -24,12 +28,26 @@ namespace Plugin
 
 		std::vector<Moved> gMoved;  // main thread only
 
-		// the shadow download's marker file: without it nothing here moves a light
+		// Open Shaders' "Promote Normal Lights to Shadow Casters" makes every light a caster, hers too; it reads the setting at start
+		[[nodiscard]] bool PromoteOn()
+		{
+			std::ifstream              in("Data/SKSE/Plugins/CommunityShaders/SettingsUser.json", std::ios::binary);
+			const std::string          text{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+			constexpr std::string_view key = "\"PromoteNormalToShadow\"";
+			const auto                 at = text.find(key);
+			if (at == std::string::npos) {
+				return false;
+			}
+			const auto value = text.find_first_not_of(" \t\r\n:", at + key.size());
+			return value != std::string::npos && text.compare(value, 4, "true") == 0;
+		}
+
+		// the shadow download's marker file, or Open Shaders promoting every light: without one nothing here moves a light
 		[[nodiscard]] bool ShadowDownload()
 		{
 			static const bool on = [] {
 				std::error_code ec;
-				return std::filesystem::exists("Data/SKSE/Plugins/Illuminated/Bottled Shaders Shadows.ini", ec);
+				return std::filesystem::exists("Data/SKSE/Plugins/Illuminated/Bottled Shaders Shadows.ini", ec) || (InverseSquare() && PromoteOn());
 			}();
 			return on;
 		}
