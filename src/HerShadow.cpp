@@ -1,7 +1,6 @@
-// HerShadow.cpp - the optional Bottled Shaders shadow download makes her own hand lights shadow casters; with both hands lit
-// they threw two crossed shadows (his checklist 430). While both hands are lit, their lights sit at one point between her
-// hands, so they throw one shadow; with one hand lit that hand's lights go back where Light Placer put them. RELight's
-// Hooks.cpp PlaceHerShadow is the same idea for its own lights.
+// HerShadow.cpp - the optional Bottled Shaders shadow download makes her own hand lights shadow casters, and two lit hands
+// throw two crossed shadows. While both hands are lit their lights sit at one point between her hands, so they throw one
+// shadow and light as much as before; with one hand lit that hand's lights go back where Light Placer put them.
 
 #include "Plugin.h"
 #include "StrayLights.h"
@@ -19,7 +18,8 @@ namespace Plugin
 		struct Moved
 		{
 			RE::NiPointer<RE::NiPointLight> light;
-			RE::NiPoint3                    placed{};  // Light Placer's place for it, in its parent's frame
+			const RE::NiNode*               parent{ nullptr };  // the place below is in this node's frame only
+			RE::NiPoint3                    placed{};           // Light Placer's place for it
 		};
 
 		std::vector<Moved> gMoved;  // main thread only
@@ -64,12 +64,15 @@ namespace Plugin
 		if (!player || !strings) {
 			return;
 		}
-		std::vector<std::pair<RE::NiPointLight*, RE::NiPoint3>> between;  // this frame: a light and the world point it goes to
+		// kept between frames so the player update allocates nothing once they have grown
+		static std::vector<std::pair<RE::NiPointLight*, RE::NiPoint3>> between;  // this frame: a light and the world point it goes to
+		static std::vector<RE::NiPointLight*>                          lights;
+		between.clear();
 		for (const bool first : { false, true }) {
-			auto*                          root = player->Get3D(first);
-			auto*                          left = root ? root->GetObjectByName(strings->npcLMagicNode) : nullptr;
-			auto*                          right = root ? root->GetObjectByName(strings->npcRMagicNode) : nullptr;
-			std::vector<RE::NiPointLight*> lights;
+			auto* root = player->Get3D(first);
+			auto* left = root ? root->GetObjectByName(strings->npcLMagicNode) : nullptr;
+			auto* right = root ? root->GetObjectByName(strings->npcRMagicNode) : nullptr;
+			lights.clear();
 			OurLightsUnder(left, lights);
 			const std::size_t leftCount = lights.size();
 			OurLightsUnder(right, lights);
@@ -82,9 +85,9 @@ namespace Plugin
 			}
 		}
 		// a light no longer between her hands goes back to its own place
-		std::erase_if(gMoved, [&between](const Moved& a_m) {
+		std::erase_if(gMoved, [](const Moved& a_m) {
 			const bool still = std::ranges::any_of(between, [&a_m](const auto& a_b) { return a_b.first == a_m.light.get(); });
-			if (!still && a_m.light->parent) {
+			if (!still && a_m.light->parent && a_m.light->parent == a_m.parent) {
 				a_m.light->local.translate = a_m.placed;
 				a_m.light->world.translate = a_m.light->parent->world * a_m.placed;
 			}
@@ -92,7 +95,7 @@ namespace Plugin
 		});
 		for (auto& [light, point] : between) {
 			if (!WasMoved(light)) {
-				gMoved.push_back({ RE::NiPointer<RE::NiPointLight>(light), light->local.translate });
+				gMoved.push_back({ RE::NiPointer<RE::NiPointLight>(light), light->parent, light->local.translate });
 			}
 			light->local.translate = light->parent->world.Invert() * point;
 			light->world.translate = point;
