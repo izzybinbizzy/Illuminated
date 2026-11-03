@@ -548,8 +548,9 @@ namespace Fade
 			return first == vtbl.address() ? static_cast<RE::ActiveEffectReferenceEffectController*>(a_ctrl) : nullptr;
 		}
 
-		// a spell's glow on the one who cast it from a hand (a self heal): that hand and its caster; false for anything else
-		bool HandOfSelfSpell(RE::ReferenceEffect* a_effect, RE::Actor*& a_actor, bool& a_left)
+		// a spell's glow on the one who cast it from a hand (a self heal): that hand, its caster and the glow's own spell; false
+		// for anything else
+		bool HandOfSelfSpell(RE::ReferenceEffect* a_effect, RE::Actor*& a_actor, bool& a_left, const RE::MagicItem*& a_spell)
 		{
 			using Source = RE::MagicSystem::CastingSource;
 			auto* ctrl = a_effect ? SpellEffectOf(a_effect->controller) : nullptr;
@@ -564,6 +565,7 @@ namespace Fade
 			}
 			a_actor = target;
 			a_left = effect->castingSource == Source::kLeftHand;
+			a_spell = effect->spell;
 			return true;
 		}
 
@@ -1054,11 +1056,16 @@ namespace Fade
 		if ((!weapons && !spells) || !gDimShader.load(std::memory_order_relaxed) || !a_effect || !a_effect->effectShaderData) {
 			return;
 		}
-		RE::Actor*      actor = nullptr;
-		bool            left = false;
-		RE::NiAVObject* root = nullptr;
-		const bool      enchantment = weapons && HandOfEffect(a_effect, actor, left, root);
-		if (!enchantment && !(spells && HandOfSelfSpell(a_effect, actor, left))) {
+		RE::Actor*           actor = nullptr;
+		bool                 left = false;
+		RE::NiAVObject*      root = nullptr;
+		const bool           enchantment = weapons && HandOfEffect(a_effect, actor, left, root);
+		const RE::MagicItem* glowSpell = nullptr;
+		if (!enchantment && !(spells && HandOfSelfSpell(a_effect, actor, left, glowSpell))) {
+			return;
+		}
+		// a glow can outlive its spell's turn in the hand: its own spell's kind decides, as the hand path does
+		if (glowSpell && !KindOff(Config(), KindOf(glowSpell)).empty()) {
 			return;
 		}
 		std::lock_guard lock(gLock);
