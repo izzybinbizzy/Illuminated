@@ -257,6 +257,41 @@ namespace Plugin
 		return StrangeWardsLook().installed ? StrangeWardsLook().color : std::nullopt;
 	}
 
+	// with Light Placer the ward's hand light is its row in Restoration - Wards (the config's blue), which the hand light
+	// record's color never reaches; under a recolored 360 Ward a caster holding a ward gives those rows the sphere's color
+	void TintWardHands(RE::ActorMagicCaster* a_caster)
+	{
+		if (!gOtherColor || DynamicWardsLoaded() || !a_caster || a_caster->flags.none(RE::ActorMagicCaster::Flags::kCastingArtAttached)) {
+			return;
+		}
+		static const auto* hand = RE::TESDataHandler::GetSingleton()->LookupForm<RE::BGSArtObject>(kHandArt, "Skyrim.esm");
+		const auto*        spell = a_caster->currentSpell;
+		if (!hand || !spell || std::ranges::none_of(spell->effects, [](const RE::Effect* a_e) {
+				return a_e && a_e->baseEffect && a_e->baseEffect->data.castingArt == hand;
+			})) {
+			return;
+		}
+		static constexpr std::string_view kRows = "LP_Light[Illuminated\\Restoration\\Restoration - Wards|";
+		const RE::NiColor                 color = *gOtherColor;
+		const auto                        paint = [&color](RE::NiAVObject* a_root) {
+			if (a_root) {
+				RE::BSVisit::TraverseScenegraphLights(a_root, [&color](RE::NiPointLight* a_light) {
+					if (a_light && std::string_view(a_light->name.c_str()).starts_with(kRows)) {
+						a_light->GetLightRuntimeData().diffuse = color;
+					}
+					return RE::BSVisit::BSVisitControl::kContinue;
+				});
+			}
+		};
+		const auto turn = LightKit::Turn();
+		paint(a_caster->castingArtData.attachedArt.get());
+		// in first person Light Placer hangs them on the third-person node of the magic node's name
+		auto* actor = a_caster->GetCasterAsActor();
+		if (auto* third = actor ? actor->Get3D(false) : nullptr; third && a_caster->magicNode) {
+			paint(third->GetObjectByName(a_caster->magicNode->name));
+		}
+	}
+
 	bool StrangeWardsInstalled()
 	{
 		return StrangeWardsLook().installed;

@@ -354,6 +354,7 @@ namespace Plugin
 	[[nodiscard]] bool                       DynamicWardsLoaded();                                          // Wards.cpp: every ward is Dynamic Wards' then (this mod and pass 6 step down)
 	void                                     ApplyWardLook();                                               // Wards.cpp: the Ward look pick onto the dome art (main thread)
 	[[nodiscard]] bool                       StrangeWardsInstalled();                                       // Wards.cpp: Strange Wards' dome is the vanilla mesh
+	void                                     TintWardHands(RE::ActorMagicCaster* a_caster);                 // Wards.cpp: a recolored 360 Ward's color onto Light Placer's ward hand rows (caster update)
 	[[nodiscard]] std::optional<RE::NiColor> StrangeWardColor();                                            // Wards.cpp: its pick's color, none = the vanilla blue-white
 	void                                     WatchBlocking();                                               // Wards.cpp: a shield's ward checked the moment a block starts (each game load)
 	void                                     KeepBlockWatch(float a_delta);                                 // Wards.cpp, player update: the watch follows a rebuilt animation graph
