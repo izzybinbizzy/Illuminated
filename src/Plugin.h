@@ -208,7 +208,8 @@ namespace Plugin
 	void                                                  DropHandBudget();         // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
 
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
-	void                             DecideRecordRoute();  // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer
+	void                             DecideRecordRoute();     // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer
+	[[nodiscard]] bool               LightPlacerReadFirst();  // main.cpp: Light Placer's SKSE load ran before ours (its configs are read before our lights exist)
 	[[nodiscard]] bool               RecordRoute();
 	[[nodiscard]] const char*        RecordRouteWhy();                                                       // the reason, for the log and DevBench
 	void                             MakeRecordLights();                                                     // after MakeLightCopies and ReadCoverage, before pass 1
