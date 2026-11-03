@@ -399,6 +399,25 @@ namespace Plugin
 				}
 				MenuStyle::Tip(p.tip);
 			}
+			// the HexRim collection ships no Illuminated settings of its own: its spell art and the HexRim patches, the rest as made
+			ImGuiMCP::SameLine();
+			if (ImGuiMCP::Button(T("HexRim"))) {
+				SetById("IlluminatedBrightness", 100);
+				SetById("IlluminatedReach", 100);
+				SetById("IlluminatedDynamicLighting", 1);
+				SetById("IlluminatedHandLights", 0);
+				SetById("IlluminatedStreamLights", 1);
+				SetById("IlluminatedFireArt", 2);   // Embers XD
+				SetById("IlluminatedFrostArt", 1);  // Kittytail
+				SetById("IlluminatedHealingArt", 1);
+				SetById("IlluminatedShockArt", 1);
+				for (const char* id : { "IlluminatedHexRimAstral", "IlluminatedHexRimConstellation", "IlluminatedHexRimFrostbittenDreams",
+						 "IlluminatedHexRimHolyTemplar", "IlluminatedHexRimWinterWonderland", "IlluminatedHexRimWildwaker",
+						 "IlluminatedHexRimDragonsUseThuum", "IlluminatedHexRimRestlessDead", "IlluminatedHexRimAtronachs" }) {
+					SetById(id, 1);
+				}
+			}
+			MenuStyle::Tip(T("Set up for the HexRim collection: its spell art (Embers XD, Kittytail's VFX) and every HexRim patch on."));
 			// the player's own presets, for the lighting found now
 			static char name[48]{};
 			ImGuiMCP::SetNextItemWidth(220.0f);
