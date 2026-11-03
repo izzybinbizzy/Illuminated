@@ -59,6 +59,13 @@ using namespace Plugin;
 
 namespace
 {
+	bool gLightPlacerFirst{ false };  // SKSEPluginLoad
+}
+
+bool Plugin::LightPlacerReadFirst() { return gLightPlacerFirst; }
+
+namespace
+{
 	// ------------------------------------------------------------------ order of work
 	void LoadEverything()
 	{
@@ -200,6 +207,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	if (!RuntimeGuard::RightGame("Illuminated", "Illuminated - Spell Lighting NG", "Illuminated - VR")) {
 		return true;
 	}
+	// SKSE loads its plugins one at a time (LoadLibrary, then the plugin's load), and each listener is called in the order it
+	// registered: a Light Placer module already here registered first, so at data load it reads its configs before our
+	// lights exist and drops every row that names one (Light Placer has no preload; SKSE's scan loads only as resources)
+	gLightPlacerFirst = REX::W32::GetModuleHandleA("po3_LightPlacer.dll") != nullptr;
 	// the editor-ID recorders are installed at SKSE's post-load (OnMessage), still before the game reads its plugins
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
 	SKSE::log::info("Illuminated plugin loaded; waiting for the game's data");

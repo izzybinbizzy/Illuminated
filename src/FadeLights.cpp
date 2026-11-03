@@ -173,6 +173,8 @@ namespace Fade
 		std::atomic<float> gSneakArt{ 1.0f };
 		// spell hands followed this frame (a self-cast glow fades with them; gActiveHands counts weapon hands only)
 		std::atomic<std::size_t> gActiveSpellHands{ 0 };
+		// this frame's settings, for the effect hooks (under gLock)
+		Settings gFrameSettings{};
 		// Lights by Item's own record of each weapon hand's enchantment-effect roots, for a hand the fading pass does not follow
 		// (Fading off, the weapon exempt): filled by the effect hooks, under gLock, only while Items asked for it the frame before
 		// (gItemRootsWanted, set by EffectRootsOf, cleared by UpdateHands). Never filled by walking the game's own list of magic
@@ -843,6 +845,7 @@ namespace Fade
 		const bool      hudHidden = s.enabled && s.hudGems && HudMovieHidden();
 		std::lock_guard lock(gLock);
 		++gFrame;
+		gFrameSettings = s;
 		// Lights by Item asks again this frame if it still needs its own roots (EffectRootsOf); a hand's roots not seen for a
 		// few frames are let go (they hold the effects' 3D)
 		gItemRootsWanted.store(false, std::memory_order_relaxed);
@@ -1064,13 +1067,18 @@ namespace Fade
 		if (!enchantment && !(spells && HandOfSelfSpell(a_effect, actor, left, glowSpell))) {
 			return;
 		}
-		// a glow can outlive its spell's turn in the hand: its own spell's kind decides, as the hand path does
-		if (glowSpell && !KindOff(Config(), KindOf(glowSpell)).empty()) {
-			return;
-		}
 		std::lock_guard lock(gLock);
 		const auto*     hand = enchantment ? ActiveHand(actor, left) : ActiveSpellHand(actor, left);
 		if (!hand) {
+			return;
+		}
+		// a glow can outlive its spell's turn in the hand: its own spell's kind decides, as the hand path does, and one that
+		// is off goes back to its own strength at once
+		if (glowSpell && glowSpell != hand->kindSpell && !KindOff(gFrameSettings, KindOf(glowSpell)).empty()) {
+			if (const auto it = gShaders.find(a_effect); it != gShaders.end()) {
+				RestoreShader(it->second);
+				gShaders.erase(it);
+			}
 			return;
 		}
 		auto [it, added] = gShaders.try_emplace(a_effect);

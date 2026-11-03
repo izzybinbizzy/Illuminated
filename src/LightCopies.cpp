@@ -216,6 +216,19 @@ namespace Plugin
 			return nullptr;
 		}
 
+		// the actor a weapon enchantment's effect is on, read off its controller by vtable (no RTTI cast on every effect, and no
+		// handle off the main thread); nullptr for any other effect
+		const RE::TESObjectREFR* WeaponTargetOf(RE::ReferenceEffectController* a_ctrl)
+		{
+			if (!a_ctrl) {
+				return nullptr;
+			}
+			static const REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_WeaponEnchantmentController[0] };
+			std::uintptr_t                               first = 0;
+			std::memcpy(&first, static_cast<const void*>(a_ctrl), sizeof(first));
+			return first == vtbl.address() ? static_cast<RE::WeaponEnchantmentController*>(a_ctrl)->target : nullptr;
+		}
+
 		// gFlickerLock is held by every caller
 		void Scale(Flicker& a_flicker)
 		{
@@ -572,13 +585,14 @@ namespace Plugin
 			{
 				func(a_this);
 				LightKit::Guarded("effect update", [a_this]() {
-					// the owner by the effect's own 3D, not its target handle: this hook runs off the main thread, where making or
-					// reading a handle is not ours to do (the fading module's rule; the re-score's Illuminated issue 2)
-					const auto*               owner = OwnerOf(a_this->Get3D());
-					std::optional<SneakPause> pause;
-					if (owner) {
-						pause.emplace(owner);  // only the lights of the actor it is on; an effect on nothing pauses none
+					// no handle off the main thread: a weapon enchantment's owner is its controller's plain target (in first person
+					// its art hangs in the first-person skeleton, which names no reference), anything else's is found by its 3D
+					const RE::TESObjectREFR* owner = WeaponTargetOf(a_this->controller);
+					if (!owner) {
+						owner = OwnerOf(a_this->Get3D());
 					}
+					// an effect on nothing pauses her lights only: her first-person skeleton is the one that names no reference
+					const SneakPause pause{ owner ? owner : RE::PlayerCharacter::GetSingleton() };
 					if (Scaling()) {
 						ScaleOwned(owner);
 					}

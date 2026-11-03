@@ -167,6 +167,22 @@ namespace Plugin
 		}
 	}
 
+	namespace
+	{
+		// Light Placer's own console command (since 2.0); its handler reads none of the console's arguments. True when it ran
+		[[nodiscard]] bool ReloadLightPlacer()
+		{
+			auto* command = RE::SCRIPT_FUNCTION::LocateConsoleCommand("ReloadLP");
+			if (!command || !command->executeFunction) {
+				return false;
+			}
+			double        result = 0.0;
+			std::uint32_t offset = 0;
+			command->executeFunction(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, result, offset);
+			return true;
+		}
+	}
+
 	// HIS ANSWER 2026-10-13 (the cloud audit's Q7, "yes to all your picks"): on Vanilla and ENB Illuminated always lights
 	// its own way, even when Light Placer is installed for another mod - Light Placer is the Community Shaders route only.
 	// One download serves all three lightings and Light Placer reads every file under Data\LightPlacer when it loads, so our
@@ -185,6 +201,17 @@ namespace Plugin
 		if (!SetLightPlacerRoute(!gOn) && !gOn) {
 			gOn = true;
 			gWhy = "the route global could not be made";
+		}
+		// Light Placer loaded before us read its configs before our lights and globals existed and dropped every row naming one;
+		// they exist now, so its own ReloadLP reads them again. If it cannot, this route lights them (never dark)
+		if (!gOn && LightPlacerReadFirst()) {
+			if (ReloadLightPlacer()) {
+				SKSE::log::info("record lights: Light Placer loaded before Illuminated, so its configs were read again (ReloadLP) now that Illuminated's lights exist");
+			} else {
+				gOn = true;
+				gWhy = "Light Placer loaded before Illuminated and its ReloadLP could not be run";
+				static_cast<void>(SetLightPlacerRoute(false));
+			}
 		}
 		KeepConfigLights(gOn);
 		if (gOn) {
