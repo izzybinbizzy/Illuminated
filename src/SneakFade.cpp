@@ -59,6 +59,7 @@ namespace Plugin
 		std::mutex                               gLock;
 		std::atomic<bool>                        gDimming{ false };  // gDim holds a light
 		std::uint32_t                            gFrame{ 0 };
+		float                                    gSwirls{ 1.0f };  // her weapons' art level (main thread); full again at a load
 
 		[[nodiscard]] bool  Fades() { return SettingValue(kSneaking, 0) == 0; }
 		[[nodiscard]] bool  FadesInvisible() { return SettingValue(kInvisible, 0) == 1; }
@@ -287,10 +288,10 @@ namespace Plugin
 	void SneakFrameEnd(float a_delta)
 	{
 		// her weapons' enchantment art (VAER's swirls) glides with her sneaking alone while "Weapon swirls" says Fade too
-		static float swirls = 1.0f;
-		const auto*  me = RE::PlayerCharacter::GetSingleton();
-		const float  swirlTarget = me && SettingValue(kSwirls, 0) == 1 && Fades() && me->IsSneaking() ? SneakLow() : 1.0f;
-		const float  swirlStep = std::clamp(a_delta, 0.0f, 0.25f) / kFadeSeconds;
+		float&      swirls = gSwirls;
+		const auto* me = RE::PlayerCharacter::GetSingleton();
+		const float swirlTarget = me && SettingValue(kSwirls, 0) == 1 && Fades() && me->IsSneaking() ? SneakLow() : 1.0f;
+		const float swirlStep = std::clamp(a_delta, 0.0f, 0.25f) / kFadeSeconds;
 		swirls = swirls < swirlTarget ? (std::min)(swirls + swirlStep, swirlTarget) : (std::max)(swirls - swirlStep, swirlTarget);
 		Fade::SetSneakArt(swirls);
 		const bool              fades = Fades() || FadesInvisible();
@@ -416,6 +417,8 @@ namespace Plugin
 		std::lock_guard l{ gLock };
 		gDim.clear();
 		gLevels.clear();
+		gSwirls = 1.0f;
+		Fade::SetSneakArt(1.0f);
 		gDimming.store(false, std::memory_order_release);
 	}
 
