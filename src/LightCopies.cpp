@@ -591,7 +591,8 @@ namespace Plugin
 					if (!owner) {
 						owner = OwnerOf(a_this->Get3D());
 					}
-					const SneakPause pause{ owner };  // its actor's lights; an effect on nothing pauses every dimmed light
+					// an effect on nothing pauses her lights only: her first-person skeleton is the one that names no reference
+					const SneakPause pause{ owner ? owner : RE::PlayerCharacter::GetSingleton() };
 					if (Scaling()) {
 						ScaleOwned(owner);
 					}
