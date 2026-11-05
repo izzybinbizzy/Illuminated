@@ -124,7 +124,8 @@ namespace Plugin
 				lit.root.reset(node);
 				lit.color = race->second;
 				Dress(lit);
-				lit.bs.reset(LightKit::Hang(node, light, a_scene));
+				// not portal strict: the atronach's glow goes through doorways with it
+				lit.bs.reset(LightKit::Hang(node, light, a_scene, 1.0f, false));
 				if (!lit.bs) {
 					gWait = kRefusedWait;
 					return;

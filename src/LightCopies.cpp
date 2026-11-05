@@ -930,6 +930,26 @@ namespace Plugin
 		}
 	}
 
+	// a portal-strict patcher (Portal Strict Lights Patcher Framework flags every light record a Light Placer row names, at its own
+	// data load, after ours) would make our copies strict again and her hand lights dark indoors. Light Placer adds each row's own
+	// PortalStrict on top of the record's, so the copies stay without it and every row decides for itself. Once, before a game loads
+	void KeepCopiesOutOfPortals()
+	{
+		static bool done = false;
+		if (done || RecordRoute()) {
+			return;
+		}
+		done = true;
+		std::size_t cleared = 0;
+		for (auto& c : LightCopies()) {
+			if (c.form && (c.form->data.flags.underlying() & kRecordPortalStrict)) {
+				c.form->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(c.form->data.flags.underlying() & ~kRecordPortalStrict);
+				++cleared;
+			}
+		}
+		SKSE::log::info("light copies: {} were portal strict after every mod's data load - cleared (each Light Placer row keeps its own)", cleared);
+	}
+
 	void DropHandBudget()
 	{
 		std::scoped_lock lock{ gBudgetLock };
