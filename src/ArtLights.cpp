@@ -134,8 +134,9 @@ namespace Plugin
 			Follow(a_kept);
 			RE::NiUpdateData update{};
 			light->Update(update);
-			const bool portalStrict = (a_record->data.flags.underlying() & kRecordPortalStrict) != 0;
-			auto*      bs = LightKit::AddToScene(a_scene, light, 1.0f, portalStrict);
+			// a light on her goes through doorways with her: portal strict, it lit only the room's own meshes, never her or the
+			// people beside her indoors
+			auto* bs = LightKit::AddToScene(a_scene, light, 1.0f, false);
 			if (!bs) {
 				a_root->DetachChild(light);
 				a_kept = {};

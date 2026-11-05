@@ -220,7 +220,8 @@ namespace Plugin
 					++held;
 					continue;
 				}
-				if (auto* bs = LightKit::AddToScene(a_scene, light)) {
+				// her casting art's light rides her through doorways: not portal strict, as its row now says
+				if (auto* bs = LightKit::AddToScene(a_scene, light, 1.0f, false)) {
 					gReadded.push_back({ RE::NiPointer<RE::NiLight>(light), RE::NiPointer<RE::BSLight>(bs) });
 					++again;
 				}

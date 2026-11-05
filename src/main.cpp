@@ -148,6 +148,7 @@ namespace
 	// the old game's lights and the art and weapons they hang on let go: at a load, and at a new game (it has no kPreLoadGame)
 	void ForgetOldGame()
 	{
+		KeepCopiesOutOfPortals();  // every mod's data load has run by now (a portal-strict patcher among them)
 		DropArtLights();
 		DropAtronachLights();
 		DropGroundLights();

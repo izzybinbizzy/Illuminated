@@ -145,9 +145,10 @@ namespace Plugin
 	[[nodiscard]] std::size_t                     GlowLimit();        // Performance > Limit glows on people: the most glows on people lit at once (no limit: the type's max)
 	[[nodiscard]] bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
-	void                                          MakeLightCopies();   // LightCopies.cpp
-	void                                          NoteSpellHazards();  // LightCopies.cpp: the hazard tint's tables, while editor IDs are kept
-	[[nodiscard]] float                           BrightnessNow();     // LightCopies.cpp: Brightness x Dim in daylight x Vanilla's strength, as the copies take it
+	void                                          MakeLightCopies();         // LightCopies.cpp
+	void                                          KeepCopiesOutOfPortals();  // LightCopies.cpp: once, before a game loads
+	void                                          NoteSpellHazards();        // LightCopies.cpp: the hazard tint's tables, while editor IDs are kept
+	[[nodiscard]] float                           BrightnessNow();           // LightCopies.cpp: Brightness x Dim in daylight x Vanilla's strength, as the copies take it
 	// StreamLights.cpp: pass 6 - each spray, stream and bolt keeps its own light record and wears a row of small lights along it
 	// (his stream rule), and a ward dome's light when Dynamic Wards is not here
 	void               StreamLights();

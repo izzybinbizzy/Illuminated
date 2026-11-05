@@ -9,11 +9,11 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <string>
-#include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 namespace Plugin
 {
@@ -28,18 +28,30 @@ namespace Plugin
 
 		std::vector<Moved> gMoved;  // main thread only
 
+		// the setting in whichever section holds it; parsed, so a repeated key keeps its last value as Open Shaders reads it
+		[[nodiscard]] bool PromoteIn(const nlohmann::json& a_node)
+		{
+			if (a_node.is_object()) {
+				if (const auto it = a_node.find("PromoteNormalToShadow"); it != a_node.end() && it->is_boolean()) {
+					return it->get<bool>();
+				}
+			}
+			if (a_node.is_structured()) {
+				for (const auto& child : a_node) {
+					if (PromoteIn(child)) {
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+
 		// Open Shaders' "Promote Normal Lights to Shadow Casters" makes every light a caster, hers too; it reads the setting at start
 		[[nodiscard]] bool PromoteOn()
 		{
-			std::ifstream              in("Data/SKSE/Plugins/CommunityShaders/SettingsUser.json", std::ios::binary);
-			const std::string          text{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
-			constexpr std::string_view key = "\"PromoteNormalToShadow\"";
-			const auto                 at = text.find(key);
-			if (at == std::string::npos) {
-				return false;
-			}
-			const auto value = text.find_first_not_of(" \t\r\n:", at + key.size());
-			return value != std::string::npos && text.compare(value, 4, "true") == 0;
+			std::ifstream in("Data/SKSE/Plugins/CommunityShaders/SettingsUser.json", std::ios::binary);
+			const auto    json = nlohmann::json::parse(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>(), nullptr, false);
+			return !json.is_discarded() && PromoteIn(json);
 		}
 
 		// the shadow download's marker file, or Open Shaders promoting every light: without one nothing here moves a light
@@ -57,9 +69,10 @@ namespace Plugin
 			if (!a_magic) {
 				return;
 			}
+			// a light faded to nothing (the off choice) leaves its hand unlit, so the other hand casts from its own place
 			RE::BSVisit::TraverseScenegraphLights(a_magic, [&a_out](RE::NiPointLight* a_light) {
 				const char* name = a_light->name.c_str();
-				if (a_light->parent && name && StrayLights::IsOurs(name)) {
+				if (a_light->parent && name && StrayLights::IsOurs(name) && a_light->GetLightRuntimeData().fade > 0.0f) {
 					a_out.push_back(a_light);
 				}
 				return RE::BSVisit::BSVisitControl::kContinue;
