@@ -252,6 +252,9 @@ namespace Plugin
 	void                      DropGroundLights();  // a game loads, or a new one starts: the twins and the hands they follow are the old game's
 	[[nodiscard]] std::size_t GroundLightCount();
 	[[nodiscard]] std::size_t GroundLightsMade();
+	// HerShadow.cpp: with the Bottled Shaders shadow download, both her hands' lights at one point between her hands (one shadow)
+	void PlaceHerShadow();  // the player update, after every pass wrote its fades (main thread)
+	void DropHerShadow();   // a game loads, or a new one starts
 	// SneakFade.cpp: a sneaking caster's lights fade to Sneaking brightness over half a second and back when they stand. Our
 	// write is the last word on a dimmed light and never a base for another pass: SneakPause around a pass that writes fades
 	// gives it the numbers the others left
