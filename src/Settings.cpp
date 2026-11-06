@@ -34,6 +34,11 @@ namespace Plugin
 		constexpr const char* kRouteGlobal = "IlluminatedLightPlacerRoute";
 		RE::TESGlobal*        gRoute = nullptr;
 		float                 gRouteValue = 0.0f;
+		// 1 while a Praedy's Staves AIO plugin is loaded: the staves it re-models wear its gem light, so ours on them waits on 0
+		// (gen.STAFF_LIGHTS_PRAEDY_FILE). Not a setting, like the route global
+		constexpr const char* kPraedyGlobal = "IlluminatedPraedyStavesLoaded";
+		RE::TESGlobal*        gPraedy = nullptr;
+		float                 gPraedyValue = 0.0f;
 		// his Performance switch: "a toggle to turn off lights completely for the entire mod" - Light Placer then
 		// draws none of ours (the route global held at 0) and every pass treats every config as unlit (Coverage::ModelLit)
 		constexpr std::string_view kLightsOff = "IlluminatedLightsOff";
@@ -304,6 +309,10 @@ namespace Plugin
 	{
 		// a setting no settings file names reads 0, as the game reads a missing global
 		const auto holds = [](const Clause& a_c) {
+			// the clause's global is stored lower case
+			if (a_c.global == "illuminatedpraedystavesloaded") {
+				return (gPraedyValue > 0.5f ? 1 : 0) == a_c.value;
+			}
 			const auto it = gIndex.find(a_c.global);
 			return (it == gIndex.end() ? 0 : gSettings[it->second].value.load()) == a_c.value;
 		};
@@ -358,6 +367,11 @@ namespace Plugin
 					kRouteGlobal);
 			}
 		}
+		if (!gPraedy) {
+			gPraedy = MakeGlobal(kPraedyGlobal);
+		}
+		gPraedyValue = PluginLoadedStartingWith({ "praedy's stavesaio", "praedystaves" }) ? 1.0f : 0.0f;
+		SKSE::log::info("[SETTING] {} = {}{}", kPraedyGlobal, gPraedyValue > 0.5f ? 1 : 0, gPraedy ? "" : " (could not make its global)");
 		// the load order is fixed after data load: the menu (render thread) reads this instead of the data handler
 		gAvailable.assign(gSettings.size(), 1);
 		for (std::size_t i = 0; i < gSettings.size(); ++i) {
@@ -388,6 +402,9 @@ namespace Plugin
 		}
 		if (gRoute) {
 			gRoute->value = RouteNow();  // a save holds the globals as they were when it was made: the route found now wins
+		}
+		if (gPraedy) {
+			gPraedy->value = gPraedyValue;
 		}
 	}
 
