@@ -602,7 +602,7 @@ namespace Plugin
 		// only its plugin says it is installed: "Praedy's StavesAIO..." - read off his install, the Legacy of the Dragonborn
 		// version -, or a Patch Hub patch, "Praedystaves..." / "PraedyStaves...", which needs it as a master - his "yes, fix it"
 		// 2026-10-18). The settings files name it after Configs (lagen.py MENU_PAGE_ORDER), so it lands right below Configs
-		const bool withPraedys = PluginLoadedStartingWith({ "praedy's stavesaio", "praedystaves" });
+		const bool withPraedys = PraedyStavesLoaded();
 		gItemsAt = kMaxPages;
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
 			if (gPages[i] == kItemsPage) {
