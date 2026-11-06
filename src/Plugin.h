@@ -135,6 +135,7 @@ namespace Plugin
 	[[nodiscard]] const std::vector<SprayMarker>& SprayMarkers();
 	[[nodiscard]] const std::vector<AtronachRow>& AtronachRows();  // the HexRim add-on's [atronach] blocks
 	[[nodiscard]] bool                            PluginLoaded(std::string_view a_plugin);
+	[[nodiscard]] bool                            PraedyStavesLoaded();                                                               // a Praedy's Staves AIO plugin or one of its patches loads
 	[[nodiscard]] bool                            PluginLoadedStartingWith(std::initializer_list<std::string_view> a_lowerPrefixes);  // lower-case name starts: a mod shipped under several plugin names
 	[[nodiscard]] bool                            SettingAvailable(const Setting& a_setting);
 	[[nodiscard]] int                             AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
