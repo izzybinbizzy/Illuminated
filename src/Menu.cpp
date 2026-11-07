@@ -12,6 +12,8 @@
 #ifndef NOMINMAX
 #	define NOMINMAX  // the build defines it too (xmake.lua)
 #endif
+#include <utility>
+
 #include "Fade.h"
 #include "Plugin.h"
 
@@ -365,6 +367,30 @@ namespace Plugin
 		// HIS GO-TO PICK "presets" ("do all of them"): one click sets the sliders and the switches
 		// that shape the look together. -1 leaves a setting as the player has it. 🔁 HIS WORD: "remove performance
 		// preset, only subtle default and cinematic(change dramatic to cinematic)".
+		// the HexRim collection ships no Illuminated settings of its own: its spell art and the HexRim patches, the rest as made
+		void DrawConfigPresets()
+		{
+			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Presets"));
+			if (ImGuiMCP::Button(T("HexRim"))) {
+				SetById("IlluminatedBrightness", 100);
+				SetById("IlluminatedReach", 100);
+				SetById("IlluminatedDynamicLighting", 1);
+				SetById("IlluminatedHandLights", 0);
+				SetById("IlluminatedStreamLights", 1);
+				SetById("IlluminatedFireArt", 2);   // Embers XD
+				SetById("IlluminatedFrostArt", 1);  // Kittytail
+				SetById("IlluminatedHealingArt", 1);
+				SetById("IlluminatedShockArt", 1);
+				// the HexRim patches are data options (Configs: Kittytail, Other Mods); the atronachs are the HexRim page's
+				for (const char* id : { "IlluminatedAstralMagic2", "IlluminatedConstellationMagic", "IlluminatedFrostbittenDreamsMagic",
+						 "IlluminatedHolyTemplarMagic", "IlluminatedWinterWonderlandMagic", "IlluminatedWildwakerMagic",
+						 "IlluminatedDragonsUseThuum", "IlluminatedTheRestlessDead", "IlluminatedHexRimAtronachs" }) {
+					SetById(id, 1);
+				}
+			}
+			MenuStyle::Tip(T("Set up for the HexRim collection: its spell art (Embers XD, Kittytail's VFX) and every HexRim patch on."));
+		}
+
 		void DrawPresets()
 		{
 			struct Preset
@@ -399,26 +425,6 @@ namespace Plugin
 				}
 				MenuStyle::Tip(p.tip);
 			}
-			// the HexRim collection ships no Illuminated settings of its own: its spell art and the HexRim patches, the rest as made
-			ImGuiMCP::SameLine();
-			if (ImGuiMCP::Button(T("HexRim"))) {
-				SetById("IlluminatedBrightness", 100);
-				SetById("IlluminatedReach", 100);
-				SetById("IlluminatedDynamicLighting", 1);
-				SetById("IlluminatedHandLights", 0);
-				SetById("IlluminatedStreamLights", 1);
-				SetById("IlluminatedFireArt", 2);   // Embers XD
-				SetById("IlluminatedFrostArt", 1);  // Kittytail
-				SetById("IlluminatedHealingArt", 1);
-				SetById("IlluminatedShockArt", 1);
-				// the HexRim patches are data options (Configs: Kittytail, Other Mods); the atronachs are the HexRim page's
-				for (const char* id : { "IlluminatedAstralMagic2", "IlluminatedConstellationMagic", "IlluminatedFrostbittenDreamsMagic",
-						 "IlluminatedHolyTemplarMagic", "IlluminatedWinterWonderlandMagic", "IlluminatedWildwakerMagic",
-						 "IlluminatedDragonsUseThuum", "IlluminatedTheRestlessDead", "IlluminatedHexRimAtronachs" }) {
-					SetById(id, 1);
-				}
-			}
-			MenuStyle::Tip(T("Set up for the HexRim collection: its spell art (Embers XD, Kittytail's VFX) and every HexRim patch on."));
 			// the player's own presets, for the lighting found now
 			static char name[48]{};
 			ImGuiMCP::SetNextItemWidth(220.0f);
@@ -500,7 +506,13 @@ namespace Plugin
 					ImGuiMCP::TextWrapped("%s", T(n.text.c_str()));
 				}
 			}
-			std::string_view drawn;  // the setting drawn last: one that follows it goes on its line
+			if (page == "Configs") {
+				DrawConfigPresets();
+			}
+			std::string_view drawn;           // the setting drawn last: one that follows it goes on its line
+			float            column{ 0.0f };  // where a dropdown beside its switch stands: a second one goes under it
+			bool             beside{ false };
+			std::string      sub;
 			for (const std::size_t i : gOrder[a_page]) {
 				auto& s = settings[i];
 				if (s.group != group) {
@@ -515,14 +527,28 @@ namespace Plugin
 						DrawStatusCard();
 #endif
 					}
+					sub.clear();
 				}
+				if (s.sub != sub) {
+					sub = s.sub;
+					if (!sub.empty()) {
+						ImGuiMCP::TextDisabled("%s", T(sub.c_str()));
+					}
+				}
+				const bool wasBeside = std::exchange(beside, false);
 				if (!s.follows.empty()) {
 					if (!SettingAvailable(s)) {
 						continue;
 					}
 					if (s.follows == drawn) {  // beside the setting it follows; on its own line when that one is not installed
-						ImGuiMCP::SameLine(0.0f, 24.0f);
+						if (wasBeside) {
+							ImGuiMCP::SetCursorPosX(column);
+						} else {
+							ImGuiMCP::SameLine(0.0f, 24.0f);
+							column = ImGuiMCP::GetCursorPosX();
+						}
 						ImGuiMCP::SetNextItemWidth(220.0f);
+						beside = true;
 					}
 				}
 				DrawSetting(i, s);
