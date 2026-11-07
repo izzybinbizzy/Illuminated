@@ -78,7 +78,7 @@ namespace Plugin
 
 	struct Setting
 	{
-		std::string              id, ini, page, group, label, follows;  // follows: the setting it is drawn beside
+		std::string              id, ini, page, group, sub, label, follows;  // follows: the setting it is drawn beside
 		bool                     isChoice{ false }, isSlider{ false }, restart{ false }, autoAll{ false };
 		std::vector<std::string> choices, tips, needs, autoPlugins;
 		int                      defaultValue{ 0 };
