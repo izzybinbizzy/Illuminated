@@ -32,10 +32,13 @@ namespace Plugin
 			bool             endlessOnly{ false };  // FEC plays its fire 2-5 s and the effect ends with it: only a fire with no end fades
 		};
 
-		constexpr std::array<std::pair<std::string_view, BodyFade>, 3> kFadeShaders{ {
+		// FEC plays its charred / skeleton skin burn with no end: the skin is seen burning for its record's fill time (3.4 / 4.4 s)
+		constexpr std::array<std::pair<std::string_view, BodyFade>, 5> kFadeShaders{ {
 			{ "fec_frostfxs", { "IlluminatedFecFrozenGlow", 4.0f, 2.0f, false } },
 			{ "fec_firefxs", { "IlluminatedFecBurningGlow", 8.0f, 1.0f, true } },
 			{ "fec_fireheavyfxs", { "IlluminatedFecBurningGlow", 8.0f, 1.0f, true } },
+			{ "fec_firedisintegrateskinfxs", { "IlluminatedFecBurningGlow", 3.0f, 0.5f, true } },
+			{ "fec_firedisintegrateskinlongfxs", { "IlluminatedFecBurningGlow", 4.0f, 0.5f, true } },
 		} };
 
 		std::unordered_map<const RE::TESEffectShader*, std::string> gFecKey;  // FEC's lit shaders -> their rows' key, at data load
