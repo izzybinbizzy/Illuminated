@@ -154,10 +154,23 @@ namespace Plugin
 		return same ? same : a_root;
 	}
 
+	namespace
+	{
+		std::atomic<bool> gFleshLook{ true };  // a shader started somewhere (any thread): NoteFleshRoots walks again
+	}
+
+	void NoteFleshLook() { gFleshLook.store(true, std::memory_order_relaxed); }
+
 	void NoteFleshRoots()
 	{
 		if (LightKit::FleshFx::Hues().empty() && gFades.empty()) {
 			return;  // no flesh spell wears FleshFX's look and FEC is not here: nothing to note, ever
+		}
+		// every magic effect is walked when a shader starts somewhere (LightCopies.cpp ArtInit) and every 30 frames, to let go of
+		// finished ones; between, the lights noted stand (measured 2026-11-08: 339 us a frame with eight FEC bodies)
+		static std::uint32_t looks = 0;
+		if (!gFleshLook.exchange(false) && ++looks % 30 != 0) {
+			return;
 		}
 		std::unordered_map<const RE::ShaderReferenceEffect*, NotedLights> roots;
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {

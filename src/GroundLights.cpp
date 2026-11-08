@@ -258,6 +258,9 @@ namespace Plugin
 			// game's light hidden as the game keeps it.
 			const auto* state = a_actor->AsActorState();
 			const bool  readied = state && state->IsWeaponDrawn();
+			if (!readied && gTwins.empty()) {
+				return;  // hands down and no twin anywhere to mark: the two hands' look would change nothing
+			}
 			for (std::uint64_t hand = 0; hand < 2; ++hand) {
 				const auto key = (static_cast<std::uint64_t>(a_actor->GetFormID()) << 1) | hand;
 				auto*      caster = casters[hand];
@@ -334,14 +337,21 @@ namespace Plugin
 		for (auto& entry : gTwins) {
 			entry.second.seen = false;
 		}
-		auto* player = RE::PlayerCharacter::GetSingleton();
-		Visit(player, scene);
-		if (auto* lists = RE::ProcessLists::GetSingleton()) {
-			for (auto& handle : lists->highActorHandles) {
-				if (auto actor = handle.get(); actor && actor.get() != player) {
-					Visit(actor.get(), scene);
-				}
+		for (auto* actor : DrawnActors()) {
+			Visit(actor, scene);  // the player first, then every actor with drawn hands (Events.cpp)
+		}
+		// an actor whose hands went down since still holds a twin: its look marks the twin hands-down, so the game's light is left
+		// hidden as the game keeps it
+		static std::vector<RE::FormID> down;
+		down.clear();
+		for (const auto& [key, twin] : gTwins) {
+			const auto id = static_cast<RE::FormID>(key >> 1);
+			if (!twin.seen && std::ranges::find(down, id) == down.end()) {
+				down.push_back(id);
 			}
+		}
+		for (const auto id : down) {
+			Visit(RE::TESForm::LookupByID<RE::Actor>(id), scene);
 		}
 		std::erase_if(gTwins, [&](auto& a_entry) {
 			if (!a_entry.second.seen) {

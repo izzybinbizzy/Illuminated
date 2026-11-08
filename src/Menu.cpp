@@ -139,9 +139,6 @@ namespace Plugin
 
 		constexpr std::string_view kDynamicLightingId = "IlluminatedDynamicLighting";
 		constexpr std::string_view kPulseShapesId = "IlluminatedPulseShapes";
-		// Performance > the glow cap (his checklist 336): the count is greyed while the cap is off, and drawn as a count
-		constexpr std::string_view kGlowLimitId = "IlluminatedGlowLimit";
-		constexpr std::string_view kGlowCountId = "IlluminatedGlowLimitCount";
 
 		// Dynamic Lighting as one pick of three: Off, Regular (the pulsing as before), Cinematic (a shape per kind of spell)
 		void DrawDynamicLighting(const Setting& a_s)
@@ -175,21 +172,13 @@ namespace Plugin
 				ImGuiMCP::PopID();
 				return;
 			}
-			const bool greyed = (a_s.id == kYieldENBId && !YieldUsable()) || (a_s.id == kGlowCountId && SettingValue(kGlowLimitId, 1) == 0);
+			const bool greyed = a_s.id == kYieldENBId && !YieldUsable();
 			ImGuiMCP::BeginDisabled(greyed);
 			if (a_s.isSlider) {
 				// live while it is dragged, on its step (his report: "the sliders also stopped working live during sliding and only
 				// work after the click is released") - SetSetting queues one task however many steps it moves
 				int v = a_s.value.load();
-				// the word translated, the number not: a % in a translation is doubled so it can never become a format of its own
-				std::string format = "%d%%";
-				if (a_s.id == kGlowCountId) {
-					format = "%d ";
-					for (const char* c = T("lights"); *c; ++c) {
-						format += *c == '%' ? std::string("%%") : std::string(1, *c);
-					}
-				}
-				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, format.c_str());
+				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, "%d%%");
 				const bool released = ImGuiMCP::IsItemDeactivatedAfterEdit();
 				if (v = AllowedValue(a_s, v); v != a_s.value) {
 					SetSetting(a_index, v, false);  // applied at once, written when it is let go

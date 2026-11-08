@@ -105,6 +105,7 @@ namespace
 			MakeRecordLights();    // before passes 1 and 2, which point the records at them
 			TintWardRecords();     // a recolored 360 Ward's color onto the ward hand's record lights
 			NoteEnchantShaders();  // a drawn weapon's enchantment shader -> its rows (ArtLights.cpp), before the editor IDs go
+			WatchDraws();          // the actors with drawn hands, for the drawn-weapon lights and the ground twins (Events.cpp)
 		}
 		if (cov.files == 0) {
 			SKSE::log::warn(
@@ -152,6 +153,7 @@ namespace
 		DropArtLights();
 		DropAtronachLights();
 		DropGroundLights();
+		ForgetDrawn();
 		DropHerShadow();
 		DropStreamLights();
 		DropSneakFade();
@@ -178,6 +180,7 @@ namespace
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
 			ForgetOldGame();
+			LightKit::Cost::Reset();  // the worst times start again with each game
 			break;
 		case SKSE::MessagingInterface::kPostLoadGame:
 		case SKSE::MessagingInterface::kNewGame:

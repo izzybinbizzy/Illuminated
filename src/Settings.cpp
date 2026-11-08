@@ -45,8 +45,6 @@ namespace Plugin
 		constexpr std::string_view kLightsOff = "IlluminatedLightsOff";
 		constexpr std::string_view kQuality = "IlluminatedQuality";  // 0 Quality, 1 Performance (his order 2026-10-20)
 		// his checklist 336 answer ("limit but optional in performance"): the glows on people are capped (ArtLights.cpp)
-		constexpr std::string_view kGlowLimit = "IlluminatedGlowLimit";
-		constexpr std::string_view kGlowLimitCount = "IlluminatedGlowLimitCount";
 
 		[[nodiscard]] float RouteNow() { return LightsOff() ? 0.0f : gRouteValue; }
 
@@ -570,10 +568,9 @@ namespace Plugin
 
 	std::size_t GlowLimit()
 	{
-		if (SettingValue(kGlowLimit, 1) == 0) {
-			return (std::numeric_limits<std::size_t>::max)();
-		}
-		return static_cast<std::size_t>((std::max)(SettingValue(kGlowLimitCount, 16), 1));
+		// off Community Shaders the game lights a surface with only a few lights at once and switches the rest off (they flicker
+		// as the camera moves): 5 there, as the rows; Light Limit Fix takes far more, and 16 keeps a big fight smooth
+		return LightingFound() == Lighting::kShaders ? 16 : 5;
 	}
 
 	bool RegisterEditorID(RE::TESForm* a_form, const std::string& a_id)

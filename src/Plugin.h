@@ -224,23 +224,31 @@ namespace Plugin
 	[[nodiscard]] float              RecordFadeNow(const RE::TESObjectLIGH* a_record, const void* a_light);  // its fade now, a flicker's keys played
 	// ArtLights.cpp (his report: "bound weapons not lighting up on vanilla"): a light of ours on every art effect and
 	// drawn weapon whose model a config row lights now; once a frame on the main thread
-	void                           NoteEnchantShaders();  // at load, while the passes' editor IDs are still known (record route)
-	void                           TickArtLights();
-	void                           DropArtLights();                                // a game loads, or a new one starts
-	[[nodiscard]] RE::Color        VanillaLook(RE::Color a_color);                 // RecordLights.cpp: a light's color as Vanilla wears it
-	[[nodiscard]] RE::Color        ColorAsMade(const RE::TESObjectLIGH* a_light);  // a record light's color before VanillaLook, else its own
-	void                           ReadAtronachRaces();                            // AtronachLights.cpp: once, at data load
-	void                           TickAtronachLights();                           // AtronachLights.cpp: once a frame, in the player update
-	[[nodiscard]] std::size_t      ArtGlowsLit();                                  // ArtLights.cpp: the glows lit now, which count against the same limit
-	inline constexpr std::uint32_t kRecordPortalStrict = 1u << 13;                 // TES_LIGHT_FLAGS::kPortalStrict
-	void                           DropAtronachLights();                           // a game loads, or a new one starts
-	[[nodiscard]] std::size_t      ArtLightCount();
-	[[nodiscard]] std::size_t      ArtLightsLitNow();
-	[[nodiscard]] std::size_t      ArtLightsMade();
+	void NoteEnchantShaders();  // at load, while the passes' editor IDs are still known (record route)
+	void TickArtLights();
+	void DropArtLights();  // a game loads, or a new one starts
+	// an art started somewhere, or the settings changed (any thread): TickArtLights walks every effect again
+	void NoteArtLook();
+	// Events.cpp: SKSE's weapon draw events - the actors with drawn hands, for the record route's per-actor passes
+	void                                         WatchDraws();                                   // data load, record route
+	void                                         RefreshDrawn();                                 // main thread, once a frame before the art lights
+	[[nodiscard]] const std::vector<RE::Actor*>& DrawnActors();                                  // this frame's: the player first, then every actor with drawn hands
+	void                                         ForgetDrawn();                                  // a game loads, or a new one starts
+	[[nodiscard]] RE::Color                      VanillaLook(RE::Color a_color);                 // RecordLights.cpp: a light's color as Vanilla wears it
+	[[nodiscard]] RE::Color                      ColorAsMade(const RE::TESObjectLIGH* a_light);  // a record light's color before VanillaLook, else its own
+	void                                         ReadAtronachRaces();                            // AtronachLights.cpp: once, at data load
+	void                                         TickAtronachLights();                           // AtronachLights.cpp: once a frame, in the player update
+	[[nodiscard]] std::size_t                    ArtGlowsLit();                                  // ArtLights.cpp: the glows lit now, which count against the same limit
+	inline constexpr std::uint32_t               kRecordPortalStrict = 1u << 13;                 // TES_LIGHT_FLAGS::kPortalStrict
+	void                                         DropAtronachLights();                           // a game loads, or a new one starts
+	[[nodiscard]] std::size_t                    ArtLightCount();
+	[[nodiscard]] std::size_t                    ArtLightsLitNow();
+	[[nodiscard]] std::size_t                    ArtLightsMade();
 	// FleshLights.cpp (his call on FleshFX: "the dim light in its own color"): with Light Placer, a flesh spell's light takes
 	// FleshFX's hue right after Light Placer wrote it (the effect's update, any thread); without it ArtLights.cpp does
 	void FleshLightPlacer(RE::ShaderReferenceEffect* a_effect);
 	void NoteFleshRoots();  // main thread, once a frame: where each flesh effect's lights hang (FleshLightPlacer only reads it)
+	void NoteFleshLook();   // a shader started somewhere (any thread): NoteFleshRoots walks the effects again
 	// Frozen Electrocuted Combustion's shaders a config row lights (gen.FEC), found at data load while editor IDs are known
 	struct Coverage;
 	void                                                                             NoteFecShaders(const Coverage& a_cov);

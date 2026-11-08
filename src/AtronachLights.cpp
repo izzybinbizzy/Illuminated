@@ -180,6 +180,12 @@ namespace Plugin
 		const auto cap = GlowLimit();
 		const auto glows = ArtGlowsLit();
 		gRoom = (std::min)(kMostLights, cap > glows ? cap - glows : std::size_t{ 0 });
+		// the actors near her are looked over four times a second (a summoned atronach lights within a quarter second); the lights
+		// already lit stand between (measured 2026-11-08: 11 us a frame with none near)
+		static std::uint32_t looks = 0;
+		if (++looks % 15 != 1) {
+			return;
+		}
 		for (auto& [id, lit] : gLit) {
 			lit.seen = false;
 		}

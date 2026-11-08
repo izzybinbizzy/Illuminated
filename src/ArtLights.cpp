@@ -65,6 +65,14 @@ namespace Plugin
 		std::size_t gCap{ (std::numeric_limits<std::size_t>::max)() };
 		bool        gCapLogged{ false };
 
+		// an art starts through the ReferenceEffect Init hook (LightCopies.cpp ArtInit): every effect in the world is walked only
+		// then, after a settings change, at a load and every kWalkEvery frames; between walks the effects a row lit at the last
+		// walk are visited again (measured 2026-11-08: the walk every frame cost 4.9 / 16.9 us idle / busy on Vanilla)
+		constexpr int                                kWalkEvery = 30;
+		std::atomic<bool>                            gArtLook{ true };
+		int                                          gWalkIn{ 0 };
+		std::vector<RE::NiPointer<RE::BSTempEffect>> gArts;  // main thread only
+
 		[[nodiscard]] const std::string& ModelKey(const RE::TESForm* a_form, const char* a_model)
 		{
 			const std::string_view model = a_model ? a_model : "";
@@ -78,7 +86,8 @@ namespace Plugin
 
 		void Drop(Kept& a_kept, RE::ShadowSceneNode* a_scene)
 		{
-			if (a_kept.light && gLit > 0) {
+			// the cap counts glows on others only: hers never take one of their places
+			if (a_kept.light && !a_kept.hers && gLit > 0) {
 				--gLit;
 			}
 			if (a_scene && a_kept.bs) {
@@ -144,7 +153,7 @@ namespace Plugin
 			}
 			a_kept.bs.reset(bs);
 			++gMade;
-			++gLit;
+			gLit += a_kept.hers ? 0 : 1;
 			return true;
 		}
 
@@ -172,7 +181,7 @@ namespace Plugin
 				if (ConfigText::GlowWaits(gLit, gCap, a_hers)) {
 					// past the Performance cap: kept, waiting, until a lit one goes out
 					if (!std::exchange(gCapLogged, true)) {
-						SKSE::log::info("art lights: {} glows on people are lit, the most the Performance setting allows - the rest wait for one to go out", gCap);
+						SKSE::log::info("art lights: {} glows on others are lit, the most this lighting takes - the rest wait for one to go out", gCap);
 					}
 					kept.seen = true;
 					return;
@@ -205,21 +214,25 @@ namespace Plugin
 		}
 
 		// a flesh spell's light on its caster's body, while a setting lights its row (RecordLightFor - the Flesh Spells switch,
-		// full strength, Dynamic Lighting); a sneaking caster's fades (SneakFade.cpp)
-		void KeepFlesh(RE::ShaderReferenceEffect* a_effect, RE::ShadowSceneNode* a_scene)
+		// full strength, Dynamic Lighting); a sneaking caster's fades (SneakFade.cpp). True while a row lights it, so it is visited
+		// again between walks - faded out or with its body not loaded too (the Stay pick or the 3D brings it back)
+		bool KeepFlesh(RE::ShaderReferenceEffect* a_effect, RE::ShadowSceneNode* a_scene)
 		{
 			const auto& shaders = FleshShaders();
 			const auto  it = a_effect->effectData ? shaders.find(a_effect->effectData) : shaders.end();
 			const auto* record = it != shaders.end() ? RecordLightFor(it->second) : nullptr;
-			if (!record || FecBodyFade(a_effect) <= 0.0f) {
-				return;  // no lit row, or faded out on its pick: not seen, so the sweep drops it and its place under the glow cap
+			if (!record) {
+				return false;
+			}
+			if (FecBodyFade(a_effect) <= 0.0f) {
+				return true;  // faded out on its pick: not seen, so the sweep drops it and its place under the glow cap
 			}
 			const auto ref = a_effect->target.get();
 			auto*      root = ref ? FleshBodyNode(ref.get(), a_effect->GetAttachRoot()) : nullptr;
-			if (!root) {
-				return;
+			if (root) {
+				Keep(a_effect, root, record, a_scene, ref.get() == RE::PlayerCharacter::GetSingleton(), LightKit::FleshFx::HueOf(a_effect->effectData), a_effect);
 			}
-			Keep(a_effect, root, record, a_scene, ref.get() == RE::PlayerCharacter::GetSingleton(), LightKit::FleshFx::HueOf(a_effect->effectData), a_effect);
+			return true;
 		}
 
 		// the weapon parts an art light already hangs under (measured on Vanilla: a bound sword's configs light both its
@@ -390,7 +403,37 @@ namespace Plugin
 				}
 			}
 		}
+
+		// one effect: its light kept while a row lights it now; true while it is to be visited again before the next walk (an art
+		// a row lights waits there for its 3D; a flesh shader - KeepFlesh)
+		bool Visit(RE::BSTempEffect* a_effect, RE::PlayerCharacter* a_player, RE::ShadowSceneNode* a_scene)
+		{
+			if (auto* art = a_effect ? netimmerse_cast<RE::ModelReferenceEffect*>(a_effect) : nullptr) {
+				if (art->finished || !art->artObject) {
+					return false;
+				}
+				const auto& model = ModelKey(art->artObject, art->artObject->GetModel());
+				const auto* record = model.empty() ? nullptr : RecordLightFor(model);
+				if (!record) {
+					return false;
+				}
+				if (art->artObject3D) {
+					const RE::NiAVObject* hand = nullptr;
+					Keep(art, ArtNode(art, hand), record, a_scene, art->target.get().get() == a_player);
+					const auto  target = hand ? art->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
+					const auto* actor = target ? target->As<RE::Actor>() : nullptr;
+					if (actor) {
+						gOnBody.push_back({ art, actor, LeftHand(hand) });
+					}
+				}
+				return true;
+			}
+			auto* shader = a_effect ? netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect) : nullptr;
+			return shader && !shader->finished && KeepFlesh(shader, a_scene);
+		}
 	}
+
+	void NoteArtLook() { gArtLook.store(true, std::memory_order_relaxed); }
 
 	void NoteEnchantShaders()
 	{
@@ -421,6 +464,8 @@ namespace Plugin
 			gKeptCount = 0;
 			gLitCount = 0;
 			gLit = 0;
+			gArts.clear();
+			gArtLook.store(true, std::memory_order_relaxed);  // every effect walked when they come back on
 			return;
 		}
 		gCap = GlowLimit();
@@ -431,24 +476,21 @@ namespace Plugin
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {
 			gHandsOnBody.clear();
 			auto* player = RE::PlayerCharacter::GetSingleton();
-			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
-				auto* art = a_effect ? netimmerse_cast<RE::ModelReferenceEffect*>(a_effect) : nullptr;
-				if (art && !art->finished && art->artObject && art->artObject3D) {
-					const auto& model = ModelKey(art->artObject, art->artObject->GetModel());
-					if (const auto* record = model.empty() ? nullptr : RecordLightFor(model)) {
-						const RE::NiAVObject* hand = nullptr;
-						Keep(art, ArtNode(art, hand), record, scene, art->target.get().get() == player);
-						const auto  target = hand ? art->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
-						const auto* actor = target ? target->As<RE::Actor>() : nullptr;
-						if (actor) {
-							gOnBody.push_back({ art, actor, LeftHand(hand) });
-						}
+			if (gArtLook.exchange(false, std::memory_order_relaxed) || --gWalkIn <= 0) {
+				// every effect in the world: an art started, the settings changed, a load, or kWalkEvery frames since the last walk
+				gWalkIn = kWalkEvery;
+				gArts.clear();
+				lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
+					if (Visit(a_effect, player, scene)) {
+						gArts.emplace_back(a_effect);
 					}
-				} else if (auto* shader = art ? nullptr : netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect); shader && !shader->finished) {
-					KeepFlesh(shader, scene);
+					return RE::BSContainer::ForEachResult::kContinue;
+				});
+			} else {
+				for (const auto& effect : gArts) {
+					Visit(effect.get(), player, scene);
 				}
-				return RE::BSContainer::ForEachResult::kContinue;
-			});
+			}
 			gArtUnder.clear();
 			for (const auto& [key, kept] : gKept) {
 				if (kept.seen && kept.root) {
@@ -457,11 +499,8 @@ namespace Plugin
 					}
 				}
 			}
-			VisitWeapons(player, scene);
-			for (auto& handle : lists->highActorHandles) {
-				if (auto actor = handle.get(); actor && actor.get() != player) {
-					VisitWeapons(actor.get(), scene);
-				}
+			for (auto* actor : DrawnActors()) {
+				VisitWeapons(actor, scene);  // the player first, then every actor with drawn hands (Events.cpp)
 			}
 		}
 		std::erase_if(gKept, [&](auto& a_entry) {
@@ -471,7 +510,7 @@ namespace Plugin
 			}
 			return false;
 		});
-		// a lowered cap, or the limit switched on, puts out the glows on others past it at once; they wait like any other
+		// never more than the cap on others: the ones past it go out at once and wait like any other
 		for (auto it = gKept.begin(); gLit > gCap && it != gKept.end(); ++it) {
 			if (it->second.light && !it->second.hers) {
 				Drop(it->second, scene);
@@ -504,6 +543,8 @@ namespace Plugin
 		gLitCount = 0;
 		gLit = 0;
 		gModelKey.clear();  // keyed by form address: a form made in memory and freed could hand its address to another
+		gArts.clear();
+		gArtLook.store(true, std::memory_order_relaxed);
 	}
 
 	std::size_t ArtLightCount() { return gKeptCount.load(); }

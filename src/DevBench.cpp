@@ -53,6 +53,13 @@ namespace Plugin
 						{ "madeRadius", c.startRadius }, { "madeCutoff", c.startCutoff } });
 				}
 			}
+			out["cost"] = json::array();  // each per-frame pass's main-thread time (LightKit::Cost)
+			for (const auto& s : LightKit::Cost::Slots()) {
+				if (const char* name = s.name.load(std::memory_order_relaxed)) {
+					out["cost"].push_back({ { "pass", name }, { "usAvg", s.usAvg.load(std::memory_order_relaxed) },
+						{ "usMax", s.usMax.load(std::memory_order_relaxed) } });
+				}
+			}
 			return out;
 		}
 

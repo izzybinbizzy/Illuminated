@@ -513,31 +513,93 @@ namespace Plugin
 		// All installed at data load, long after Light Placer installed its own at plugin load, so each wraps Light
 		// Placer's: ours runs after it, on the values it just wrote. The fading module's work in the same places is
 		// called from here, after Brightness (the header has why).
+		// an art starting on anything (Light Placer's Init way - powerof3, GPL-3.0, his permission 2026-11-07): the flesh roots
+		// (FleshLights.cpp) and the art lights (ArtLights.cpp) look for new effects only then. Any thread; only flags are set
+		template <class T>
+		struct ArtInit
+		{
+			static void thunk(T* a_this)
+			{
+				func(a_this);
+				NoteFleshLook();
+				NoteArtLook();
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+			static void                                    Install()
+			{
+				func = REL::Relocation<std::uintptr_t>(T::VTABLE[0]).write_vfunc(0x36, thunk);  // ReferenceEffect::Init
+			}
+		};
+
 		struct PlayerUpdate
 		{
 			static void thunk(RE::PlayerCharacter* a_this, float a_delta)
 			{
-				LightKit::Guarded("sneak fade", []() { SneakFrameStart(); });  // before the game and every pass write this frame's fades
+				using LightKit::Cost::Scope;
+				{
+					const Scope c{ 1, "sneak frame start" };
+					LightKit::Guarded("sneak fade", []() { SneakFrameStart(); });  // before the game and every pass write this frame's fades
+				}
 				func(a_this, a_delta);
 				LightKit::Guarded("player update", [a_delta]() {
-					AdvanceRecordFlicker(a_delta);
-					WatchDaylight(a_delta);
-					Frame();
-					TickSwapped(a_delta);     // the Dynamic Lighting swap's lights back to Light Placer's own verdict
-					TickArtLights();          // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
-					TickAtronachLights();     // the HexRim add-on's atronachs (AtronachLights.cpp)
-					KeepCastingLights();      // a held spell's Light Placer lights after a cell change (LightPlacerQueue.cpp)
-					KeepBlockWatch(a_delta);  // the shield ward's block watch follows a rebuilt animation graph (Wards.cpp)
+					const Scope all{ 0, "player update, all of ours" };
+					{
+						const Scope c{ 2, "record flicker" };
+						AdvanceRecordFlicker(a_delta);
+					}
+					{
+						const Scope c{ 3, "daylight" };
+						WatchDaylight(a_delta);
+					}
+					{
+						const Scope c{ 4, "frame (light copies)" };
+						Frame();
+					}
+					{
+						const Scope c{ 5, "dynamic lighting swap" };
+						TickSwapped(a_delta);  // the Dynamic Lighting swap's lights back to Light Placer's own verdict
+					}
+					if (RecordRoute()) {
+						const Scope c{ 17, "drawn hands (the record route's actors)" };
+						RefreshDrawn();
+					}
+					{
+						const Scope c{ 6, "art lights" };
+						TickArtLights();  // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
+					}
+					{
+						const Scope c{ 7, "atronach lights" };
+						TickAtronachLights();  // the HexRim add-on's atronachs (AtronachLights.cpp)
+					}
+					{
+						const Scope c{ 8, "keep casting lights" };
+						KeepCastingLights();  // a held spell's Light Placer lights after a cell change (LightPlacerQueue.cpp)
+					}
+					{
+						const Scope c{ 9, "block watch" };
+						KeepBlockWatch(a_delta);  // the shield ward's block watch follows a rebuilt animation graph (Wards.cpp)
+					}
 					if (!RecordRoute()) {
+						const Scope c{ 10, "flesh roots" };
 						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
 					}
 					{
+						const Scope      c{ 11, "fading hands" };
 						const SneakPause pause;  // the fading module reads the fades the others left, never our dimmed one
 						Fade::UpdateHands(a_delta);
 					}
-					SneakFrameEnd(a_delta);  // over every fade written above (SneakFade.cpp)
-					PlaceHerShadow();        // with the shadow download: her two hands' lights at one point (HerShadow.cpp)
-					TickGroundLights();      // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
+					{
+						const Scope c{ 12, "sneak frame end" };
+						SneakFrameEnd(a_delta);  // over every fade written above (SneakFade.cpp)
+					}
+					{
+						const Scope c{ 13, "her shadow" };
+						PlaceHerShadow();  // with the shadow download: her two hands' lights at one point (HerShadow.cpp)
+					}
+					{
+						const Scope c{ 14, "ground lights" };
+						TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
+					}
 				});
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
@@ -554,6 +616,7 @@ namespace Plugin
 			{
 				func(a_this, a_delta);
 				LightKit::Guarded("caster update", [a_this]() {
+					const LightKit::Cost::Scope c{ 15, "one caster update (each caster, each frame)" };
 					{
 						auto*                     actor = a_this->GetCasterAsActor();
 						std::optional<SneakPause> pause;
@@ -586,6 +649,7 @@ namespace Plugin
 			{
 				func(a_this);
 				LightKit::Guarded("effect update", [a_this]() {
+					const LightKit::Cost::Scope c{ 16, "one effect update (each effect, each frame)" };
 					// no handle off the main thread: a weapon enchantment's owner is its controller's plain target (in first person
 					// its art hangs in the first-person skeleton, which names no reference), anything else's is found by its 3D
 					const RE::TESObjectREFR* owner = WeaponTargetOf(a_this->controller);
@@ -889,6 +953,8 @@ namespace Plugin
 			CasterUpdate::Install();
 			EffectUpdate<RE::ShaderReferenceEffect>::Install();
 			EffectUpdate<RE::ModelReferenceEffect>::Install();
+			ArtInit<RE::ShaderReferenceEffect>::Install();
+			ArtInit<RE::ModelReferenceEffect>::Install();
 			if (REL::Module::IsVR()) {
 				return;
 			}
