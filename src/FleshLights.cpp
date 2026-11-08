@@ -237,6 +237,18 @@ namespace Plugin
 		std::erase_if(gMisses, [](const auto& a_miss) { return !gRoots.contains(a_miss.first); });
 	}
 
+	void DropFleshRoots()
+	{
+		std::unordered_map<const RE::ShaderReferenceEffect*, NotedLights> gone;  // let go past the locks
+		{
+			std::scoped_lock lock{ gRootLock, gMissLock };
+			gone.swap(gRoots);
+			gMisses.clear();
+		}
+		gFleshNoted.store(false, std::memory_order_relaxed);
+		gFleshLook.store(kFleshLookFrames, std::memory_order_relaxed);
+	}
+
 	void FleshLightPlacer(RE::ShaderReferenceEffect* a_effect)
 	{
 		const bool  live = a_effect && !a_effect->finished;

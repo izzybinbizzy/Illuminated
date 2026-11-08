@@ -44,7 +44,8 @@ namespace Plugin
 
 		class Watch final :
 			public RE::BSTEventSink<RE::TESObjectLoadedEvent>,
-			public RE::BSTEventSink<RE::TESDeathEvent>
+			public RE::BSTEventSink<RE::TESDeathEvent>,
+			public RE::BSTEventSink<RE::TESActiveEffectApplyRemoveEvent>
 		{
 		public:
 			RE::BSEventNotifyControl ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*) override
@@ -61,6 +62,16 @@ namespace Plugin
 				if (a_event && a_event->actorDying) {
 					std::lock_guard lock(gNotedLock);
 					gNoted.emplace_back(a_event->actorDying->GetFormID(), false);
+				}
+				return RE::BSEventNotifyControl::kContinue;
+			}
+			// a body raised again sends no load event: the effect that raises it is what the game announces
+			RE::BSEventNotifyControl ProcessEvent(const RE::TESActiveEffectApplyRemoveEvent* a_event, RE::BSTEventSource<RE::TESActiveEffectApplyRemoveEvent>*) override
+			{
+				const auto* actor = a_event && a_event->isApplied && a_event->target ? a_event->target->As<RE::Actor>() : nullptr;
+				if (actor && gRaces.contains(actor->GetRace())) {
+					std::lock_guard lock(gNotedLock);
+					gNoted.emplace_back(actor->GetFormID(), true);
 				}
 				return RE::BSEventNotifyControl::kContinue;
 			}
@@ -192,6 +203,7 @@ namespace Plugin
 			if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
 				events->AddEventSink<RE::TESObjectLoadedEvent>(&watch);
 				events->AddEventSink<RE::TESDeathEvent>(&watch);
+				events->AddEventSink<RE::TESActiveEffectApplyRemoveEvent>(&watch);
 			}
 		}
 		SKSE::log::info("atronach lights: {} of {} race(s) in this load order, {} left to iLluminous Elementals", gRaces.size(), AtronachRows().size(), left);
@@ -270,7 +282,7 @@ namespace Plugin
 		}
 		std::erase_if(waiting, [scene](Waiting& a_w) {
 			auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_w.id);
-			if (actor && actor->Is3DLoaded()) {
+			if (actor && actor->Is3DLoaded() && !actor->IsDead()) {
 				Visit(actor, scene);
 				return true;
 			}

@@ -685,12 +685,9 @@ namespace Plugin
 			static void thunk(T* a_this)
 			{
 				func(a_this);
-				// every effect in the loaded world comes through here: nothing to scale, fade or tint is the common case
-				bool flesh = false;
-				if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
-					flesh = !RecordRoute() && FleshNoted();
-				}
-				if (!flesh && !Scaling() && !Fade::EffectsWanted()) {
+				// every effect in the loaded world comes through here. On the record route nothing rewrites a light in this call, so nothing
+				// to fade is the common case; on the Light Placer route it writes its lights here, and the sneak pause below dims them again
+				if (RecordRoute() && !Fade::EffectsWanted()) {
 					return;
 				}
 				LightKit::Guarded("effect update", [a_this]() {
@@ -706,7 +703,7 @@ namespace Plugin
 						ScaleOwned(owner);
 					}
 					if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
-						if (!RecordRoute()) {
+						if (!RecordRoute() && FleshNoted()) {
 							const auto      turn = LightKit::Turn();  // before gFlickerLock (LightKit.h's order)
 							std::lock_guard l{ gFlickerLock };        // the slider pass writes the same fade
 							FleshLightPlacer(a_this);                 // a flesh spell under FleshFX: Light Placer's light just written takes its hue
@@ -982,14 +979,12 @@ namespace Plugin
 			static void thunk(RE::TESObjectCELL* a_cell)
 			{
 				func(a_cell);
-				// every loaded cell comes through here: nothing scaled and nothing to write again is the common case
-				if (!Scaling() && !Fade::ReapplyWanted()) {
-					return;
-				}
 				LightKit::Guarded("cell animations", [a_cell]() {
-					const SneakPause pause;
+					const SneakPause pause;  // dims again what Light Placer just wrote; nothing while nothing is dimmed
 					ScaleCell(a_cell);
-					Fade::ReapplyAll();  // this frame's fading numbers again for every hand's lights, without advancing any timer
+					if (Fade::ReapplyWanted()) {
+						Fade::ReapplyAll();  // this frame's fading numbers again for every hand's lights, without advancing any timer
+					}
 				});
 			}
 			static inline REL::Relocation<decltype(thunk)> func;

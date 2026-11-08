@@ -250,6 +250,7 @@ namespace Plugin
 	void               FleshLightPlacer(RE::ShaderReferenceEffect* a_effect);
 	void               NoteFleshRoots();                                             // main thread, once a frame: where each flesh effect's lights hang (FleshLightPlacer only reads it)
 	[[nodiscard]] bool FleshNoted() noexcept;                                        // any thread: a flesh or FEC light is noted
+	void               DropFleshRoots();                                             // a game loads, or a new one starts
 	void               NoteFleshStarted(const RE::ShaderReferenceEffect* a_effect);  // a shader started, resumed or ended (any thread): NoteFleshRoots looks if it is one of ours
 	// Frozen Electrocuted Combustion's shaders a config row lights (gen.FEC), found at data load while editor IDs are known
 	struct Coverage;

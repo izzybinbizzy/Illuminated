@@ -159,6 +159,7 @@ namespace
 		DropSneakFade();
 		DropCastingLights();
 		DropHandBudget();
+		DropFleshRoots();
 		Fade::OnGameLoading();
 	}
 
