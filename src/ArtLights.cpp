@@ -8,7 +8,7 @@
 // records to magic effects, projectiles, explosions and hazards only (RecordLights.cpp). Light Placer hangs a light on such a
 // model by itself; without it nothing did. So here, once a frame on the main thread: every magic art effect in the world whose
 // model a config row lights now (RecordLightFor - the settings' tests), and every drawn weapon whose own model one lights, gets
-// a light of ours on that model - in the record light's color, at its strength and reach (so the sliders, daylight and the
+// a light of ours on that model - in the record light's color, at its strength and reach (so the sliders and the
 // flicker reach it), made the way Dynamic Wards and GroundLights.cpp make theirs (land lighting on). The light hangs under the
 // art's or the weapon's 3D - in first person on the body node, noted as that hand's (Fade::NoteHandLight) - so the fading
 // module and Lights by Item reach it like any other weapon light (a bound weapon over the last seconds of its spell). It goes

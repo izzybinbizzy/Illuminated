@@ -149,7 +149,7 @@ namespace Plugin
 	void                                          MakeLightCopies();         // LightCopies.cpp
 	void                                          KeepCopiesOutOfPortals();  // LightCopies.cpp: once, before a game loads
 	void                                          NoteSpellHazards();        // LightCopies.cpp: the hazard tint's tables, while editor IDs are kept
-	[[nodiscard]] float                           BrightnessNow();           // LightCopies.cpp: Brightness x Dim in daylight x Vanilla's strength, as the copies take it
+	[[nodiscard]] float                           BrightnessNow();           // LightCopies.cpp: Brightness x Vanilla's strength, as the copies take it
 	// StreamLights.cpp: pass 6 - each spray, stream and bolt keeps its own light record and wears a row of small lights along it
 	// (his stream rule), and a ward dome's light when Dynamic Wards is not here
 	void               StreamLights();

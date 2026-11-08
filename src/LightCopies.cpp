@@ -60,39 +60,13 @@ namespace Plugin
 		constexpr float            kLowestCutoff = 0.01f, kHighestCutoff = 1.0f;  // what Light Placer keeps a cutoff within
 		constexpr std::uint32_t    kInverseSquare = LightKit::kRecordInverseSquare;
 
-		std::atomic<bool>  gRefresh{ false };        // a setting changed: the passes again (RefreshLights)
-		std::atomic<bool>  gDaylightMoved{ false };  // only the daylight moved: the sliders' numbers again, nothing else
+		std::atomic<bool>  gRefresh{ false };  // a setting changed: the passes again (RefreshLights)
 		std::atomic<float> gBrightness{ 1.0f };
 
-		// HIS GO-TO PICKS ("do all of them"): smarter brightness and a light budget
-		constexpr std::string_view kSmartBrightness = "IlluminatedSmartBrightness";  // 0 off, 1 a little, 2 more
-		constexpr std::string_view kHandLights = "IlluminatedHandLights";            // 0 everyone, 1 nearby, 2 + followers, 3 player only
+		// HIS GO-TO PICK ("do all of them"): a light budget
+		constexpr std::string_view kHandLights = "IlluminatedHandLights";  // 0 everyone, 1 nearby, 2 + followers, 3 player only
 		// "about forty paces" in game units: the advanced settings file's [Lights] NearbyDistance (gNearby, Plugin.h)
-		std::atomic<float> gDaylight{ 1.0f };  // what Brightness is multiplied by now: 1 at night and in the dark
-		std::atomic<int>   gHandBudget{ 0 };   // the Hand lights for choice, read by every caster's update
-		float              gDaylightClock{ 0.0f };
-
-		// how much dimmer the lights are now (LightKit.h: by the hour outdoors, by the room's own light indoors)
-		float DaylightFactor() { return LightKit::Daylight(SettingValue(kSmartBrightness, 0)); }
-
-		// every two seconds on the main thread while "Dim in daylight" is on (the sun's height moves with no event to hang on: CommonLib's
-		// and SKSE's events searched, Papyrus' game-time update is itself a timer): a change worth seeing moves every light the way a
-		// Brightness change does (only the strength - the passes are not run again for it)
-		void WatchDaylight(float a_delta)
-		{
-			if (SettingValue(kSmartBrightness, 0) == 0) {
-				return;
-			}
-			gDaylightClock += a_delta;
-			if (gDaylightClock < 2.0f) {
-				return;
-			}
-			gDaylightClock = 0.0f;
-			if (const float now = DaylightFactor(); std::abs(now - gDaylight.load()) >= 0.02f) {
-				gDaylight = now;
-				gDaylightMoved = true;
-			}
-		}
+		std::atomic<int> gHandBudget{ 0 };  // the Hand lights for choice, read by every caster's update
 
 		// the casting lights the budget put out, by the fade they had: the game sets a steady one's fade once, when the spell
 		// is readied, so one left out keeps 0 until its caster is kept again (walks near) and it is given back
@@ -476,15 +450,12 @@ namespace Plugin
 		// once a frame, on the main thread
 		void Frame()
 		{
-			const bool  settings = gRefresh.exchange(false);
-			const bool  changed = gDaylightMoved.exchange(false) || settings;
+			const bool  changed = gRefresh.exchange(false);
 			const float before = gBrightness;
-			if (settings) {
+			if (changed) {
 				RefreshLights();
 				ApplyWardLook();     // the Ward look pick: the next ward raised wears it
 				SwapDynamicTwins();  // the Dynamic Lighting switch shows now, not at Light Placer's next test
-			} else if (changed) {
-				ApplyLightStrength(false, true);  // the daylight moved: the copies at the new Brightness x daylight, no log line
 			}
 			StreamLightsFrame();
 			auto* scene = LightKit::Scene();
@@ -585,10 +556,6 @@ namespace Plugin
 				func(a_this, a_delta);
 				LightKit::Guarded("player update", [a_delta]() {
 					const Scope all{ 0, "player update, all of ours" };
-					{
-						const Scope c{ 3, "daylight" };
-						WatchDaylight(a_delta);
-					}
 					{
 						const Scope c{ 4, "frame (light copies)" };
 						Frame();
@@ -1160,17 +1127,13 @@ namespace Plugin
 		const int reach = SettingValue(kReach, 100);
 		// Performance (his order 2026-10-20): hand lights stay with the player and followers at most
 		gHandBudget = PerformanceMode() ? (std::max)(SettingValue(kHandLights, 0), 2) : SettingValue(kHandLights, 0);
-		// read now too, so a change of the setting shows at once (run 8: it waited for WatchDaylight's next look); at data
-		// load the player is in no cell yet, so 1
-		gDaylight = DaylightFactor();
-		const float daylight = gDaylight.load();
 		// Vanilla's lights a third brighter, under the slider
 		const float vanilla = LightingFound() == Lighting::kVanilla ? gVanillaStrength.load(std::memory_order_relaxed) : 1.0f;
-		const float scale = static_cast<float>(brightness) / 100.0f * daylight * vanilla;
+		const float scale = static_cast<float>(brightness) / 100.0f * vanilla;
 		const float stretch = (std::max)(static_cast<float>(reach) / 100.0f, 0.01f);
 		gBrightness = scale;
 		const bool off = LightsOff();
-		// the look is put back only when "all lights off" turns: written on every daylight step it undid HoldFlicker's steady
+		// the look is put back only when "all lights off" turns: written on every strength step it undid HoldFlicker's steady
 		// flags (the audit's M3)
 		static bool wasOff = false;
 		const bool  turned = off != wasOff;
@@ -1202,8 +1165,8 @@ namespace Plugin
 			++set;
 		}
 		if (!a_quiet) {
-			SKSE::log::info("light strength: brightness {}% x daylight {:.2f} = {:.2f} with the lighting's own strength, reach {}%, hand lights for {}, on {} light copies", brightness,
-				daylight, BrightnessNow(), reach, gHandBudget.load(), set);
+			SKSE::log::info("light strength: brightness {}% = {:.2f} with the lighting's own strength, reach {}%, hand lights for {}, on {} light copies", brightness,
+				BrightnessNow(), reach, gHandBudget.load(), set);
 		}
 		if (a_log) {
 			for (const auto& c : LightCopies()) {

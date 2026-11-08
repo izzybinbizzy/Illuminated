@@ -616,7 +616,7 @@ namespace Plugin
 					const float reach = s.reach * reachPct * RowReachFor(LightingFound());
 					// at full strength five lights wash a stream out white off Community Shaders
 					const float want = rec->second.fade * s.strength * bright * (isl ? 1.0f : kRowPlain);
-					// a dimmer Brightness or daylight lowers the cap too, so the sliders still reach a capped row
+					// a dimmer Brightness lowers the cap too, so the sliders still reach a capped row
 					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow(), 1.0f) : 0.0f);
 					Dress(light, color, steady * (flickers ? BeamRow::Pulsing(kind, seconds, i, seed) : 1.0f), reach, isl);
 					light->local.translate = toLocal * (axis.start + axis.dir * (s.along * length));  // on the path, in the root's units
@@ -864,7 +864,7 @@ namespace Plugin
 			RE::NiNode* parent = root;
 			Told("making its light", a_ref);
 			const bool isl = InverseSquare();
-			// ENB and Vanilla (Lighting.cpp): the reach asked for, drawn by the game's own lighting. Brightness x Dim in daylight,
+			// ENB and Vanilla (Lighting.cpp): the reach asked for, drawn by the game's own lighting. Brightness,
 			// as every light copy takes it (LightCopies.cpp)
 			const auto                              plain = LightKit::PlainAt(r.fade, 0.0f, r.radius);
 			const float                             radius = (isl ? r.radius : plain.radius) * Percent("IlluminatedReach");

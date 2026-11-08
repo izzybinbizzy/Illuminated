@@ -536,7 +536,7 @@ namespace Plugin
 				LightKit::Isl::Write(point, ambient);
 			}
 		}
-		// a steady one takes its record's fade too, so Brightness and Dim in daylight reach a hand already lit (run 9,
+		// a steady one takes its record's fade too, so Brightness reaches a hand already lit (run 9,
 		// the game set it once, when the spell was readied, and it never moved after); a flicker plays its keys
 		// under Realistic a spell with a kind takes its shape in place of the flicker's keys, around the same mean fade (as RELight)
 		const bool left = a_caster->GetCastingSource() == RE::MagicSystem::CastingSource::kLeftHand;
