@@ -471,11 +471,12 @@ namespace Fade
 			});
 		}
 
-		// a hand whose numbers cannot move until the game writes a value: at full, with no pulse or flare left and no clock running down
+		// a spell hand whose numbers cannot move until the game writes magicka: at full. Not a weapon: a hit takes its charge with no write
+		// the slots below hear, and its ExtraCharge announces nothing
 		[[nodiscard]] bool AtRest(const HandTrack& a_hand) noexcept
 		{
 			constexpr float kSlack = 0.002f;
-			return !a_hand.reading.bound && a_hand.fraction >= 0.999f && std::fabs(a_hand.out.brightness - 1.0f) < kSlack && std::fabs(a_hand.out.reach - 1.0f) < kSlack &&
+			return a_hand.spell && a_hand.fraction >= 0.999f && std::fabs(a_hand.out.brightness - 1.0f) < kSlack && std::fabs(a_hand.out.reach - 1.0f) < kSlack &&
 			       a_hand.out.cool <= 0.0f;
 		}
 
@@ -520,15 +521,14 @@ namespace Fade
 			}
 		};
 
-		// a hand at rest has nothing to follow until its magicka or its weapon's charge is written, and the game writes a value through
+		// a spell hand at rest has nothing to follow until its magicka is written, and the game writes a value through
 		// these four slots of its ActorValueOwner (Actor Value Generator and Valhalla Combat hook the same). Any thread: one flag
 		template <class Owner>
 		struct ValueWrites
 		{
 			static void Noted(RE::ActorValueOwner* a_this, RE::ActorValue a_value)
 			{
-				if ((a_value != RE::ActorValue::kMagicka && a_value != RE::ActorValue::kRightItemCharge && a_value != RE::ActorValue::kLeftItemCharge) ||
-					gNothingToFollow.load(std::memory_order_relaxed)) {
+				if (a_value != RE::ActorValue::kMagicka || gNothingToFollow.load(std::memory_order_relaxed)) {
 					return;
 				}
 				if constexpr (!std::is_same_v<Owner, RE::PlayerCharacter>) {
