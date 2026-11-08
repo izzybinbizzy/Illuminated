@@ -215,7 +215,7 @@ namespace Fade
 	// a spell's magicka is not a gem's; a full weapon shows nothing unless Show at full charge is on
 	[[nodiscard]] inline bool GemShows(const HudState& a_hud, const HudHand& a_hand) noexcept
 	{
-		return a_hand.shown && !a_hand.spell && (a_hand.fraction < 0.995f || a_hud.gemFull);
+		return a_hud.gems && a_hud.drawn && a_hand.shown && !a_hand.spell && (a_hand.fraction < 0.995f || a_hud.gemFull);
 	}
 	// a game menu is open (inventory, map, dialogue, the console ...): the HUD elements hide, as the game's own HUD does
 	// (his report). Kept by a menu open / close watcher (FadeMenu.cpp), read by the render thread

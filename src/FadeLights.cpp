@@ -482,8 +482,9 @@ namespace Fade
 		// what can put something of ours in a hand: an equip, a draw, sheathe or cast (SKSE's action events), an actor loading, her cell
 		// changing. Any thread: one flag, the main thread's pass reads the hands
 		std::atomic<bool> gHandsAsleep{ false }, gHandsWake{ false };
-		std::atomic<bool> gOthersWake{ false };  // Whose names more than the player: another actor's value wakes the pass too
-		std::uint32_t     gRestPasses = 0;       // passes in a row with every hand at rest (main thread)
+		std::atomic<Who>  gWatched{ Who::kPlayer };   // Whose: another actor's value or leaving wakes the pass only when it follows others
+		std::atomic<bool> gNothingToFollow{ false };  // asleep with nothing held: a value write has no hand to wake it for
+		std::uint32_t     gRestPasses = 0;            // passes in a row with every hand at rest (main thread)
 
 		class HandWatch final :
 			public RE::BSTEventSink<RE::TESEquipEvent>,
@@ -500,7 +501,7 @@ namespace Fade
 
 			RE::BSEventNotifyControl ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*) override
 			{
-				if (a_event && a_event->loaded && RE::TESForm::LookupByID<RE::Actor>(a_event->formID)) {
+				if (a_event && (a_event->loaded || gWatched.load(std::memory_order_relaxed) != Who::kPlayer) && RE::TESForm::LookupByID<RE::Actor>(a_event->formID)) {
 					WakeHands();
 				}
 				return RE::BSEventNotifyControl::kContinue;
@@ -524,50 +525,47 @@ namespace Fade
 		template <class Owner>
 		struct ValueWrites
 		{
-			static void Noted(RE::ActorValue a_value) noexcept
+			static void Noted(RE::ActorValueOwner* a_this, RE::ActorValue a_value)
 			{
-				if ((a_value == RE::ActorValue::kMagicka || a_value == RE::ActorValue::kRightItemCharge || a_value == RE::ActorValue::kLeftItemCharge) &&
-					(std::is_same_v<Owner, RE::PlayerCharacter> || gOthersWake.load(std::memory_order_relaxed))) {
-					WakeHands();
+				if ((a_value != RE::ActorValue::kMagicka && a_value != RE::ActorValue::kRightItemCharge && a_value != RE::ActorValue::kLeftItemCharge) ||
+					gNothingToFollow.load(std::memory_order_relaxed)) {
+					return;
 				}
+				if constexpr (!std::is_same_v<Owner, RE::PlayerCharacter>) {
+					const auto  who = gWatched.load(std::memory_order_relaxed);
+					const auto* actor = who == Who::kPlayer ? nullptr : skyrim_cast<RE::Actor*>(a_this);
+					if (!actor || (who != Who::kEveryone && !actor->IsPlayerTeammate())) {
+						return;
+					}
+				}
+				WakeHands();
 			}
 
-			static void SetBase(RE::ActorValueOwner* a_this, RE::ActorValue a_value, float a_amount)
+			template <std::size_t Slot>
+			struct Plain
 			{
-				setBase(a_this, a_value, a_amount);
-				Noted(a_value);
-			}
-
-			static void ModBase(RE::ActorValueOwner* a_this, RE::ActorValue a_value, float a_amount)
-			{
-				modBase(a_this, a_value, a_amount);
-				Noted(a_value);
-			}
+				static void thunk(RE::ActorValueOwner* a_this, RE::ActorValue a_value, float a_amount)
+				{
+					func(a_this, a_value, a_amount);
+					Noted(a_this, a_value);
+				}
+				static inline REL::Relocation<decltype(thunk)> func;
+			};
 
 			static void Mod(RE::ActorValueOwner* a_this, RE::ACTOR_VALUE_MODIFIER a_modifier, RE::ActorValue a_value, float a_amount)
 			{
 				mod(a_this, a_modifier, a_value, a_amount);
-				Noted(a_value);
+				Noted(a_this, a_value);
 			}
-
-			static void Set(RE::ActorValueOwner* a_this, RE::ActorValue a_value, float a_amount)
-			{
-				setValue(a_this, a_value, a_amount);
-				Noted(a_value);
-			}
-
-			static inline REL::Relocation<decltype(SetBase)> setBase;
-			static inline REL::Relocation<decltype(ModBase)> modBase;
-			static inline REL::Relocation<decltype(Mod)>     mod;
-			static inline REL::Relocation<decltype(Set)>     setValue;
+			static inline REL::Relocation<decltype(Mod)> mod;
 
 			static void Install()
 			{
 				REL::Relocation<std::uintptr_t> vtbl{ Owner::VTABLE[5] };
-				setBase = vtbl.write_vfunc(0x4, SetBase);
-				modBase = vtbl.write_vfunc(0x5, ModBase);
+				Plain<0x4>::func = vtbl.write_vfunc(0x4, Plain<0x4>::thunk);
+				Plain<0x5>::func = vtbl.write_vfunc(0x5, Plain<0x5>::thunk);
 				mod = vtbl.write_vfunc(0x6, Mod);
-				setValue = vtbl.write_vfunc(0x7, Set);
+				Plain<0x7>::func = vtbl.write_vfunc(0x7, Plain<0x7>::thunk);
 			}
 		};
 
@@ -933,7 +931,7 @@ namespace Fade
 				hud.shoutLit = shout.has_value();
 				hud.shoutColor = shout.value_or(Glow::Rgb{});
 			}
-			gGemsShown.store(hud.gems && hud.drawn && (GemShows(hud, hud.hands[0]) || GemShows(hud, hud.hands[1])), std::memory_order_relaxed);
+			gGemsShown.store(GemShows(hud, hud.hands[0]) || GemShows(hud, hud.hands[1]), std::memory_order_relaxed);
 			std::lock_guard lock(gHudLock);
 			gHud = hud;
 		}
@@ -1001,7 +999,7 @@ namespace Fade
 		// effect hooks hold that lock when they ask for gLock - read under gLock it could freeze (the outside review's threads M3)
 		const auto     settingsStart = std::chrono::steady_clock::now();
 		const Settings s = Config();  // one copy for the frame
-		gOthersWake.store(s.who != Who::kPlayer, std::memory_order_relaxed);
+		gWatched.store(s.who, std::memory_order_relaxed);
 		LightKit::Cost::Note(23, "fading: the settings copy",
 			std::chrono::duration<float, std::micro>(std::chrono::steady_clock::now() - settingsStart).count());
 		static std::vector<std::array<Reading, 2>> readings;  // main thread; its storage kept between frames
@@ -1047,7 +1045,8 @@ namespace Fade
 			RestoreAll();
 			PublishHud(s, hudHidden);
 			Items::Apply();  // Lights by Item works with Fading off too
-			gHandsAsleep.store(NothingHeld(), std::memory_order_relaxed);
+			gNothingToFollow.store(NothingHeld(), std::memory_order_relaxed);
+			gHandsAsleep.store(gNothingToFollow.load(std::memory_order_relaxed), std::memory_order_relaxed);
 			return;
 		}
 		auto&       preview = PreviewState();
@@ -1172,7 +1171,7 @@ namespace Fade
 		Items::Apply();  // last: an item's own choice wins over the fading (his order, FadeItems.cpp)
 		// asleep too with every hand at rest, once Sweep has had its passes; a gem on screen keeps the pass for its HUD check. Full is what the
 		// lights already show, so the effect hooks have nothing to do either, and no actor is held
-		const bool rest = !gems && std::ranges::all_of(gHands, [](const auto& a_hand) { return !a_hand.second.active || AtRest(a_hand.second); });
+		const bool rest = !gems && !previewOn && !Items::Holding() && std::ranges::all_of(gHands, [](const auto& a_hand) { return !a_hand.second.active || AtRest(a_hand.second); });
 		gRestPasses = rest ? gRestPasses + 1 : 0;
 		const bool rested = gRestPasses > kKeepFrames;
 		if (rested) {
@@ -1180,7 +1179,9 @@ namespace Fade
 			gActiveSpellHands = 0;
 			gActors.clear();
 		}
-		gHandsAsleep.store(rested || NothingHeld(), std::memory_order_relaxed);
+		const bool nothing = NothingHeld();
+		gNothingToFollow.store(nothing, std::memory_order_relaxed);
+		gHandsAsleep.store(rested || nothing, std::memory_order_relaxed);
 	}
 
 	void AfterReferenceEffect(RE::ReferenceEffect* a_effect, bool a_own3D)
