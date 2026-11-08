@@ -127,6 +127,31 @@ namespace Plugin
 		const void*                                          gLastSpace = nullptr;  // the interior cell, or the worldspace outside
 		bool                                                 gLastInside = false;
 
+		// a stray light comes of a spell's effects being cleared with its art up, seen at the next spell: looks for two seconds after an
+		// art starts (LightCopies.cpp), an effect ends or a hand moves, none at any other time. Any thread
+		constexpr int    kStrayLooks = 8;
+		std::atomic<int> gStrayLooks{ 0 };
+
+		struct StrayWatch final :
+			RE::BSTEventSink<RE::TESActiveEffectApplyRemoveEvent>,
+			RE::BSTEventSink<SKSE::ActionEvent>
+		{
+			RE::BSEventNotifyControl ProcessEvent(const RE::TESActiveEffectApplyRemoveEvent* a_event, RE::BSTEventSource<RE::TESActiveEffectApplyRemoveEvent>*) override
+			{
+				if (a_event && !a_event->isApplied) {
+					NoteStrayLook();
+				}
+				return RE::BSEventNotifyControl::kContinue;
+			}
+
+			RE::BSEventNotifyControl ProcessEvent(const SKSE::ActionEvent*, RE::BSTEventSource<SKSE::ActionEvent>*) override
+			{
+				NoteStrayLook();
+				return RE::BSEventNotifyControl::kContinue;
+			}
+		};
+		StrayWatch gStrayWatch;
+
 		struct CellWatch final : RE::BSTEventSink<RE::BGSActorCellEvent>
 		{
 			RE::BSEventNotifyControl ProcessEvent(const RE::BGSActorCellEvent* a_event, RE::BSTEventSource<RE::BGSActorCellEvent>*) override
@@ -318,6 +343,12 @@ namespace Plugin
 			return;
 		}
 		gKeepOn = true;  // the stray-light clean-up runs on VR too; the resume hook and the cell watch do not
+		if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
+			events->AddEventSink<RE::TESActiveEffectApplyRemoveEvent>(&gStrayWatch);
+		}
+		if (auto* actions = SKSE::GetActionEventSource()) {
+			actions->AddEventSink(&gStrayWatch);
+		}
 		if (REL::Module::IsVR()) {
 			return;
 		}
@@ -347,9 +378,17 @@ namespace Plugin
 		gLastInside = false;
 	}
 
+	void NoteStrayLook() noexcept
+	{
+		gStrayLooks.store(kStrayLooks, std::memory_order_relaxed);
+	}
+
 	void KeepCastingLights()
 	{
-		if (!gKeepOn) {
+		// each of the three has its own beginning and its own end: nothing runs while none of them is on
+		const bool strayLook = gStrayLooks.load(std::memory_order_relaxed) > 0;
+		const bool cellLook = gCellEntered.load(std::memory_order_relaxed) || (gCellSince && gNextLook < kLookAt.size());
+		if (!gKeepOn || (!strayLook && !cellLook && gReadded.empty())) {
 			return;
 		}
 		auto* scene = LightKit::Scene();
@@ -361,8 +400,9 @@ namespace Plugin
 			TendReadded(scene);
 		}
 		const auto now = std::chrono::steady_clock::now();
-		if (now - gStrayAt >= kStrayEvery) {
+		if (strayLook && now - gStrayAt >= kStrayEvery) {
 			gStrayAt = now;
+			gStrayLooks.fetch_sub(1, std::memory_order_relaxed);
 			PutOutStrayLights(scene);
 		}
 		if (!gCellWatchOn) {

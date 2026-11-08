@@ -233,6 +233,7 @@ namespace Plugin
 		ApplySprayColors();
 		ApplyVfxPacks();  // last: the art picks' VFX packs onto the spell forms (the passes above read a pack's copy as its original)
 		NoteArtLook();    // a row may light an art it did not before: ArtLights.cpp walks every effect again
+		NoteAtronachLook();
 		SKSE::log::info("lights refreshed for the settings in {:.1f} ms",
 			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
 	}

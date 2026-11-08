@@ -156,22 +156,30 @@ namespace Plugin
 
 	namespace
 	{
-		std::atomic<bool> gFleshLook{ true };  // a shader started somewhere (any thread): NoteFleshRoots walks again
+		// frames NoteFleshRoots still walks every frame: Light Placer may hang a starting effect's lights a few frames after it starts
+		constexpr int    kFleshLookFrames = 10;
+		std::atomic<int> gFleshLook{ kFleshLookFrames };
 	}
 
-	void NoteFleshLook() { gFleshLook.store(true, std::memory_order_relaxed); }
+	void NoteFleshStarted(const RE::ShaderReferenceEffect* a_effect)
+	{
+		if (a_effect && (LightKit::FleshFx::HueOf(a_effect->effectData) || TrackedFade(a_effect))) {
+			gFleshLook.store(kFleshLookFrames, std::memory_order_relaxed);
+		}
+	}
 
 	void NoteFleshRoots()
 	{
 		if (LightKit::FleshFx::Hues().empty() && gFades.empty()) {
 			return;  // no flesh spell wears FleshFX's look and FEC is not here: nothing to note, ever
 		}
-		// every magic effect is walked when a shader starts somewhere (LightCopies.cpp ArtInit) and every 30 frames, to let go of
-		// finished ones; between, the lights noted stand (measured 2026-11-08: 339 us a frame with eight FEC bodies)
-		static std::uint32_t looks = 0;
-		if (!gFleshLook.exchange(false) && ++looks % 30 != 0) {
+		// every magic effect is walked for a few frames after a flesh or FEC shader starts, resumes or ends (LightCopies.cpp); between,
+		// the lights noted stand
+		int left = gFleshLook.load(std::memory_order_relaxed);
+		if (left <= 0) {
 			return;
 		}
+		gFleshLook.compare_exchange_strong(left, left - 1, std::memory_order_relaxed);  // a start in between keeps its count
 		std::unordered_map<const RE::ShaderReferenceEffect*, NotedLights> roots;
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {
 			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {

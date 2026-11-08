@@ -65,12 +65,10 @@ namespace Plugin
 		std::size_t gCap{ (std::numeric_limits<std::size_t>::max)() };
 		bool        gCapLogged{ false };
 
-		// an art starts through the ReferenceEffect Init hook (LightCopies.cpp ArtInit): every effect in the world is walked only
-		// then, after a settings change, at a load and every kWalkEvery frames; between walks the effects a row lit at the last
-		// walk are visited again (measured 2026-11-08: the walk every frame cost 4.9 / 16.9 us idle / busy on Vanilla)
-		constexpr int                                kWalkEvery = 30;
+		// every effect in the world is walked only when an art starts or resumes (LightCopies.cpp ArtInit, ArtResume - only a flag:
+		// an effect kept by reference from its Init can be destroyed all the same), after a settings change and at a load. Between
+		// walks the effects a row lit at the last walk are visited, under the game's effect lock
 		std::atomic<bool>                            gArtLook{ true };
-		int                                          gWalkIn{ 0 };
 		std::vector<RE::NiPointer<RE::BSTempEffect>> gArts;  // main thread only
 
 		[[nodiscard]] const std::string& ModelKey(const RE::TESForm* a_form, const char* a_model)
@@ -431,6 +429,12 @@ namespace Plugin
 			auto* shader = a_effect ? netimmerse_cast<RE::ShaderReferenceEffect*>(a_effect) : nullptr;
 			return shader && !shader->finished && KeepFlesh(shader, a_scene);
 		}
+
+		void ForgetArts()
+		{
+			gArts.clear();
+			gArtLook.store(true, std::memory_order_relaxed);  // every effect walked at the next pass
+		}
 	}
 
 	void NoteArtLook() { gArtLook.store(true, std::memory_order_relaxed); }
@@ -464,8 +468,7 @@ namespace Plugin
 			gKeptCount = 0;
 			gLitCount = 0;
 			gLit = 0;
-			gArts.clear();
-			gArtLook.store(true, std::memory_order_relaxed);  // every effect walked when they come back on
+			ForgetArts();
 			return;
 		}
 		gCap = GlowLimit();
@@ -476,9 +479,8 @@ namespace Plugin
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {
 			gHandsOnBody.clear();
 			auto* player = RE::PlayerCharacter::GetSingleton();
-			if (gArtLook.exchange(false, std::memory_order_relaxed) || --gWalkIn <= 0) {
-				// every effect in the world: an art started, the settings changed, a load, or kWalkEvery frames since the last walk
-				gWalkIn = kWalkEvery;
+			if (gArtLook.exchange(false, std::memory_order_relaxed)) {
+				// every effect in the world: an art started or resumed, the settings changed, or a load
 				gArts.clear();
 				lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
 					if (Visit(a_effect, player, scene)) {
@@ -487,9 +489,17 @@ namespace Plugin
 					return RE::BSContainer::ForEachResult::kContinue;
 				});
 			} else {
-				for (const auto& effect : gArts) {
-					Visit(effect.get(), player, scene);
+				static std::vector<RE::NiPointer<RE::BSTempEffect>> gone;
+				{
+					RE::BSSpinLockGuard locker(lists->magicEffectsLock);
+					for (auto& effect : gArts) {
+						if (!Visit(effect.get(), player, scene)) {
+							gone.push_back(std::move(effect));
+						}
+					}
 				}
+				std::erase_if(gArts, [](const auto& a_effect) { return !a_effect; });
+				gone.clear();  // past the lock: the last reference to a finished effect may be let go here
 			}
 			gArtUnder.clear();
 			for (const auto& [key, kept] : gKept) {
@@ -543,8 +553,7 @@ namespace Plugin
 		gLitCount = 0;
 		gLit = 0;
 		gModelKey.clear();  // keyed by form address: a form made in memory and freed could hand its address to another
-		gArts.clear();
-		gArtLook.store(true, std::memory_order_relaxed);
+		ForgetArts();
 	}
 
 	std::size_t ArtLightCount() { return gKeptCount.load(); }

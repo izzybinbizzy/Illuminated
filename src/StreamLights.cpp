@@ -933,6 +933,9 @@ namespace Plugin
 			}
 		}
 
+		// the per-frame pass runs from a projectile's 3D loading or going until nothing of it is left to move or let go
+		std::atomic<bool> gStreamsAwake{ true };
+
 		// ------------------------------------------------------------------ the two hooks
 		// Load3D builds a reference's 3D (vtable slot 0x6A); Release3DRelatedData takes it apart (0x6B)
 		template <class T>
@@ -949,6 +952,7 @@ namespace Plugin
 						gToHang.emplace_back(a_this);  // held by its refcount, no handle made on this thread
 					}
 				});
+				gStreamsAwake.store(true, std::memory_order_relaxed);  // after the work: the pass goes to sleep only under gLiveLock
 				return object;
 			}
 
@@ -966,6 +970,7 @@ namespace Plugin
 			static void thunk(T* a_this)
 			{
 				LightKit::Guarded("ward light (3D release)", [a_this]() { DropLights(a_this); });
+				gStreamsAwake.store(true, std::memory_order_relaxed);
 				original(a_this);
 			}
 
@@ -1182,6 +1187,9 @@ namespace Plugin
 
 	void StreamLightsFrame()
 	{
+		if (!gStreamsAwake.load(std::memory_order_relaxed)) {
+			return;
+		}
 		{
 			// what the last frame dropped under gLiveLock, let go here with the lock free (L12)
 			std::vector<RE::NiPointer<RE::TESObjectREFR>> letGo;
@@ -1232,6 +1240,9 @@ namespace Plugin
 				MoveRows();  // his checklist 140: every bolt's row follows its real length this frame
 			}
 			if (gToHang.empty() && gToDrop.empty()) {
+				if (gLive.empty() && gLetGo.empty() && gParkedRows.empty() && gCloudWait.empty() && gClouds.empty()) {
+					gStreamsAwake.store(false, std::memory_order_relaxed);
+				}
 				return;
 			}
 			auto* scene = LightKit::Scene();

@@ -44,7 +44,6 @@ namespace Plugin
 		// draws none of ours (the route global held at 0) and every pass treats every config as unlit (Coverage::ModelLit)
 		constexpr std::string_view kLightsOff = "IlluminatedLightsOff";
 		constexpr std::string_view kQuality = "IlluminatedQuality";  // 0 Quality, 1 Performance (his order 2026-10-20)
-		// his checklist 336 answer ("limit but optional in performance"): the glows on people are capped (ArtLights.cpp)
 
 		[[nodiscard]] float RouteNow() { return LightsOff() ? 0.0f : gRouteValue; }
 

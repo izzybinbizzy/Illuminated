@@ -206,8 +206,9 @@ namespace Plugin
 	[[nodiscard]] std::vector<RE::NiPointer<RE::BSLight>> QueuedLights(RE::ShadowSceneNode* a_scene);
 	void                                                  KeepLightPlacerLights();  // at data load, after Light Placer hooked the resume when it loaded
 	void                                                  KeepCastingLights();      // once a frame, main thread: the casting art's Light Placer lights after a cell change
-	void                                                  DropCastingLights();      // a game loads: those lights and the last place seen are the old game's
-	void                                                  DropHandBudget();         // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
+	void                                                  NoteStrayLook() noexcept;
+	void                                                  DropCastingLights();  // a game loads: those lights and the last place seen are the old game's
+	void                                                  DropHandBudget();     // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
 
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
 	void                             DecideRecordRoute();     // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer
@@ -218,7 +219,6 @@ namespace Plugin
 	void                             RecolorRecordModel(const std::string& a_model, RE::Color a_color);      // that model's record lights become copies in a_color (data load)
 	void                             RecordFlicker(RE::ActorMagicCaster* a_caster);                          // after a caster's update: its hand light's flicker
 	void                             RecordTablesReady();                                                    // the data load is done: RecordFlicker may read the tables
-	void                             AdvanceRecordFlicker(float a_delta);                                    // once a frame, on the main thread
 	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model);                             // nullptr: no row lights that model now
 	[[nodiscard]] RE::TESObjectLIGH* RecordLightOfData(const std::string& a_model);                          // its first row's light, whatever the settings
 	[[nodiscard]] float              RecordFadeNow(const RE::TESObjectLIGH* a_record, const void* a_light);  // its fade now, a flicker's keys played
@@ -241,14 +241,15 @@ namespace Plugin
 	[[nodiscard]] std::size_t                    ArtGlowsLit();                                  // ArtLights.cpp: the glows lit now, which count against the same limit
 	inline constexpr std::uint32_t               kRecordPortalStrict = 1u << 13;                 // TES_LIGHT_FLAGS::kPortalStrict
 	void                                         DropAtronachLights();                           // a game loads, or a new one starts
+	void                                         NoteAtronachLook();                             // the settings changed: every atronach near her again
 	[[nodiscard]] std::size_t                    ArtLightCount();
 	[[nodiscard]] std::size_t                    ArtLightsLitNow();
 	[[nodiscard]] std::size_t                    ArtLightsMade();
 	// FleshLights.cpp (his call on FleshFX: "the dim light in its own color"): with Light Placer, a flesh spell's light takes
 	// FleshFX's hue right after Light Placer wrote it (the effect's update, any thread); without it ArtLights.cpp does
 	void FleshLightPlacer(RE::ShaderReferenceEffect* a_effect);
-	void NoteFleshRoots();  // main thread, once a frame: where each flesh effect's lights hang (FleshLightPlacer only reads it)
-	void NoteFleshLook();   // a shader started somewhere (any thread): NoteFleshRoots walks the effects again
+	void NoteFleshRoots();                                             // main thread, once a frame: where each flesh effect's lights hang (FleshLightPlacer only reads it)
+	void NoteFleshStarted(const RE::ShaderReferenceEffect* a_effect);  // a shader started, resumed or ended (any thread): NoteFleshRoots looks if it is one of ours
 	// Frozen Electrocuted Combustion's shaders a config row lights (gen.FEC), found at data load while editor IDs are known
 	struct Coverage;
 	void                                                                             NoteFecShaders(const Coverage& a_cov);
@@ -373,7 +374,6 @@ namespace Plugin
 	void                                     TintWardRecords();                                             // Wards.cpp: the same color onto the record route's ward hand lights (after MakeRecordLights)
 	[[nodiscard]] std::optional<RE::NiColor> StrangeWardColor();                                            // Wards.cpp: its pick's color, none = the vanilla blue-white
 	void                                     WatchBlocking();                                               // Wards.cpp: a shield's ward checked the moment a block starts (each game load)
-	void                                     KeepBlockWatch(float a_delta);                                 // Wards.cpp, player update: the watch follows a rebuilt animation graph
 
 	// ------------------------------------------------------------------ VfxPacks.cpp: the VFX switcher (his yes 2026-10-19)
 	// OFF in this release (his order 2026-10-19: "keep the spell switcher turned off in illuminated for now so we can ship with

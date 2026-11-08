@@ -5,8 +5,8 @@
 // SKSE's weapon draw events (the way RE::Light by Truman sees a draw - its disableLights.cpp, GPL-3.0, written here from SKSE's
 // event, not copied): the actors with drawn hands are known as they draw, so the record route's per-actor passes (the
 // drawn-weapon lights, ArtLights.cpp; the ground twins, GroundLights.cpp) look only at those, never at every actor near her each
-// frame. A sink only notes the form id; the main thread acts. Twice a second every actor near her is looked at again, so one
-// drawn before its 3D loaded, at a load, or by a mod that skips the event is found.
+// frame. A sink only notes the form id; the main thread acts. An actor that loads with its hands out comes through the game's
+// load event, and every actor near her is looked at once when a game loads.
 
 #include "Plugin.h"
 
@@ -14,13 +14,12 @@ namespace Plugin
 {
 	namespace
 	{
-		constexpr int kFullLookEvery = 30;
-
-		std::mutex                     gDrawLock;
-		std::vector<RE::FormID>        gDrawQueue;  // gDrawLock
-		std::unordered_set<RE::FormID> gDrawnIds;   // the main thread's
-		std::vector<RE::Actor*>        gDrawn;      // this frame's, the main thread's
-		int                            gFullLookIn{ 0 };
+		std::mutex                               gDrawLock;
+		std::vector<RE::FormID>                  gDrawQueue;    // gDrawLock
+		std::vector<std::pair<RE::FormID, bool>> gLoadedQueue;  // gDrawLock
+		std::unordered_set<RE::FormID>           gDrawnIds;     // the main thread's
+		std::vector<RE::Actor*>                  gDrawn;        // this frame's, the main thread's
+		bool                                     gLookAround{ true };
 
 		// may come from an animation thread: only the form id is handed on
 		class Draws final : public RE::BSTEventSink<SKSE::ActionEvent>
@@ -40,6 +39,19 @@ namespace Plugin
 			}
 		};
 
+		class Loads final : public RE::BSTEventSink<RE::TESObjectLoadedEvent>
+		{
+		public:
+			RE::BSEventNotifyControl ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*) override
+			{
+				if (a_event) {
+					std::lock_guard lock(gDrawLock);
+					gLoadedQueue.emplace_back(a_event->formID, a_event->loaded);
+				}
+				return RE::BSEventNotifyControl::kContinue;
+			}
+		};
+
 		[[nodiscard]] bool HandsDrawn(const RE::Actor* a_actor)
 		{
 			const auto* state = a_actor ? a_actor->AsActorState() : nullptr;
@@ -50,21 +62,21 @@ namespace Plugin
 	void WatchDraws()
 	{
 		static Draws draws;
+		static Loads loads;
 		auto*        actions = SKSE::GetActionEventSource();
-		if (!actions) {
-			SKSE::log::warn("events: weapon draws NOT watched - the actors with drawn hands are found twice a second only");
-			return;
+		auto*        events = RE::ScriptEventSourceHolder::GetSingleton();
+		if (actions) {
+			actions->AddEventSink(&draws);
 		}
-		actions->AddEventSink(&draws);
-		SKSE::log::info("events: weapon draws watched");
+		if (events) {
+			events->AddEventSink<RE::TESObjectLoadedEvent>(&loads);
+		}
+		SKSE::log::info("events: weapon draws {}, actors loading {}", actions ? "watched" : "NOT watched", events ? "watched" : "NOT watched");
 	}
 
 	void RefreshDrawn()
 	{
-		if (--gFullLookIn <= 0) {
-			// every actor near her again: the high actors are the ones the passes looked at every frame before
-			gFullLookIn = kFullLookEvery;
-			gDrawnIds.clear();
+		if (std::exchange(gLookAround, false)) {
 			if (auto* lists = RE::ProcessLists::GetSingleton()) {
 				for (auto& handle : lists->highActorHandles) {
 					if (const auto actor = handle.get(); HandsDrawn(actor.get())) {
@@ -77,6 +89,14 @@ namespace Plugin
 			std::lock_guard lock(gDrawLock);
 			gDrawnIds.insert(gDrawQueue.begin(), gDrawQueue.end());
 			gDrawQueue.clear();
+			for (const auto& [id, loaded] : gLoadedQueue) {
+				if (!loaded) {
+					gDrawnIds.erase(id);
+				} else if (HandsDrawn(RE::TESForm::LookupByID<RE::Actor>(id))) {
+					gDrawnIds.insert(id);
+				}
+			}
+			gLoadedQueue.clear();
 		}
 		gDrawn.clear();
 		auto* player = RE::PlayerCharacter::GetSingleton();
@@ -86,9 +106,11 @@ namespace Plugin
 		std::erase_if(gDrawnIds, [&](RE::FormID a_id) {
 			auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_id);
 			if (!HandsDrawn(actor)) {
-				return true;  // put away, gone or not an actor: looked at again when it draws (its end-of-draw event)
+				return true;  // put away, gone or not an actor: looked at again when it draws
 			}
-			if (actor != player) {
+			// a far actor stays listed and is looked at from the moment it comes near, as the passes always did
+			const auto* process = actor->GetActorRuntimeData().currentProcess;
+			if (actor != player && process && process->InHighProcess()) {
 				gDrawn.push_back(actor);
 			}
 			return false;
@@ -102,9 +124,10 @@ namespace Plugin
 		{
 			std::lock_guard lock(gDrawLock);
 			gDrawQueue.clear();
+			gLoadedQueue.clear();
 		}
 		gDrawnIds.clear();
 		gDrawn.clear();
-		gFullLookIn = 0;
+		gLookAround = true;
 	}
 }

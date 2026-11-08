@@ -75,10 +75,14 @@ namespace Plugin
 		// how much dimmer the lights are now (LightKit.h: by the hour outdoors, by the room's own light indoors)
 		float DaylightFactor() { return LightKit::Daylight(SettingValue(kSmartBrightness, 0)); }
 
-		// every two seconds on the main thread: a change worth seeing moves every light the way a Brightness change does (only
-		// the strength - the passes are not run again for it)
+		// every two seconds on the main thread while "Dim in daylight" is on (the sun's height moves with no event to hang on: CommonLib's
+		// and SKSE's events searched, Papyrus' game-time update is itself a timer): a change worth seeing moves every light the way a
+		// Brightness change does (only the strength - the passes are not run again for it)
 		void WatchDaylight(float a_delta)
 		{
+			if (SettingValue(kSmartBrightness, 0) == 0) {
+				return;
+			}
 			gDaylightClock += a_delta;
 			if (gDaylightClock < 2.0f) {
 				return;
@@ -513,21 +517,59 @@ namespace Plugin
 		// All installed at data load, long after Light Placer installed its own at plugin load, so each wraps Light
 		// Placer's: ours runs after it, on the values it just wrote. The fading module's work in the same places is
 		// called from here, after Brightness (the header has why).
-		// an art starting on anything (Light Placer's Init way - powerof3, GPL-3.0, his permission 2026-11-07): the flesh roots
-		// (FleshLights.cpp) and the art lights (ArtLights.cpp) look for new effects only then. Any thread; only flags are set
+		// an art starting on anything (Light Placer's Init way - powerof3, GPL-3.0, used with his permission): the art lights
+		// (ArtLights.cpp) and the flesh roots (FleshLights.cpp) hear of a new effect here. Any thread: flags only, never the effect kept
 		template <class T>
 		struct ArtInit
 		{
-			static void thunk(T* a_this)
+			// the game acts on what Init returns, though CommonLib declares it void: a thunk that loses it drops the effect
+			static bool thunk(T* a_this)
 			{
-				func(a_this);
-				NoteFleshLook();
+				const bool started = func(a_this);
 				NoteArtLook();
+				NoteStrayLook();
+				if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
+					NoteFleshStarted(a_this);
+				}
+				return started;
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
 			static void                                    Install()
 			{
 				func = REL::Relocation<std::uintptr_t>(T::VTABLE[0]).write_vfunc(0x36, thunk);  // ReferenceEffect::Init
+			}
+		};
+
+		// an effect coming back from its cell's suspension is not started again, and one that ends lets go of its noted lights
+		template <class T>
+		struct ArtResume
+		{
+			static void thunk(T* a_this)
+			{
+				func(a_this);
+				NoteArtLook();
+				if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
+					NoteFleshStarted(a_this);
+				}
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+			static void                                    Install()
+			{
+				func = REL::Relocation<std::uintptr_t>(T::VTABLE[0]).write_vfunc(0x38, thunk);  // ReferenceEffect::Resume
+			}
+		};
+
+		struct ArtDetach
+		{
+			static void thunk(RE::ShaderReferenceEffect* a_this)
+			{
+				NoteFleshStarted(a_this);
+				func(a_this);
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+			static void                                    Install()
+			{
+				func = REL::Relocation<std::uintptr_t>(RE::ShaderReferenceEffect::VTABLE[0]).write_vfunc(0x27, thunk);  // BSTempEffect::Detach
 			}
 		};
 
@@ -543,10 +585,6 @@ namespace Plugin
 				func(a_this, a_delta);
 				LightKit::Guarded("player update", [a_delta]() {
 					const Scope all{ 0, "player update, all of ours" };
-					{
-						const Scope c{ 2, "record flicker" };
-						AdvanceRecordFlicker(a_delta);
-					}
 					{
 						const Scope c{ 3, "daylight" };
 						WatchDaylight(a_delta);
@@ -574,10 +612,6 @@ namespace Plugin
 					{
 						const Scope c{ 8, "keep casting lights" };
 						KeepCastingLights();  // a held spell's Light Placer lights after a cell change (LightPlacerQueue.cpp)
-					}
-					{
-						const Scope c{ 9, "block watch" };
-						KeepBlockWatch(a_delta);  // the shield ward's block watch follows a rebuilt animation graph (Wards.cpp)
 					}
 					if (!RecordRoute()) {
 						const Scope c{ 10, "flesh roots" };
@@ -615,8 +649,11 @@ namespace Plugin
 			static void thunk(RE::ActorMagicCaster* a_this, float a_delta)
 			{
 				func(a_this, a_delta);
+				// a caster with no light and no casting art has nothing of ours on it: every caster in the loaded world comes through here
+				if (!a_this->light && a_this->flags.none(RE::ActorMagicCaster::Flags::kCastingArtAttached)) {
+					return;
+				}
 				LightKit::Guarded("caster update", [a_this]() {
-					const LightKit::Cost::Scope c{ 15, "one caster update (each caster, each frame)" };
 					{
 						auto*                     actor = a_this->GetCasterAsActor();
 						std::optional<SneakPause> pause;
@@ -648,8 +685,15 @@ namespace Plugin
 			static void thunk(T* a_this)
 			{
 				func(a_this);
+				// every effect in the loaded world comes through here: nothing to scale, fade or tint is the common case
+				bool flesh = false;
+				if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
+					flesh = !RecordRoute();
+				}
+				if (!flesh && !Scaling() && !Fade::EffectsWanted()) {
+					return;
+				}
 				LightKit::Guarded("effect update", [a_this]() {
-					const LightKit::Cost::Scope c{ 16, "one effect update (each effect, each frame)" };
 					// no handle off the main thread: a weapon enchantment's owner is its controller's plain target (in first person
 					// its art hangs in the first-person skeleton, which names no reference), anything else's is found by its 3D
 					const RE::TESObjectREFR* owner = WeaponTargetOf(a_this->controller);
@@ -955,6 +999,9 @@ namespace Plugin
 			EffectUpdate<RE::ModelReferenceEffect>::Install();
 			ArtInit<RE::ShaderReferenceEffect>::Install();
 			ArtInit<RE::ModelReferenceEffect>::Install();
+			ArtResume<RE::ShaderReferenceEffect>::Install();
+			ArtResume<RE::ModelReferenceEffect>::Install();
+			ArtDetach::Install();
 			if (REL::Module::IsVR()) {
 				return;
 			}

@@ -351,7 +351,11 @@ namespace Plugin
 			}
 		}
 		for (const auto id : down) {
-			Visit(RE::TESForm::LookupByID<RE::Actor>(id), scene);
+			auto*       actor = RE::TESForm::LookupByID<RE::Actor>(id);
+			const auto* state = actor ? actor->AsActorState() : nullptr;
+			if (state && !state->IsWeaponDrawn()) {
+				Visit(actor, scene);
+			}
 		}
 		std::erase_if(gTwins, [&](auto& a_entry) {
 			if (!a_entry.second.seen) {

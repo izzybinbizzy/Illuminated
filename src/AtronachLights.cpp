@@ -36,6 +36,35 @@ namespace Plugin
 		std::uint32_t                                       gWait{ 0 };
 		std::size_t                                         gRoom{ 0 };  // this frame's share of the glow limit
 
+		// the game says when an actor loads, unloads or dies (any thread, only noted): every actor near her is looked over only at a
+		// load, on a settings change and when the glow limit makes room; a lit atronach needs nothing between
+		std::mutex                               gNotedLock;
+		std::vector<std::pair<RE::FormID, bool>> gNoted;  // gNotedLock; true = it loaded
+		std::atomic<bool>                        gLookAround{ true };
+
+		class Watch final :
+			public RE::BSTEventSink<RE::TESObjectLoadedEvent>,
+			public RE::BSTEventSink<RE::TESDeathEvent>
+		{
+		public:
+			RE::BSEventNotifyControl ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*) override
+			{
+				if (a_event) {
+					std::lock_guard lock(gNotedLock);
+					gNoted.emplace_back(a_event->formID, a_event->loaded);
+				}
+				return RE::BSEventNotifyControl::kContinue;
+			}
+			RE::BSEventNotifyControl ProcessEvent(const RE::TESDeathEvent* a_event, RE::BSTEventSource<RE::TESDeathEvent>*) override
+			{
+				if (a_event && a_event->actorDying) {
+					std::lock_guard lock(gNotedLock);
+					gNoted.emplace_back(a_event->actorDying->GetFormID(), false);
+				}
+				return RE::BSEventNotifyControl::kContinue;
+			}
+		};
+
 		// the races another mod's Light Placer files light, only while Light Placer runs: its AtronachFlame.json is AtronachFlameRace
 		[[nodiscard]] std::unordered_set<std::string> ElementalRaces()
 		{
@@ -158,6 +187,12 @@ namespace Plugin
 				gRaces.emplace(race, row->color);
 			}
 		}
+		if (static Watch watch; !gRaces.empty()) {
+			if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
+				events->AddEventSink<RE::TESObjectLoadedEvent>(&watch);
+				events->AddEventSink<RE::TESDeathEvent>(&watch);
+			}
+		}
 		SKSE::log::info("atronach lights: {} of {} race(s) in this load order, {} left to iLluminous Elementals", gRaces.size(), AtronachRows().size(), left);
 	}
 
@@ -173,33 +208,72 @@ namespace Plugin
 				Drop(lit, scene);
 			}
 			gLit.clear();
+			gLookAround.store(true, std::memory_order_relaxed);
+			std::lock_guard lock(gNotedLock);
+			gNoted.clear();
 			return;
 		}
-		gWait -= gWait > 0 ? 1 : 0;
+		if (gWait > 0 && --gWait == 0) {
+			gLookAround.store(true, std::memory_order_relaxed);  // the scene refused one: try again
+		}
 		// one limit with the art glows, which go first; a lowered limit puts out the lights past it at once
 		const auto cap = GlowLimit();
 		const auto glows = ArtGlowsLit();
 		gRoom = (std::min)(kMostLights, cap > glows ? cap - glows : std::size_t{ 0 });
-		// the actors near her are looked over four times a second (a summoned atronach lights within a quarter second); the lights
-		// already lit stand between (measured 2026-11-08: 11 us a frame with none near)
-		static std::uint32_t looks = 0;
-		if (++looks % 15 != 1) {
-			return;
+		static std::size_t roomWas = 0;
+		if (gRoom > roomWas) {
+			gLookAround.store(true, std::memory_order_relaxed);
 		}
-		for (auto& [id, lit] : gLit) {
-			lit.seen = false;
+		roomWas = gRoom;
+		static std::vector<std::pair<RE::FormID, bool>> noted;  // kept so the pass allocates nothing once it has grown
+		noted.clear();
+		{
+			std::lock_guard lock(gNotedLock);
+			noted.swap(gNoted);
 		}
-		for (auto& handle : lists->highActorHandles) {
-			if (auto actor = handle.get()) {
-				Visit(actor.get(), scene);
+		if (gLookAround.exchange(false, std::memory_order_relaxed)) {
+			for (auto& [id, lit] : gLit) {
+				lit.seen = false;
+			}
+			for (auto& handle : lists->highActorHandles) {
+				if (auto actor = handle.get()) {
+					Visit(actor.get(), scene);
+				}
+			}
+			std::erase_if(gLit, [scene](auto& a_entry) {
+				if (a_entry.second.seen) {
+					return false;
+				}
+				Drop(a_entry.second, scene);
+				return true;
+			});
+		}
+		// a load event can come before the 3D is in: such an atronach is looked at each frame until it is, at most about 5 s
+		struct Waiting
+		{
+			RE::FormID id{ 0 };
+			int        left{ 300 };
+		};
+		static std::vector<Waiting> waiting;
+		for (const auto& [id, loaded] : noted) {
+			if (loaded) {
+				const auto* actor = RE::TESForm::LookupByID<RE::Actor>(id);
+				if (actor && gRaces.contains(actor->GetRace())) {
+					waiting.push_back({ id, 300 });
+				}
+			} else if (const auto lit = gLit.find(id); lit != gLit.end()) {
+				Drop(lit->second, scene);
+				gLit.erase(lit);
+				gLookAround.store(true, std::memory_order_relaxed);  // room for one that waited
 			}
 		}
-		std::erase_if(gLit, [scene](auto& a_entry) {
-			if (a_entry.second.seen) {
-				return false;
+		std::erase_if(waiting, [scene](Waiting& a_w) {
+			auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_w.id);
+			if (actor && actor->Is3DLoaded()) {
+				Visit(actor, scene);
+				return true;
 			}
-			Drop(a_entry.second, scene);
-			return true;
+			return !actor || --a_w.left <= 0;
 		});
 		for (auto it = gLit.begin(); gLit.size() > gRoom && it != gLit.end();) {
 			Drop(it->second, scene);
@@ -207,8 +281,11 @@ namespace Plugin
 		}
 	}
 
+	void NoteAtronachLook() { gLookAround.store(true, std::memory_order_relaxed); }
+
 	void DropAtronachLights()
 	{
+		gLookAround.store(true, std::memory_order_relaxed);
 		for (auto& [id, lit] : gLit) {
 			Drop(lit, LightKit::Scene());
 		}

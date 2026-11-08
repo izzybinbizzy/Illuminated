@@ -95,8 +95,8 @@ namespace Plugin
 		if (!player || !strings) {
 			return;
 		}
-		// nothing in her hands and nothing of hers moved: nothing to do (measured 2026-11-08: 36 us a frame idle, Light Placer route)
-		if (gMoved.empty() && !player->AsActorState()->IsWeaponDrawn()) {
+		// her hands down and nothing of hers moved: nothing to do (a draw's first frames already light her hands)
+		if (gMoved.empty() && player->AsActorState()->GetWeaponState() == RE::WEAPON_STATE::kSheathed) {
 			return;
 		}
 		// kept between frames so the player update allocates nothing once they have grown

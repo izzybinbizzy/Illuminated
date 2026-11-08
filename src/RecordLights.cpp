@@ -73,10 +73,16 @@ namespace Plugin
 		std::unordered_map<std::string, std::vector<Choice>>    gChoices;                  // model -> its record lights, strongest first
 		std::size_t                                             gMade = 0, gRows = 0, gNotOurs = 0, gMissing = 0, gFailed = 0;
 		double                                                  gMs = 0.0;
-		std::unordered_map<const RE::TESObjectLIGH*, Flicker>   gFlickerOf;      // the record lights of flicker rows
-		std::unordered_set<const RE::TESObjectLIGH*>            gOurRecords;     // every record light made here
-		std::unordered_map<const RE::TESObjectLIGH*, RE::Color> gAsMade;         // a row's record light: its color before VanillaLook
-		std::atomic<float>                                      gClock{ 0.0f };  // seconds, advanced once a frame on the main thread
+		std::unordered_map<const RE::TESObjectLIGH*, Flicker>   gFlickerOf;   // the record lights of flicker rows
+		std::unordered_set<const RE::TESObjectLIGH*>            gOurRecords;  // every record light made here
+		std::unordered_map<const RE::TESObjectLIGH*, RE::Color> gAsMade;      // a row's record light: its color before VanillaLook
+		// seconds, read when a flickering light is written - nothing advances it; wrapped well before a float loses the hundredths a
+		// 2 s loop needs (every loop is far shorter than 3600 s)
+		[[nodiscard]] float FlickerClock()
+		{
+			static const auto start = std::chrono::steady_clock::now();
+			return static_cast<float>(std::fmod(std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), 3600.0));
+		}
 
 		// the keys' signature, so two rows that flicker differently never share one record light
 		[[nodiscard]] std::string KeysOf(const ConfigLight& a_row)
@@ -463,14 +469,6 @@ namespace Plugin
 		return files && std::ranges::any_of(*files, [](const RE::TESFile* f) { return f && LightKit::SameText(f->GetFilename(), "ENB Light.esp"); });
 	}
 
-	void AdvanceRecordFlicker(float a_delta)
-	{
-		if (gOn && a_delta > 0.0f && a_delta < 1.0f) {
-			// wrapped well before a float loses the hundredths a 2 s loop needs (every loop is far shorter than 3600 s)
-			gClock.store(std::fmod(gClock.load(std::memory_order_relaxed) + a_delta, 3600.0f), std::memory_order_relaxed);
-		}
-	}
-
 	namespace
 	{
 		// the caster hook is installed with the other hooks part way through the data load (MakeLightCopies), while the
@@ -497,7 +495,7 @@ namespace Plugin
 		}
 		if (const auto it = gFlickerOf.find(a_record); it != gFlickerOf.end()) {
 			const auto& flicker = it->second;
-			const float now = gClock.load(std::memory_order_relaxed) + PhaseOf(a_light, flicker.duration);
+			const float now = FlickerClock() + PhaseOf(a_light, flicker.duration);
 			return a_record->fade * flicker.At(now) / flicker.mean;
 		}
 		return a_record->fade;
@@ -545,7 +543,7 @@ namespace Plugin
 		const auto kind = PulseRealistic() ? LightKit::PulseKindOfHand(a_caster->GetCasterAsActor(), left) : Pulse::Kind::kNone;
 		if (kind != Pulse::Kind::kNone) {
 			const auto seed = static_cast<std::uint32_t>(std::hash<const void*>{}(light));
-			data.fade = record->fade * Pulse::Factor(kind, gClock.load(std::memory_order_relaxed), seed);
+			data.fade = record->fade * Pulse::Factor(kind, FlickerClock(), seed);
 		} else {
 			data.fade = RecordFadeNow(record, light);
 		}
