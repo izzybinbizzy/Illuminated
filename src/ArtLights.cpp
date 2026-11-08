@@ -18,7 +18,7 @@
 // gets its row's light on the body (the effect's own attach root, the third-person one - a light under the first-person
 // skeleton lights nothing on ENB), faded while its caster sneaks (SneakFade.cpp), and drawn in FleshFX's
 // hue where FleshFX's look wins (FleshLights.cpp has why). Only the flesh shaders are followed as effects; a drawn weapon's
-// enchantment SHADER (the blade's glow) is reached through the weapon instead (VisitWeapons, EnchantShaderLight).
+// enchantment SHADER (the blade's glow) is reached through the weapon instead (CollectWeapons, EnchantShaderLight).
 //
 // CREDIT: a light is made and registered the way ReLight by Truman does it (github.com/TrumanGIT/ReLight, GPL-3.0-or-later,
 // used with his permission): a master NiPointLight cloned for every use and handed to the shadow scene node.
@@ -235,7 +235,9 @@ namespace Plugin
 
 		// the weapon parts an art light already hangs under (measured on Vanilla: a bound sword's configs light both its
 		// own model and its enchantment art - two lights on one blade; the art's is the one kept)
-		std::unordered_set<const RE::NiAVObject*> gArtUnder;
+		std::vector<const RE::NiAVObject*> gArtUnder;  // sorted; made at a look, its storage kept
+
+		[[nodiscard]] bool ArtUnder(const RE::NiAVObject* a_node) { return std::ranges::binary_search(gArtUnder, a_node); }
 
 		// the hand a node sits under (itself when it is one), or nullptr
 		[[nodiscard]] RE::NiAVObject* HandAbove(RE::NiAVObject* a_node)
@@ -270,6 +272,21 @@ namespace Plugin
 			bool             left{ false };
 		};
 		std::vector<OnBody> gOnBody;
+
+		// a drawn weapon's light as the last look worked it out: what it hangs on, its row. Between looks each is only kept and followed
+		struct WeaponWant
+		{
+			RE::NiPointer<RE::NiAVObject> part;
+			RE::NiPointer<RE::NiAVObject> node;
+			const RE::TESObjectLIGH*      record{ nullptr };
+			const RE::Actor*              actor{ nullptr };  // read only while the list of drawn actors stays the one it came from
+			bool                          left{ false }, firstPerson{ false }, hers{ false };
+		};
+		std::vector<WeaponWant> gWeaponWants;  // main thread only
+		bool                    gWeaponWaits{ false };
+		// a look for a few frames after what can change a want: a weapon's part can come a moment after its equip
+		constexpr int    kWeaponLooks = 8;
+		std::atomic<int> gWeaponLooks{ kWeaponLooks };
 
 		[[nodiscard]] bool LeftHand(const RE::NiAVObject* a_hand)
 		{
@@ -363,7 +380,7 @@ namespace Plugin
 			return nullptr;
 		}
 
-		void VisitWeapons(RE::Actor* a_actor, RE::ShadowSceneNode* a_scene)
+		void CollectWeapons(RE::Actor* a_actor)
 		{
 			const auto* state = a_actor ? a_actor->AsActorState() : nullptr;
 			if (!a_actor || !a_actor->Is3DLoaded() || !state || !state->IsWeaponDrawn()) {
@@ -391,13 +408,12 @@ namespace Plugin
 				// the weapon's third-person 3D; in first person the body node, as for art (ArtNode: the arms are not posed there)
 				auto*       part = Fade::WeaponPart(a_actor, false, left, weapon);
 				const auto* hand = part ? HandAbove(part) : nullptr;
-				if (part && !gArtUnder.contains(part) && !gArtUnder.contains(hand) && !gHandsOnBody.contains(hand)) {
+				gWeaponWaits = gWeaponWaits || !part;
+				if (part && !ArtUnder(part) && !ArtUnder(hand) && !gHandsOnBody.contains(hand)) {
 					const auto* camera = RE::PlayerCamera::GetSingleton();
 					const bool  firstPerson = a_actor->IsPlayerRef() && camera && camera->IsInFirstPerson();
-					Keep(part, firstPerson ? BodyNode(a_actor->Get3D(false)) : part, record, a_scene, a_actor->IsPlayerRef());
-					if (firstPerson) {
-						gOnBody.push_back({ part, a_actor, left });
-					}
+					auto*       node = firstPerson ? BodyNode(a_actor->Get3D(false)) : part;
+					gWeaponWants.push_back({ RE::NiPointer<RE::NiAVObject>(part), RE::NiPointer<RE::NiAVObject>(node), record, a_actor, left, firstPerson, a_actor->IsPlayerRef() });
 				}
 			}
 		}
@@ -433,11 +449,14 @@ namespace Plugin
 		void ForgetArts()
 		{
 			gArts.clear();
+			gWeaponWants.clear();
 			gArtLook.store(true, std::memory_order_relaxed);  // every effect walked at the next pass
 		}
 	}
 
 	void NoteArtLook() { gArtLook.store(true, std::memory_order_relaxed); }
+
+	void NoteWeaponLook() noexcept { gWeaponLooks.store(kWeaponLooks, std::memory_order_relaxed); }
 
 	void NoteEnchantShaders()
 	{
@@ -478,8 +497,9 @@ namespace Plugin
 		gOnBody.clear();
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {
 			gHandsOnBody.clear();
-			auto* player = RE::PlayerCharacter::GetSingleton();
-			if (gArtLook.exchange(false, std::memory_order_relaxed)) {
+			auto*      player = RE::PlayerCharacter::GetSingleton();
+			const bool walked = gArtLook.exchange(false, std::memory_order_relaxed);
+			if (walked) {
 				// every effect in the world: an art started or resumed, the settings changed, or a load
 				gArts.clear();
 				lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
@@ -501,17 +521,39 @@ namespace Plugin
 				std::erase_if(gArts, [](const auto& a_effect) { return !a_effect; });
 				gone.clear();  // past the lock: the last reference to a finished effect may be let go here
 			}
-			gArtUnder.clear();
-			for (const auto& [key, kept] : gKept) {
-				if (kept.seen && kept.root) {
-					for (const RE::NiAVObject* up = kept.root.get(); up && gArtUnder.size() < 4096; up = up->parent) {
-						gArtUnder.insert(up);
+			// what a drawn weapon wants changes only with what announces it (NoteWeaponLook), a walk, the list of drawn actors, or an art light coming or going
+			static std::vector<RE::Actor*> drawnWas;
+			static std::size_t             keptWas = 0;
+			const auto&                    drawn = DrawnActors();
+			int                            looks = gWeaponLooks.load(std::memory_order_relaxed);
+			const bool                     partGone = std::ranges::any_of(gWeaponWants, [](const WeaponWant& a_w) { return !a_w.part->parent; });
+			if (looks > 0 || walked || gWeaponWaits || partGone || drawn != drawnWas || gKept.size() != keptWas) {
+				if (looks > 0) {
+					gWeaponLooks.compare_exchange_strong(looks, looks - 1, std::memory_order_relaxed);  // a note in between keeps its count
+				}
+				drawnWas = drawn;
+				gArtUnder.clear();
+				for (const auto& [key, kept] : gKept) {
+					if (kept.seen && kept.root) {
+						for (const RE::NiAVObject* up = kept.root.get(); up && gArtUnder.size() < 4096; up = up->parent) {
+							gArtUnder.push_back(up);
+						}
 					}
 				}
+				std::ranges::sort(gArtUnder);
+				gWeaponWants.clear();
+				gWeaponWaits = false;
+				for (auto* actor : drawn) {
+					CollectWeapons(actor);  // the player first, then every actor with drawn hands (Events.cpp)
+				}
 			}
-			for (auto* actor : DrawnActors()) {
-				VisitWeapons(actor, scene);  // the player first, then every actor with drawn hands (Events.cpp)
+			for (const auto& w : gWeaponWants) {
+				Keep(w.part.get(), w.node.get(), w.record, scene, w.hers);
+				if (w.firstPerson) {
+					gOnBody.push_back({ w.part.get(), w.actor, w.left });
+				}
 			}
+			keptWas = gKept.size();
 		}
 		std::erase_if(gKept, [&](auto& a_entry) {
 			if (!a_entry.second.seen) {

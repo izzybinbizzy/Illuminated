@@ -229,6 +229,7 @@ namespace Plugin
 	void DropArtLights();  // a game loads, or a new one starts
 	// an art started somewhere, or the settings changed (any thread): TickArtLights walks every effect again
 	void NoteArtLook();
+	void NoteWeaponLook() noexcept;  // any thread: something changed what a drawn weapon wants (ArtLights.cpp)
 	// Events.cpp: SKSE's weapon draw events - the actors with drawn hands, for the record route's per-actor passes
 	void                                         WatchDraws();                                         // data load, record route
 	void                                         WatchActors3D();                                      // data load: each actor's 3D, in and out

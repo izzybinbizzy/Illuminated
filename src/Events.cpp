@@ -33,6 +33,7 @@ namespace Plugin
 					using T = SKSE::ActionEvent::Type;
 					const auto type = a_event && a_event->actor ? a_event->type.get() : T::kWeaponSwing;
 					if (type == T::kBeginDraw || type == T::kEndDraw) {
+						NoteWeaponLook();
 						std::lock_guard lock(gDrawLock);
 						gDrawQueue.push_back(a_event->actor->GetFormID());
 					}
@@ -89,7 +90,11 @@ namespace Plugin
 			}
 			NoteAtronach3D(a_actor, a_in);
 			Fade::NoteActor3D(a_actor);
+			if (!a_in) {
+				NoteStrayLook();  // a light of its body may be left behind with no node
+			}
 			if (gDrawsWatched.load(std::memory_order_relaxed)) {
+				NoteWeaponLook();
 				std::lock_guard lock(gDrawLock);
 				gLoadedQueue.emplace_back(a_actor->GetFormID(), a_in);
 			}
@@ -124,6 +129,30 @@ namespace Plugin
 			}
 		};
 
+		// what else changes which light a weapon in a hand wants. Only noted, any thread
+		class WeaponChanges final :
+			public RE::BSTEventSink<RE::TESEquipEvent>,
+			public RE::BSTEventSink<SKSE::CameraEvent>,
+			public RE::BSTEventSink<SKSE::NiNodeUpdateEvent>
+		{
+		public:
+			RE::BSEventNotifyControl ProcessEvent(const RE::TESEquipEvent*, RE::BSTEventSource<RE::TESEquipEvent>*) override
+			{
+				NoteWeaponLook();
+				return RE::BSEventNotifyControl::kContinue;
+			}
+			RE::BSEventNotifyControl ProcessEvent(const SKSE::CameraEvent*, RE::BSTEventSource<SKSE::CameraEvent>*) override
+			{
+				NoteWeaponLook();
+				return RE::BSEventNotifyControl::kContinue;
+			}
+			RE::BSEventNotifyControl ProcessEvent(const SKSE::NiNodeUpdateEvent*, RE::BSTEventSource<SKSE::NiNodeUpdateEvent>*) override
+			{
+				NoteWeaponLook();
+				return RE::BSEventNotifyControl::kContinue;
+			}
+		};
+
 		[[nodiscard]] bool HandsDrawn(const RE::Actor* a_actor)
 		{
 			const auto* state = a_actor ? a_actor->AsActorState() : nullptr;
@@ -143,6 +172,16 @@ namespace Plugin
 		auto*        actions = SKSE::GetActionEventSource();
 		if (actions) {
 			actions->AddEventSink(&draws);
+		}
+		static WeaponChanges changes;
+		if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
+			events->AddEventSink<RE::TESEquipEvent>(&changes);
+		}
+		if (auto* cameras = SKSE::GetCameraEventSource()) {
+			cameras->AddEventSink(&changes);
+		}
+		if (auto* updates = SKSE::GetNiNodeUpdateEventSource()) {
+			updates->AddEventSink(&changes);
 		}
 		gDrawsWatched.store(true, std::memory_order_relaxed);
 		SKSE::log::info("events: weapon draws {}", actions ? "watched" : "NOT watched");
