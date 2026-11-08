@@ -36,27 +36,17 @@ namespace Plugin
 		std::uint32_t                                       gWait{ 0 };
 		std::size_t                                         gRoom{ 0 };  // this frame's share of the glow limit
 
-		// the game says when an actor loads, unloads or dies (any thread, only noted): every actor near her is looked over only at a
+		// the game says when an actor's 3D comes or goes (Events.cpp) or it dies (any thread, only noted): every actor near her is looked over only at a
 		// load, on a settings change and when the glow limit makes room; a lit atronach needs nothing between
 		std::mutex                               gNotedLock;
 		std::vector<std::pair<RE::FormID, bool>> gNoted;  // gNotedLock; true = it loaded
 		std::atomic<bool>                        gLookAround{ true };
 
 		class Watch final :
-			public RE::BSTEventSink<RE::TESObjectLoadedEvent>,
 			public RE::BSTEventSink<RE::TESDeathEvent>,
 			public RE::BSTEventSink<RE::TESActiveEffectApplyRemoveEvent>
 		{
 		public:
-			RE::BSEventNotifyControl ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*) override
-			{
-				// only an actor: a cell's load is thousands of references
-				if (a_event && RE::TESForm::LookupByID<RE::Actor>(a_event->formID)) {
-					std::lock_guard lock(gNotedLock);
-					gNoted.emplace_back(a_event->formID, a_event->loaded);
-				}
-				return RE::BSEventNotifyControl::kContinue;
-			}
 			RE::BSEventNotifyControl ProcessEvent(const RE::TESDeathEvent* a_event, RE::BSTEventSource<RE::TESDeathEvent>*) override
 			{
 				if (a_event && a_event->actorDying) {
@@ -201,7 +191,6 @@ namespace Plugin
 		}
 		if (static Watch watch; !gRaces.empty()) {
 			if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
-				events->AddEventSink<RE::TESObjectLoadedEvent>(&watch);
 				events->AddEventSink<RE::TESDeathEvent>(&watch);
 				events->AddEventSink<RE::TESActiveEffectApplyRemoveEvent>(&watch);
 			}
@@ -295,6 +284,14 @@ namespace Plugin
 	}
 
 	void NoteAtronachLook() { gLookAround.store(true, std::memory_order_relaxed); }
+
+	void NoteAtronach3D(const RE::Actor* a_actor, bool a_in)
+	{
+		if (gRaces.contains(a_actor->GetRace())) {
+			std::lock_guard lock(gNotedLock);
+			gNoted.emplace_back(a_actor->GetFormID(), a_in);
+		}
+	}
 
 	void DropAtronachLights()
 	{

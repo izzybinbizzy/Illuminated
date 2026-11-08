@@ -230,18 +230,20 @@ namespace Plugin
 	// an art started somewhere, or the settings changed (any thread): TickArtLights walks every effect again
 	void NoteArtLook();
 	// Events.cpp: SKSE's weapon draw events - the actors with drawn hands, for the record route's per-actor passes
-	void                                         WatchDraws();                                   // data load, record route
-	void                                         RefreshDrawn();                                 // main thread, once a frame before the art lights
-	[[nodiscard]] const std::vector<RE::Actor*>& DrawnActors();                                  // this frame's: the player first, then every actor with drawn hands
-	void                                         ForgetDrawn();                                  // a game loads, or a new one starts
-	[[nodiscard]] RE::Color                      VanillaLook(RE::Color a_color);                 // RecordLights.cpp: a light's color as Vanilla wears it
-	[[nodiscard]] RE::Color                      ColorAsMade(const RE::TESObjectLIGH* a_light);  // a record light's color before VanillaLook, else its own
-	void                                         ReadAtronachRaces();                            // AtronachLights.cpp: once, at data load
-	void                                         TickAtronachLights();                           // AtronachLights.cpp: once a frame, in the player update
-	[[nodiscard]] std::size_t                    ArtGlowsLit();                                  // ArtLights.cpp: the glows lit now, which count against the same limit
-	inline constexpr std::uint32_t               kRecordPortalStrict = 1u << 13;                 // TES_LIGHT_FLAGS::kPortalStrict
-	void                                         DropAtronachLights();                           // a game loads, or a new one starts
-	void                                         NoteAtronachLook();                             // the settings changed: every atronach near her again
+	void                                         WatchDraws();                                         // data load, record route
+	void                                         WatchActors3D();                                      // data load: each actor's 3D, in and out
+	void                                         NoteAtronach3D(const RE::Actor* a_actor, bool a_in);  // any thread: that actor's 3D came or went
+	void                                         RefreshDrawn();                                       // main thread, once a frame before the art lights
+	[[nodiscard]] const std::vector<RE::Actor*>& DrawnActors();                                        // this frame's: the player first, then every actor with drawn hands
+	void                                         ForgetDrawn();                                        // a game loads, or a new one starts
+	[[nodiscard]] RE::Color                      VanillaLook(RE::Color a_color);                       // RecordLights.cpp: a light's color as Vanilla wears it
+	[[nodiscard]] RE::Color                      ColorAsMade(const RE::TESObjectLIGH* a_light);        // a record light's color before VanillaLook, else its own
+	void                                         ReadAtronachRaces();                                  // AtronachLights.cpp: once, at data load
+	void                                         TickAtronachLights();                                 // AtronachLights.cpp: once a frame, in the player update
+	[[nodiscard]] std::size_t                    ArtGlowsLit();                                        // ArtLights.cpp: the glows lit now, which count against the same limit
+	inline constexpr std::uint32_t               kRecordPortalStrict = 1u << 13;                       // TES_LIGHT_FLAGS::kPortalStrict
+	void                                         DropAtronachLights();                                 // a game loads, or a new one starts
+	void                                         NoteAtronachLook();                                   // the settings changed: every atronach near her again
 	[[nodiscard]] std::size_t                    ArtLightCount();
 	[[nodiscard]] std::size_t                    ArtLightsLitNow();
 	[[nodiscard]] std::size_t                    ArtLightsMade();

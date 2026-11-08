@@ -5,9 +5,10 @@
 // SKSE's weapon draw events (the way RE::Light by Truman sees a draw - its disableLights.cpp, GPL-3.0, written here from SKSE's
 // event, not copied): the actors with drawn hands are known as they draw, so the record route's per-actor passes (the
 // drawn-weapon lights, ArtLights.cpp; the ground twins, GroundLights.cpp) look only at those, never at every actor near her each
-// frame. A sink only notes the form id; the main thread acts. An actor that loads with its hands out comes through the game's
-// load event, and every actor near her is looked at once when a game loads.
+// frame. A sink only notes the form id; the main thread acts. An actor that loads with its hands out comes through its own 3D
+// slots, and every actor near her is looked at once when a game loads.
 
+#include "Fade.h"
 #include "Plugin.h"
 
 namespace Plugin
@@ -15,10 +16,11 @@ namespace Plugin
 	namespace
 	{
 		std::mutex                               gDrawLock;
-		std::vector<RE::FormID>                  gDrawQueue;    // gDrawLock
-		std::vector<std::pair<RE::FormID, bool>> gLoadedQueue;  // gDrawLock
-		std::unordered_set<RE::FormID>           gDrawnIds;     // the main thread's
-		std::vector<RE::Actor*>                  gDrawn;        // this frame's, the main thread's
+		std::vector<RE::FormID>                  gDrawQueue;              // gDrawLock
+		std::vector<std::pair<RE::FormID, bool>> gLoadedQueue;            // gDrawLock
+		std::atomic<bool>                        gDrawsWatched{ false };  // the record route's: only it reads the queues
+		std::unordered_set<RE::FormID>           gDrawnIds;               // the main thread's
+		std::vector<RE::Actor*>                  gDrawn;                  // this frame's, the main thread's
 		bool                                     gLookAround{ true };
 
 		// may come from an animation thread: only the form id is handed on
@@ -39,17 +41,42 @@ namespace Plugin
 			}
 		};
 
-		class Loads final : public RE::BSTEventSink<RE::TESObjectLoadedEvent>
+		void Note3D(RE::Actor* a_actor, bool a_in)
 		{
-		public:
-			RE::BSEventNotifyControl ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*) override
+			NoteAtronach3D(a_actor, a_in);
+			Fade::NoteActor3D(a_in);
+			if (gDrawsWatched.load(std::memory_order_relaxed)) {
+				std::lock_guard lock(gDrawLock);
+				gLoadedQueue.emplace_back(a_actor->GetFormID(), a_in);
+			}
+		}
+
+		// An actor's 3D in and out, at its own two slots: the game's load event names only a reference with a script or in an alias (read in
+		// the 1.6.1170 exe). A queued load returns its body at the first on a loader thread and the game stores it later; a null at the
+		// second is the body let go. Any thread: only noted
+		template <class T>
+		struct Actor3D
+		{
+			static RE::NiAVObject* LoadThunk(T* a_this, bool a_backgroundLoading)
 			{
-				// only an actor: a cell's load is thousands of references
-				if (a_event && RE::TESForm::LookupByID<RE::Actor>(a_event->formID)) {
-					std::lock_guard lock(gDrawLock);
-					gLoadedQueue.emplace_back(a_event->formID, a_event->loaded);
+				auto* root = load(a_this, a_backgroundLoading);
+				if (root) {
+					LightKit::Guarded("actor 3D in", [a_this]() { Note3D(a_this, true); });
 				}
-				return RE::BSEventNotifyControl::kContinue;
+				return root;
+			}
+			static void SetThunk(T* a_this, RE::NiAVObject* a_object, bool a_queue3DTasks)
+			{
+				set(a_this, a_object, a_queue3DTasks);
+				LightKit::Guarded("actor 3D set", [a_this, a_object]() { Note3D(a_this, a_object != nullptr); });
+			}
+			static inline REL::Relocation<decltype(LoadThunk)> load;
+			static inline REL::Relocation<decltype(SetThunk)>  set;
+			static void                                        Install()
+			{
+				REL::Relocation<std::uintptr_t> vtbl{ T::VTABLE[0] };
+				load = vtbl.write_vfunc(0x6A, LoadThunk);
+				set = vtbl.write_vfunc(0x6C, SetThunk);
 			}
 		};
 
@@ -60,19 +87,21 @@ namespace Plugin
 		}
 	}
 
+	void WatchActors3D()
+	{
+		Actor3D<RE::Character>::Install();
+		Actor3D<RE::PlayerCharacter>::Install();
+	}
+
 	void WatchDraws()
 	{
 		static Draws draws;
-		static Loads loads;
 		auto*        actions = SKSE::GetActionEventSource();
-		auto*        events = RE::ScriptEventSourceHolder::GetSingleton();
 		if (actions) {
 			actions->AddEventSink(&draws);
 		}
-		if (events) {
-			events->AddEventSink<RE::TESObjectLoadedEvent>(&loads);
-		}
-		SKSE::log::info("events: weapon draws {}, actors loading {}", actions ? "watched" : "NOT watched", events ? "watched" : "NOT watched");
+		gDrawsWatched.store(true, std::memory_order_relaxed);
+		SKSE::log::info("events: weapon draws {}", actions ? "watched" : "NOT watched");
 	}
 
 	void RefreshDrawn()

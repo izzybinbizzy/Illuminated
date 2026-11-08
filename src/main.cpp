@@ -101,6 +101,7 @@ namespace
 		NoteSpellHazards();
 		FindShadowSigns();    // once here, never on the first frame of play
 		ReadAtronachRaces();  // the same
+		WatchActors3D();      // after the races: the atronachs and the fading hear of an actor's 3D
 		if (record) {
 			MakeRecordLights();    // before passes 1 and 2, which point the records at them
 			TintWardRecords();     // a recolored 360 Ward's color onto the ward hand's record lights
