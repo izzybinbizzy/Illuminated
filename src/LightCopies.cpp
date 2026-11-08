@@ -688,7 +688,7 @@ namespace Plugin
 				// every effect in the loaded world comes through here: nothing to scale, fade or tint is the common case
 				bool flesh = false;
 				if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
-					flesh = !RecordRoute();
+					flesh = !RecordRoute() && FleshNoted();
 				}
 				if (!flesh && !Scaling() && !Fade::EffectsWanted()) {
 					return;
@@ -982,6 +982,10 @@ namespace Plugin
 			static void thunk(RE::TESObjectCELL* a_cell)
 			{
 				func(a_cell);
+				// every loaded cell comes through here: nothing scaled and nothing to write again is the common case
+				if (!Scaling() && !Fade::ReapplyWanted()) {
+					return;
+				}
 				LightKit::Guarded("cell animations", [a_cell]() {
 					const SneakPause pause;
 					ScaleCell(a_cell);

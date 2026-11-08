@@ -456,10 +456,19 @@ namespace Fade
 			return out;
 		}
 
-		// the hands' pass sleeps on this (under gLock): no hand active, no light or glow of ours left to put back
+		// the hands' pass sleeps on this (under gLock): no light or glow of ours left to put back, and no hand active but a spell with the
+		// hands down, which has nothing to follow until a draw wakes the pass
 		[[nodiscard]] bool NothingHeld()
 		{
-			return gLights.empty() && gShaders.empty() && gArt.empty() && std::ranges::none_of(gHands, [](const auto& a_hand) { return a_hand.second.active; });
+			return gLights.empty() && gShaders.empty() && gArt.empty() && std::ranges::none_of(gHands, [](const auto& a_hand) {
+				const auto& h = a_hand.second;
+				if (!h.active || !h.spell) {
+					return h.active;
+				}
+				const auto  actor = h.actor.get();
+				const auto* state = actor ? actor->AsActorState() : nullptr;
+				return state && state->GetWeaponState() != RE::WEAPON_STATE::kSheathed;
+			});
 		}
 
 		// what can put something of ours in a hand: an equip, a draw, sheathe or cast (SKSE's action events), an actor loading, her cell
@@ -880,6 +889,16 @@ namespace Fade
 	void WakeHands() noexcept
 	{
 		gHandsWake.store(true, std::memory_order_relaxed);
+	}
+
+	bool HandsAsleep() noexcept
+	{
+		return gHandsAsleep.load(std::memory_order_relaxed);
+	}
+
+	bool ReapplyWanted() noexcept
+	{
+		return !gHandsAsleep.load(std::memory_order_relaxed) || Items::Holding();
 	}
 
 	void WatchHands()

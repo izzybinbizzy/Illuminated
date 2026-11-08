@@ -49,7 +49,8 @@ namespace Plugin
 		public:
 			RE::BSEventNotifyControl ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*) override
 			{
-				if (a_event) {
+				// only an actor: a cell's load is thousands of references
+				if (a_event && RE::TESForm::LookupByID<RE::Actor>(a_event->formID)) {
 					std::lock_guard lock(gNotedLock);
 					gNoted.emplace_back(a_event->formID, a_event->loaded);
 				}

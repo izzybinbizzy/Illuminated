@@ -159,6 +159,13 @@ namespace Plugin
 		// frames NoteFleshRoots still walks every frame: Light Placer may hang a starting effect's lights a few frames after it starts
 		constexpr int    kFleshLookFrames = 10;
 		std::atomic<int> gFleshLook{ kFleshLookFrames };
+		// a flesh or FEC light is noted: a shader effect's update has its color to write
+		std::atomic<bool> gFleshNoted{ false };
+	}
+
+	bool FleshNoted() noexcept
+	{
+		return gFleshNoted.load(std::memory_order_relaxed);
 	}
 
 	void NoteFleshStarted(const RE::ShaderReferenceEffect* a_effect)
@@ -224,6 +231,7 @@ namespace Plugin
 				}
 			}
 			gRoots.swap(roots);
+			gFleshNoted.store(!gRoots.empty(), std::memory_order_relaxed);
 		}
 		std::scoped_lock lock{ gRootLock, gMissLock };
 		std::erase_if(gMisses, [](const auto& a_miss) { return !gRoots.contains(a_miss.first); });

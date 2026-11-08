@@ -44,7 +44,8 @@ namespace Plugin
 		public:
 			RE::BSEventNotifyControl ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*) override
 			{
-				if (a_event) {
+				// only an actor: a cell's load is thousands of references
+				if (a_event && RE::TESForm::LookupByID<RE::Actor>(a_event->formID)) {
 					std::lock_guard lock(gDrawLock);
 					gLoadedQueue.emplace_back(a_event->formID, a_event->loaded);
 				}
@@ -86,17 +87,22 @@ namespace Plugin
 			}
 		}
 		{
-			std::lock_guard lock(gDrawLock);
-			gDrawnIds.insert(gDrawQueue.begin(), gDrawQueue.end());
-			gDrawQueue.clear();
-			for (const auto& [id, loaded] : gLoadedQueue) {
+			static std::vector<std::pair<RE::FormID, bool>> loads;  // kept so the pass allocates nothing once it has grown
+			loads.clear();
+			{
+				std::lock_guard lock(gDrawLock);
+				gDrawnIds.insert(gDrawQueue.begin(), gDrawQueue.end());
+				gDrawQueue.clear();
+				loads.swap(gLoadedQueue);
+			}
+			// outside the lock: a cell's load is thousands of these, and the sinks wait on it
+			for (const auto& [id, loaded] : loads) {
 				if (!loaded) {
 					gDrawnIds.erase(id);
 				} else if (HandsDrawn(RE::TESForm::LookupByID<RE::Actor>(id))) {
 					gDrawnIds.insert(id);
 				}
 			}
-			gLoadedQueue.clear();
 		}
 		gDrawn.clear();
 		auto* player = RE::PlayerCharacter::GetSingleton();
