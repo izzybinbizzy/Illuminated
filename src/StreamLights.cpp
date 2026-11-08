@@ -428,7 +428,8 @@ namespace Plugin
 		// way below: the size in the radius' z, the attenuation, then Community Shaders' own words or a tenth for ambient)
 		void Dress(RE::NiPointLight* a_light, const RE::NiColor& a_color, float a_fade, float a_radius, bool a_isl)
 		{
-			auto& data = a_light->GetLightRuntimeData();
+			const auto turn = LightKit::Turn();  // the sneak fade dims a row light on other threads; taken after gLiveLock
+			auto&      data = a_light->GetLightRuntimeData();
 			data.diffuse = a_color;
 			data.fade = a_fade;
 			data.radius = { a_radius, a_radius, kLightSize };
