@@ -44,7 +44,7 @@ namespace Plugin
 		void Note3D(RE::Actor* a_actor, bool a_in)
 		{
 			NoteAtronach3D(a_actor, a_in);
-			Fade::NoteActor3D(a_in);
+			Fade::NoteActor3D(a_actor);
 			if (gDrawsWatched.load(std::memory_order_relaxed)) {
 				std::lock_guard lock(gDrawLock);
 				gLoadedQueue.emplace_back(a_actor->GetFormID(), a_in);
