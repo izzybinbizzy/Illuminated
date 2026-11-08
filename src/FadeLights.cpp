@@ -471,9 +471,19 @@ namespace Fade
 			});
 		}
 
+		// a hand whose numbers cannot move until the game writes a value: at full, with no pulse or flare left and no clock running down
+		[[nodiscard]] bool AtRest(const HandTrack& a_hand) noexcept
+		{
+			constexpr float kSlack = 0.002f;
+			return !a_hand.reading.bound && a_hand.fraction >= 0.999f && std::fabs(a_hand.out.brightness - 1.0f) < kSlack && std::fabs(a_hand.out.reach - 1.0f) < kSlack &&
+			       a_hand.out.cool <= 0.0f;
+		}
+
 		// what can put something of ours in a hand: an equip, a draw, sheathe or cast (SKSE's action events), an actor loading, her cell
 		// changing. Any thread: one flag, the main thread's pass reads the hands
 		std::atomic<bool> gHandsAsleep{ false }, gHandsWake{ false };
+		std::atomic<bool> gOthersWake{ false };  // Whose names more than the player: another actor's value wakes the pass too
+		std::uint32_t     gRestPasses = 0;       // passes in a row with every hand at rest (main thread)
 
 		class HandWatch final :
 			public RE::BSTEventSink<RE::TESEquipEvent>,
@@ -506,6 +516,58 @@ namespace Fade
 			{
 				WakeHands();
 				return RE::BSEventNotifyControl::kContinue;
+			}
+		};
+
+		// a hand at rest has nothing to follow until its magicka or its weapon's charge is written, and the game writes a value through
+		// these four slots of its ActorValueOwner (Actor Value Generator and Valhalla Combat hook the same). Any thread: one flag
+		template <class Owner>
+		struct ValueWrites
+		{
+			static void Noted(RE::ActorValue a_value) noexcept
+			{
+				if ((a_value == RE::ActorValue::kMagicka || a_value == RE::ActorValue::kRightItemCharge || a_value == RE::ActorValue::kLeftItemCharge) &&
+					(std::is_same_v<Owner, RE::PlayerCharacter> || gOthersWake.load(std::memory_order_relaxed))) {
+					WakeHands();
+				}
+			}
+
+			static void SetBase(RE::ActorValueOwner* a_this, RE::ActorValue a_value, float a_amount)
+			{
+				setBase(a_this, a_value, a_amount);
+				Noted(a_value);
+			}
+
+			static void ModBase(RE::ActorValueOwner* a_this, RE::ActorValue a_value, float a_amount)
+			{
+				modBase(a_this, a_value, a_amount);
+				Noted(a_value);
+			}
+
+			static void Mod(RE::ActorValueOwner* a_this, RE::ACTOR_VALUE_MODIFIER a_modifier, RE::ActorValue a_value, float a_amount)
+			{
+				mod(a_this, a_modifier, a_value, a_amount);
+				Noted(a_value);
+			}
+
+			static void Set(RE::ActorValueOwner* a_this, RE::ActorValue a_value, float a_amount)
+			{
+				setValue(a_this, a_value, a_amount);
+				Noted(a_value);
+			}
+
+			static inline REL::Relocation<decltype(SetBase)> setBase;
+			static inline REL::Relocation<decltype(ModBase)> modBase;
+			static inline REL::Relocation<decltype(Mod)>     mod;
+			static inline REL::Relocation<decltype(Set)>     setValue;
+
+			static void Install()
+			{
+				REL::Relocation<std::uintptr_t> vtbl{ Owner::VTABLE[5] };
+				setBase = vtbl.write_vfunc(0x4, SetBase);
+				modBase = vtbl.write_vfunc(0x5, ModBase);
+				mod = vtbl.write_vfunc(0x6, Mod);
+				setValue = vtbl.write_vfunc(0x7, Set);
 			}
 		};
 
@@ -871,7 +933,7 @@ namespace Fade
 				hud.shoutLit = shout.has_value();
 				hud.shoutColor = shout.value_or(Glow::Rgb{});
 			}
-			gGemsShown.store(hud.gems && (hud.hands[0].shown || hud.hands[1].shown), std::memory_order_relaxed);
+			gGemsShown.store(hud.gems && hud.drawn && (GemShows(hud, hud.hands[0]) || GemShows(hud, hud.hands[1])), std::memory_order_relaxed);
 			std::lock_guard lock(gHudLock);
 			gHud = hud;
 		}
@@ -914,6 +976,8 @@ namespace Fade
 		if (auto* player = RE::PlayerCharacter::GetSingleton()) {
 			player->AsBGSActorCellEventSource()->AddEventSink(&watch);
 		}
+		ValueWrites<RE::PlayerCharacter>::Install();
+		ValueWrites<RE::Character>::Install();
 	}
 
 	bool EffectsWanted() noexcept
@@ -924,16 +988,20 @@ namespace Fade
 
 	void UpdateHands(float a_delta)
 	{
-		// asleep: nothing of ours in any hand and nothing to put back; only what can change that wakes the pass (HandWatch, a setting,
-		// a load). A choice of Lights by Item or the fading preview keeps it awake
+		// asleep: nothing of ours in any hand and nothing to put back, or every hand at rest; only what can change that wakes the pass
+		// (HandWatch, ValueWrites, a setting, a load). A choice of Lights by Item or the fading preview keeps it awake
 		if (gHandsAsleep.load(std::memory_order_relaxed) && !gHandsWake.exchange(false, std::memory_order_relaxed) && !Items::Holding() && !PreviewState().on) {
 			return;
 		}
 		gHandsWake.store(false, std::memory_order_relaxed);
+		if (gHandsAsleep.load(std::memory_order_relaxed)) {
+			gRestPasses = 0;  // woken: what left a hand gets its passes to be let go
+		}
 		// every weapon hand read BEFORE the lock: ReadHand walks a bound weapon's active effects, which the game locks, and the
 		// effect hooks hold that lock when they ask for gLock - read under gLock it could freeze (the outside review's threads M3)
 		const auto     settingsStart = std::chrono::steady_clock::now();
 		const Settings s = Config();  // one copy for the frame
+		gOthersWake.store(s.who != Who::kPlayer, std::memory_order_relaxed);
 		LightKit::Cost::Note(23, "fading: the settings copy",
 			std::chrono::duration<float, std::micro>(std::chrono::steady_clock::now() - settingsStart).count());
 		static std::vector<std::array<Reading, 2>> readings;  // main thread; its storage kept between frames
@@ -1102,7 +1170,17 @@ namespace Fade
 		gActiveSpellHands = spells;
 		PublishHud(s, hudHidden);
 		Items::Apply();  // last: an item's own choice wins over the fading (his order, FadeItems.cpp)
-		gHandsAsleep.store(NothingHeld(), std::memory_order_relaxed);
+		// asleep too with every hand at rest, once Sweep has had its passes; a gem on screen keeps the pass for its HUD check. Full is what the
+		// lights already show, so the effect hooks have nothing to do either, and no actor is held
+		const bool rest = !gems && std::ranges::all_of(gHands, [](const auto& a_hand) { return !a_hand.second.active || AtRest(a_hand.second); });
+		gRestPasses = rest ? gRestPasses + 1 : 0;
+		const bool rested = gRestPasses > kKeepFrames;
+		if (rested) {
+			gActiveHands = 0;
+			gActiveSpellHands = 0;
+			gActors.clear();
+		}
+		gHandsAsleep.store(rested || NothingHeld(), std::memory_order_relaxed);
 	}
 
 	void AfterReferenceEffect(RE::ReferenceEffect* a_effect, bool a_own3D)
