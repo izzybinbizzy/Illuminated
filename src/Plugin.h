@@ -207,8 +207,9 @@ namespace Plugin
 	void                                                  KeepLightPlacerLights();  // at data load, after Light Placer hooked the resume when it loaded
 	void                                                  KeepCastingLights();      // once a frame, main thread: the casting art's Light Placer lights after a cell change
 	void                                                  NoteStrayLook() noexcept;
-	void                                                  DropCastingLights();  // a game loads: those lights and the last place seen are the old game's
-	void                                                  DropHandBudget();     // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
+	void                                                  NoteLoadingEnded() noexcept;  // main thread: the casting art's Light Placer lights are looked at again
+	void                                                  DropCastingLights();          // a game loads: those lights and the last place seen are the old game's
+	void                                                  DropHandBudget();             // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
 
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
 	void                             DecideRecordRoute();     // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer
@@ -233,7 +234,6 @@ namespace Plugin
 	// Events.cpp: SKSE's weapon draw events - the actors with drawn hands, for the record route's per-actor passes
 	void                                         WatchDraws();                                         // data load, record route
 	void                                         WatchActors3D();                                      // data load: each actor's 3D, in and out, and the loading screen
-	[[nodiscard]] std::uint32_t                  LoadingScreensEnded() noexcept;                       // how many have ended (Events.cpp)
 	void                                         NoteAtronach3D(const RE::Actor* a_actor, bool a_in);  // any thread: that actor's 3D came or went
 	void                                         RefreshDrawn();                                       // main thread, once a frame before the art lights
 	[[nodiscard]] const std::vector<RE::Actor*>& DrawnActors();                                        // this frame's: the player first, then every actor with drawn hands

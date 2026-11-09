@@ -30,9 +30,8 @@ namespace Plugin
 			DropArtLights();
 			DropAtronachLights();
 			RenewGroundLights();
+			NoteLoadingEnded();
 		}
-
-		std::atomic<std::uint32_t> gLoadingsEnded{ 0 };
 
 		class LoadingWatch final : public RE::BSTEventSink<RE::MenuOpenCloseEvent>
 		{
@@ -40,7 +39,6 @@ namespace Plugin
 			RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent* a_event, RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override
 			{
 				if (a_event && !a_event->opening && std::string_view(a_event->menuName.c_str()) == RE::LoadingMenu::MENU_NAME) {
-					gLoadingsEnded.fetch_add(1, std::memory_order_relaxed);
 					if (auto* tasks = SKSE::GetTaskInterface()) {
 						tasks->AddTask([]() { LightKit::Guarded("loading screen ended", []() { AfterLoadingScreen(); }); });
 					}
@@ -194,11 +192,6 @@ namespace Plugin
 		if (auto* ui = RE::UI::GetSingleton()) {
 			ui->AddEventSink<RE::MenuOpenCloseEvent>(&loading);
 		}
-	}
-
-	std::uint32_t LoadingScreensEnded() noexcept
-	{
-		return gLoadingsEnded.load(std::memory_order_relaxed);
 	}
 
 	void WatchDraws()

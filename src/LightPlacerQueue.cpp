@@ -149,18 +149,6 @@ namespace Plugin
 		};
 		StrayWatch gStrayWatch;
 
-		struct CellWatch final : RE::BSTEventSink<RE::BGSActorCellEvent>
-		{
-			RE::BSEventNotifyControl ProcessEvent(const RE::BGSActorCellEvent* a_event, RE::BSTEventSource<RE::BGSActorCellEvent>*) override
-			{
-				if (a_event && a_event->flags == RE::BGSActorCellEvent::CellFlag::kEnter) {
-					gCellEntered.store(true, std::memory_order_relaxed);
-				}
-				return RE::BSEventNotifyControl::kContinue;
-			}
-		};
-		CellWatch gCellWatch;
-
 		// the Light Placer lights under the player's casting art - the art itself, and in first person the third-person node of
 		// the magic node's name, where Light Placer hangs them then; only Light Placer's own (named LP_Light[...]) - the game's
 		// casting light, ours and another mod's are never touched here
@@ -357,11 +345,8 @@ namespace Plugin
 		REL::Relocation<std::uintptr_t> vtbl{ RE::ShaderReferenceEffect::VTABLE[0] };
 		ResumeAfterLightPlacer::func = vtbl.write_vfunc(0x38, ResumeAfterLightPlacer::thunk);  // ShaderReferenceEffect::Resume
 		SKSE::log::info("light placer: a light queued both to be added and removed on an effect's resume is kept in the scene");
-		if (auto* player = RE::PlayerCharacter::GetSingleton()) {
-			player->AsBGSActorCellEventSource()->AddEventSink(&gCellWatch);
-			gCellWatchOn = true;
-			SKSE::log::info("light placer: the casting art's lights are registered again after a cell change");
-		}
+		gCellWatchOn = true;
+		SKSE::log::info("light placer: the casting art's lights are registered again after a loading screen");
 	}
 
 	void DropCastingLights()
@@ -376,6 +361,13 @@ namespace Plugin
 		gStray.Clear();
 		gCellSince.reset();
 		gNextLook = kLookAt.size();
+	}
+
+	void NoteLoadingEnded() noexcept
+	{
+		if (gCellWatchOn) {
+			gCellEntered.store(true, std::memory_order_relaxed);
+		}
 	}
 
 	void NoteStrayLook() noexcept
@@ -416,16 +408,7 @@ namespace Plugin
 			return;
 		}
 		if (std::chrono::duration<float>(now - *gCellSince).count() >= kLookAt[gNextLook]) {
-			// the lights go only through a loading screen; a step across an exterior cell border keeps them, so it is not looked at
 			if (gNextLook == 0) {
-				static std::uint32_t loadingsSeen = 0;
-				const auto           loadings = LoadingScreensEnded();
-				const bool           through = loadings != loadingsSeen;
-				loadingsSeen = loadings;
-				if (!through) {
-					gNextLook = kLookAt.size();
-					return;
-				}
 				// our registrations went with the rest, or a second door would find this list full. Only let go: a light taken out and
 				// added in one frame stays dark
 				gReadded.clear();

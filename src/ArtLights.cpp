@@ -534,12 +534,17 @@ namespace Plugin
 			const bool                     partGone = std::ranges::any_of(gWeaponWants, [](const WeaponWant& a_w) { return !a_w.part->parent; });
 			// a part or a body not in yet is looked for about 5 s after what asked for it, not for ever
 			static int waitsLeft = 0;
-			if (looks > 0 || walked || drawn != drawnWas || gKept.size() != keptWas) {
+			// she is always on the drawn list, and not every way her weapon goes away sends an event: one value, read each frame
+			static bool herDrawnWas = false;
+			const bool  herDrawn = player && player->AsActorState()->IsWeaponDrawn();
+			const bool  asked = looks > 0 || walked || drawn != drawnWas || gKept.size() != keptWas || herDrawn != herDrawnWas;
+			herDrawnWas = herDrawn;
+			if (asked) {
 				waitsLeft = kWeaponWaitLooks;
 			}
 			const bool waiting = gWeaponWaits && waitsLeft > 0;
 			waitsLeft -= waiting ? 1 : 0;
-			if (looks > 0 || walked || waiting || partGone || drawn != drawnWas || gKept.size() != keptWas) {
+			if (asked || waiting || partGone) {
 				if (looks > 0) {
 					gWeaponLooks.compare_exchange_strong(looks, looks - 1, std::memory_order_relaxed);  // a note in between keeps its count
 				}
