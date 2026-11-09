@@ -526,6 +526,7 @@ namespace Plugin
 		// the animation event the player's graph sends as a block begins (read off the game's own events 2026-10-19 - a block sends
 		// "blockStartOut"; "blockStart" is the input event's name and never reached the graph)
 		constexpr std::string_view kBlockTag = "blockStartOut";
+		constexpr std::string_view kBlockEndTag = "blockStop";
 
 		// an enchantment's effect whose conditions ask IsBlocking (the shield wards: Spellbreaker, Artificer's two extra
 		// Spellbreaker effects, the Crusader shields, any mod's shield that works the same way)
@@ -582,7 +583,7 @@ namespace Plugin
 			{
 				LightKit::Guarded("block watch", [a_event]() {
 					const std::string_view tag = a_event ? a_event->tag.c_str() : "";
-					if (!LightKit::SameText(tag, kBlockTag)) {
+					if (!LightKit::SameText(tag, kBlockTag) && !LightKit::SameText(tag, kBlockEndTag)) {
 						return;
 					}
 					static std::atomic_bool told{ false };  // the graph's events may come off the main thread
