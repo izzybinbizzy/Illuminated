@@ -32,9 +32,14 @@ namespace Plugin
 				return RE::BSEventNotifyControl::kContinue;
 			}
 
-			RE::BSEventNotifyControl ProcessEvent(const SKSE::ActionEvent*, RE::BSTEventSource<SKSE::ActionEvent>*) override
+			RE::BSEventNotifyControl ProcessEvent(const SKSE::ActionEvent* a_event, RE::BSTEventSource<SKSE::ActionEvent>*) override
 			{
-				NoteStrayLook();
+				// a swing or a bow can leave no casting art behind, and a town's fights would keep this awake
+				using T = SKSE::ActionEvent::Type;
+				const auto type = a_event ? a_event->type.get() : T::kWeaponSwing;
+				if (type != T::kWeaponSwing && type != T::kBowDraw && type != T::kBowRelease) {
+					NoteStrayLook();
+				}
 				return RE::BSEventNotifyControl::kContinue;
 			}
 		};
@@ -51,6 +56,24 @@ namespace Plugin
 		std::size_t                           gStrayLogged = 0;
 		bool                                  gWatching = false;
 
+		// no node; or hidden with no reference anywhere up its tree: its body was removed, and Light Placer, which keeps a light whose condition
+		// fails, hidden, never hears of it. Her own skeletons are left out: a light on them comes back when its condition holds
+		bool LeftBehind(const RE::NiLight* a_light)
+		{
+			if (!a_light->parent) {
+				return true;
+			}
+			if (!a_light->GetAppCulled() || a_light->GetUserData()) {
+				return false;
+			}
+			const RE::NiAVObject* top = a_light;
+			while (top->parent) {
+				top = top->parent;
+			}
+			auto* player = RE::PlayerCharacter::GetSingleton();
+			return !player || (top != player->Get3D(false) && top != player->Get3D(true));
+		}
+
 		void PutOutStrayLights(RE::ShadowSceneNode* a_scene)
 		{
 			auto&                                   data = a_scene->GetRuntimeData();
@@ -59,7 +82,7 @@ namespace Plugin
 			const auto                              look = [&](const RE::BSLight* a_bs) {
 				auto*       light = a_bs ? a_bs->light.get() : nullptr;
 				const char* name = light ? light->name.c_str() : nullptr;
-				if (name && !light->parent && StrayLights::IsOurs(name)) {
+				if (name && StrayLights::IsOurs(name) && LeftBehind(light)) {
 					lights.emplace_back(light);
 					seen.push_back({ light, name, false, false });
 				}
@@ -138,10 +161,11 @@ namespace Plugin
 		if (!gWatching || RecordRoute() || gStrayLooks.load(std::memory_order_relaxed) <= 0) {
 			return;
 		}
-		const LightKit::Cost::Pass pass{ 8, "stray lights" };
-		auto*                      scene = LightKit::Scene();
-		const auto                 now = std::chrono::steady_clock::now();
+		auto*      scene = LightKit::Scene();
+		const auto now = std::chrono::steady_clock::now();
 		if (scene && now - gStrayAt >= kStrayEvery) {
+			// the meter counts a look, not the frames between looks
+			const LightKit::Cost::Pass pass{ 8, "stray lights" };
 			gStrayAt = now;
 			gStrayLooks.fetch_sub(1, std::memory_order_relaxed);
 			PutOutStrayLights(scene);
