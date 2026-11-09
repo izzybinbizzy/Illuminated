@@ -67,11 +67,12 @@ namespace Plugin
 			}
 		};
 
-		void Note3D(RE::Actor* a_actor, bool a_in)
+		// a_hadBody: the body this call let go was there - a load clears thousands of empty slots, which leave nothing behind
+		void Note3D(RE::Actor* a_actor, bool a_in, bool a_hadBody = false)
 		{
 			NoteAtronach3D(a_actor, a_in);
 			Fade::NoteActor3D(a_actor);
-			if (!a_in) {
+			if (!a_in && a_hadBody) {
 				NoteStrayLook(StrayWhy::kBodyGone);  // a light of its body may be left behind with no node
 			}
 			if (gDrawsWatched.load(std::memory_order_relaxed)) {
@@ -98,8 +99,9 @@ namespace Plugin
 			}
 			static void SetThunk(T* a_this, RE::NiAVObject* a_object, bool a_queue3DTasks)
 			{
+				const bool hadBody = a_this->Get3D() != nullptr;
 				set(a_this, a_object, a_queue3DTasks);
-				LightKit::Guarded("actor 3D set", [a_this, a_object]() { Note3D(a_this, a_object != nullptr); });
+				LightKit::Guarded("actor 3D set", [a_this, a_object, hadBody]() { Note3D(a_this, a_object != nullptr, hadBody); });
 			}
 			static inline REL::Relocation<decltype(LoadThunk)> load;
 			static inline REL::Relocation<decltype(SetThunk)>  set;
@@ -215,8 +217,9 @@ namespace Plugin
 		}
 		std::erase_if(gDrawnIds, [&](RE::FormID a_id) {
 			auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_id);
-			// put away, gone or not an actor: looked at again when it draws. She needs no place here: she is always on the list
-			if (!HandsDrawn(actor) || actor == player) {
+			// put away, gone, its body unloaded or not an actor: looked at again when it draws or its body loads with the hands out
+			// (Note3D). She needs no place here: she is always on the list
+			if (!HandsDrawn(actor) || actor == player || !actor->Is3DLoaded()) {
 				return true;
 			}
 			// a far actor stays listed and is looked at from the moment it comes near, as the passes always did
