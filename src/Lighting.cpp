@@ -114,6 +114,12 @@ namespace Plugin
 			gEnbRunning ? "yes" : "no", gEnbFiles ? "yes" : "no",
 			(gEnbFiles && !gEnbRunning && !gCsLoaded) || ((shaderFile || inLlf) && !gCsLoaded) ? " - left over, not used" : "",
 			InverseSquare() ? "inverse square" : "plain");
+		// an older Community Shaders without its add-on is linear by design; a shader that renamed its inverse square token reads the same
+		if (gCsLoaded && !drawn.Any()) {
+			SKSE::log::warn(
+				"lighting: Community Shaders is loaded but neither its inverse square add-on nor a Light Limit Fix shader naming InverseSquare "
+				"was found - every light of ours is drawn plain (linear)");
+		}
 	}
 
 	Lighting LightingFound()
