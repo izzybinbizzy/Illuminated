@@ -93,14 +93,24 @@ namespace Plugin
 		std::string page, group, label, text;
 	};
 
+	// the four strengths beside the two main sliders (his "All four"): which one a light copy answers to (lagen.row_kind)
+	enum class LightKind : std::uint8_t
+	{
+		kOther,  // Brightness alone
+		kExplosion,
+		kGlow,  // glows on people: cloaks, flesh spells, FEC's bodies
+		kEnchanted
+	};
+
 	// one in-memory copy of a light a config names; the sliders set its fade, radius and cutoff (LightCopies.cpp)
 	struct LightCopy
 	{
 		std::string        id, base;
-		float              fade{ 0.0f };      // the config's own fade, or 0: the base light's
-		int                radius{ 0 };       // the config's own radius, or 0: the base light's
-		float              cutoff{ 0.0f };    // the config's own inverse-square cutoff, or 0: the base light's
-		bool               flicker{ false };  // its lights flicker (a fadeController): Brightness is applied as they are drawn
+		float              fade{ 0.0f };               // the config's own fade, or 0: the base light's
+		int                radius{ 0 };                // the config's own radius, or 0: the base light's
+		float              cutoff{ 0.0f };             // the config's own inverse-square cutoff, or 0: the base light's
+		bool               flicker{ false };           // its lights flicker (a fadeController): Brightness is applied as they are drawn
+		LightKind          kind{ LightKind::kOther };  // the strength it answers to beside Brightness (Settings.cpp KindStrength)
 		RE::TESObjectLIGH* form{ nullptr };
 		float              startFade{ 0.0f };
 		std::uint32_t      startRadius{ 0 };
@@ -141,10 +151,12 @@ namespace Plugin
 	[[nodiscard]] bool                            SettingAvailable(const Setting& a_setting);
 	[[nodiscard]] int                             AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
 	[[nodiscard]] int                             SettingValue(std::string_view a_id, int a_fallback);
-	[[nodiscard]] bool                            LightsOff();        // Performance > all of Illuminated's lights off (his switch)
-	[[nodiscard]] bool                            PulseRealistic();   // Dynamic Lighting is Realistic: hand lights and rows pulse in their kind's shape (Pulse.h)
-	[[nodiscard]] bool                            PerformanceMode();  // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
-	[[nodiscard]] std::size_t                     GlowLimit();        // Performance > Limit glows on people: the most glows on people lit at once (no limit: the type's max)
+	[[nodiscard]] float                           KindStrength(LightKind a_kind);  // Configs > a kind's Strength: 1 = as made
+	[[nodiscard]] float                           StreamStrength();                // Configs > Streams' Strength: the rows and the clouds
+	[[nodiscard]] bool                            LightsOff();                     // Performance > all of Illuminated's lights off (his switch)
+	[[nodiscard]] bool                            PulseRealistic();                // Dynamic Lighting is Realistic: hand lights and rows pulse in their kind's shape (Pulse.h)
+	[[nodiscard]] bool                            PerformanceMode();               // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
+	[[nodiscard]] std::size_t                     GlowLimit();                     // Performance > Limit glows on people: the most glows on people lit at once (no limit: the type's max)
 	[[nodiscard]] bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
 	void                                          MakeLightCopies();         // LightCopies.cpp

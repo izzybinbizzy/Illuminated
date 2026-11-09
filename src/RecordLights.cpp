@@ -305,6 +305,7 @@ namespace Plugin
 						added.push_back({ .id = std::format("record {} {},{},{}", copy.id, light->data.color.red, light->data.color.green,
 											  light->data.color.blue),
 							.base = copy.id,
+							.kind = copy.kind,
 							.form = light,
 							.startFade = copy.startFade * share,
 							.startRadius = copy.startRadius,

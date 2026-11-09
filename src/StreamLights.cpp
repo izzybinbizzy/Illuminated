@@ -553,7 +553,7 @@ namespace Plugin
 		void MoveRows()
 		{
 			const bool  isl = InverseSquare();
-			const float bright = BrightnessNow() * RowStrengthFor(LightingFound()), reachPct = Percent("IlluminatedReach");
+			const float bright = BrightnessNow() * StreamStrength() * RowStrengthFor(LightingFound()), reachPct = Percent("IlluminatedReach");
 			// a spray's own light is steady and Light Placer's hand lights are separate objects, so the row flickers by itself
 			// while the Flicker switch is on - in its spell's shape under Realistic
 			static const auto start = std::chrono::steady_clock::now();
@@ -620,7 +620,7 @@ namespace Plugin
 					// at full strength five lights wash a stream out white off Community Shaders
 					const float want = rec->second.fade * s.strength * bright * (isl ? 1.0f : kRowPlain);
 					// a dimmer Brightness lowers the cap too, so the sliders still reach a capped row
-					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow(), 1.0f) : 0.0f);
+					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow() * StreamStrength(), 1.0f) : 0.0f);
 					Dress(light, color, steady * (flickers ? BeamRow::Pulsing(kind, seconds, i, seed) : 1.0f), reach, isl);
 					light->local.translate = toLocal * (axis.start + axis.dir * (s.along * length));  // on the path, in the root's units
 					if (static std::size_t told = 0; told < 6) {
@@ -715,8 +715,8 @@ namespace Plugin
 			// one light, not a row: where the inverse-square cap holds, its reach (and with it that cap) is its own
 			const float cloudReach = isl ? kCloudReachShaders : RowReachFor(LightingFound());
 			const float reach = rec->second.reach * Percent("IlluminatedReach") * cloudReach;
-			const float want = rec->second.fade * BrightnessNow() * RowStrengthFor(LightingFound());
-			const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow(), 1.0f) : 0.0f);
+			const float want = rec->second.fade * BrightnessNow() * StreamStrength() * RowStrengthFor(LightingFound());
+			const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow() * StreamStrength(), 1.0f) : 0.0f);
 			RE::NiColor color = rec->second.color;
 			if (const auto own = a_c.spell ? Fade::Items::ChoiceColor(a_c.spell) : std::nullopt) {
 				color = *own;  // the spell's Lights by Item color

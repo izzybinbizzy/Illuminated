@@ -44,6 +44,23 @@ namespace Plugin
 		// draws none of ours (the route global held at 0) and every pass treats every config as unlit (Coverage::ModelLit)
 		constexpr std::string_view kLightsOff = "IlluminatedLightsOff";
 		constexpr std::string_view kQuality = "IlluminatedQuality";  // 0 Quality, 1 Performance (his order 2026-10-20)
+		// the four strengths beside the main sliders (lagen.STRENGTH_IDS), 25-200 %
+		constexpr std::string_view kExplosionStrength = "IlluminatedExplosionStrength";
+		constexpr std::string_view kStreamStrength = "IlluminatedStreamStrength";
+		constexpr std::string_view kGlowStrength = "IlluminatedBodyGlowStrength";
+		constexpr std::string_view kEnchantedStrength = "IlluminatedEnchantedStrength";
+
+		// a light copy's kind= line (lagen.row_kind): none named is Brightness alone
+		[[nodiscard]] LightKind KindOf(std::string_view a_text)
+		{
+			if (a_text == "explosion") {
+				return LightKind::kExplosion;
+			}
+			if (a_text == "glow") {
+				return LightKind::kGlow;
+			}
+			return a_text == "enchanted" ? LightKind::kEnchanted : LightKind::kOther;
+		}
 
 		[[nodiscard]] float RouteNow() { return LightsOff() ? 0.0f : gRouteValue; }
 
@@ -128,6 +145,7 @@ namespace Plugin
 						c.cutoff = 0.0f;
 					}
 					c.flicker = block["flicker"] == "1";
+					c.kind = KindOf(block["kind"]);
 					if (!c.id.empty() && !c.base.empty() && gLightIds.insert(Lower(c.id)).second) {
 						gLights.push_back(std::move(c));
 					}
@@ -573,6 +591,30 @@ namespace Plugin
 	bool PerformanceMode()
 	{
 		return SettingValue(kQuality, 0) != 0;
+	}
+
+	float KindStrength(LightKind a_kind)
+	{
+		std::string_view id;
+		switch (a_kind) {
+		case LightKind::kExplosion:
+			id = kExplosionStrength;
+			break;
+		case LightKind::kGlow:
+			id = kGlowStrength;
+			break;
+		case LightKind::kEnchanted:
+			id = kEnchantedStrength;
+			break;
+		default:
+			return 1.0f;
+		}
+		return static_cast<float>(SettingValue(id, 100)) / 100.0f;
+	}
+
+	float StreamStrength()
+	{
+		return static_cast<float>(SettingValue(kStreamStrength, 100)) / 100.0f;
 	}
 
 	std::size_t GlowLimit()
