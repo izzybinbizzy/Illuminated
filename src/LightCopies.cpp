@@ -649,9 +649,7 @@ namespace Plugin
 					}
 					// an effect on nothing pauses her lights only: her first-person skeleton is the one that names no reference
 					const SneakPause pause{ owner ? owner : RE::PlayerCharacter::GetSingleton() };
-					if (Scaling()) {
-						ScaleOwned(owner);
-					}
+					ScaleOwned(owner);
 					if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
 						if (!RecordRoute() && FleshNoted()) {
 							const auto      turn = LightKit::Turn();  // before gFlickerLock (LightKit.h's order)
@@ -929,6 +927,10 @@ namespace Plugin
 			static void thunk(RE::TESObjectCELL* a_cell)
 			{
 				func(a_cell);
+				// every loaded cell comes through here. On the record route nothing rewrites a light in this call, as in the effect update
+				if (RecordRoute() && !Fade::ReapplyWanted()) {
+					return;
+				}
 				LightKit::Guarded("cell animations", [a_cell]() {
 					const SneakPause pause;  // dims again what Light Placer just wrote; nothing while nothing is dimmed
 					ScaleCell(a_cell);

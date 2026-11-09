@@ -170,9 +170,12 @@ namespace Plugin
 
 	void NoteFleshStarted(const RE::ShaderReferenceEffect* a_effect)
 	{
-		if (a_effect && (LightKit::FleshFx::HueOf(a_effect->effectData) || TrackedFade(a_effect))) {
-			gFleshLook.store(kFleshLookFrames, std::memory_order_relaxed);
-		}
+		// from the game's effect hooks: nothing may leave here
+		LightKit::Guarded("flesh started", [a_effect]() {
+			if (a_effect && (LightKit::FleshFx::HueOf(a_effect->effectData) || TrackedFade(a_effect))) {
+				gFleshLook.store(kFleshLookFrames, std::memory_order_relaxed);
+			}
+		});
 	}
 
 	void NoteFleshRoots()

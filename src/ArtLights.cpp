@@ -293,6 +293,7 @@ namespace Plugin
 		int                     gWaitsLeft = 0;  // a part or a body not in yet is looked for about 5 s after what asked for it, not for ever
 		bool                    gHerDrawnWas = false;
 		std::atomic<int>        gWeaponLooks{ kWeaponLooks };
+		bool                    gArtsOff = false;  // switched off and all let go: the pass rests until the switch moves
 
 		[[nodiscard]] bool LeftHand(const RE::NiAVObject* a_hand)
 		{
@@ -488,6 +489,12 @@ namespace Plugin
 		if (!RecordRoute()) {
 			return;
 		}
+		if (gArtsOff) {
+			if (gArtLightsOn.load(std::memory_order_relaxed) < 0.5f || LightsOff()) {
+				return;
+			}
+			gArtsOff = false;
+		}
 		// she is always on the drawn list, and not every way her weapon goes away sends an event: one value, read each frame
 		auto*      her = RE::PlayerCharacter::GetSingleton();
 		const bool herDrawn = her && her->AsActorState()->IsWeaponDrawn();
@@ -506,6 +513,7 @@ namespace Plugin
 			gLitCount = 0;
 			gLit = 0;
 			ForgetArts();
+			gArtsOff = scene != nullptr;
 			gKeptWas = 0;
 			gHerDrawnWas = herDrawn;
 			gDrawnWas = DrawnActors();

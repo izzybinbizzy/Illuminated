@@ -49,6 +49,7 @@ namespace Plugin
 		std::mutex                               gNotedLock;
 		std::vector<std::pair<RE::FormID, bool>> gNoted;  // gNotedLock; true = it loaded
 		std::atomic<bool>                        gLookAround{ true };
+		bool                                     gSwitchedOff = false;  // all let go: the pass rests until the switch moves
 
 		class Watch final :
 			public RE::BSTEventSink<RE::TESDeathEvent>,
@@ -213,6 +214,12 @@ namespace Plugin
 		if (gRaces.empty()) {
 			return;
 		}
+		if (gSwitchedOff) {
+			if (LightsOff() || SettingValue(kSwitch, 0) == 0) {
+				return;
+			}
+			gSwitchedOff = false;
+		}
 		// one limit with the art glows, which go first; a lowered limit puts out the lights past it at once
 		const auto cap = GlowLimit();
 		const auto glows = ArtGlowsLit();
@@ -234,9 +241,12 @@ namespace Plugin
 				Drop(lit, scene);
 			}
 			gLit.clear();
+			gWaiting.clear();
 			gLookAround.store(true, std::memory_order_relaxed);
+			gSwitchedOff = scene && lists;
 			std::lock_guard lock(gNotedLock);
 			gNoted.clear();
+			gNotedAny.store(false, std::memory_order_relaxed);
 			return;
 		}
 		if (gWait > 0 && --gWait == 0) {
@@ -244,7 +254,7 @@ namespace Plugin
 		}
 		static std::vector<std::pair<RE::FormID, bool>> noted;  // kept so the pass allocates nothing once it has grown
 		noted.clear();
-		{
+		if (gNotedAny.load(std::memory_order_relaxed)) {
 			std::lock_guard lock(gNotedLock);
 			noted.swap(gNoted);
 			gNotedAny.store(false, std::memory_order_relaxed);
