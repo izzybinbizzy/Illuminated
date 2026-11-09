@@ -117,6 +117,7 @@ namespace Plugin
 			const auto    t0 = Clock::now();
 			std::ifstream in(a_file, std::ios::binary | std::ios::ate);
 			if (!in) {
+				SKSE::log::warn("[CONFIG-UNREADABLE] {} | could not be opened; its lights are not counted", Fade::PathText(a_file.filename()));
 				return;
 			}
 			// the whole file in one read into one buffer
@@ -299,6 +300,9 @@ namespace Plugin
 					ReadConfig(it->path(), gCoverage, false, folder == kOurFolder ? ConfigText::ConfigName(it->path(), root) : std::string{});
 				}
 			}
+			if (ec) {
+				SKSE::log::warn("configs: {} could not be read to its end ({}); the files after that point were not read", folder, ec.message());
+			}
 		}
 		// the beam rows (lagen move_beams): Data\SKSE\Plugins\Illuminated\Streams, a folder Light Placer never reads
 		decltype(gStreamRows){}.swap(gStreamRows);
@@ -313,6 +317,9 @@ namespace Plugin
 					if (it->is_regular_file(one) && Lower(Fade::PathText(it->path().extension())) == ".json") {
 						ReadConfig(it->path(), gCoverage, true);
 					}
+				}
+				if (ec) {
+					SKSE::log::warn("configs: the Streams folder could not be read to its end ({}); the files after that point were not read", ec.message());
 				}
 			}
 		}

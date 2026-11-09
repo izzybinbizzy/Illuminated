@@ -508,7 +508,7 @@ namespace Plugin
 					}
 					return RE::BSContainer::ForEachResult::kContinue;
 				});
-			} else {
+			} else if (!gArts.empty()) {  // the game's lock only with something to visit: its effect threads wait on it
 				static std::vector<RE::NiPointer<RE::BSTempEffect>> gone;
 				{
 					RE::BSSpinLockGuard locker(lists->magicEffectsLock);

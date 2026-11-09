@@ -232,7 +232,8 @@ namespace Plugin
 	void NoteWeaponLook() noexcept;  // any thread: something changed what a drawn weapon wants (ArtLights.cpp)
 	// Events.cpp: SKSE's weapon draw events - the actors with drawn hands, for the record route's per-actor passes
 	void                                         WatchDraws();                                         // data load, record route
-	void                                         WatchActors3D();                                      // data load: each actor's 3D, in and out
+	void                                         WatchActors3D();                                      // data load: each actor's 3D, in and out, and the loading screen
+	[[nodiscard]] std::uint32_t                  LoadingScreensEnded() noexcept;                       // how many have ended (Events.cpp)
 	void                                         NoteAtronach3D(const RE::Actor* a_actor, bool a_in);  // any thread: that actor's 3D came or went
 	void                                         RefreshDrawn();                                       // main thread, once a frame before the art lights
 	[[nodiscard]] const std::vector<RE::Actor*>& DrawnActors();                                        // this frame's: the player first, then every actor with drawn hands
@@ -265,7 +266,8 @@ namespace Plugin
 	// GroundLights.cpp (his report: no light on the ground on Vanilla): a twin of each hand's casting light, made the
 	// way Dynamic Wards makes its hand light (land lighting on); once a frame on the main thread
 	void                      TickGroundLights();
-	void                      DropGroundLights();  // a game loads, or a new one starts: the twins and the hands they follow are the old game's
+	void                      DropGroundLights();   // a game loads, or a new one starts: the twins and the hands they follow are the old game's
+	void                      RenewGroundLights();  // a loading screen ended: every twin let go, the next visit hangs a new one
 	[[nodiscard]] std::size_t GroundLightCount();
 	[[nodiscard]] std::size_t GroundLightsMade();
 	// HerShadow.cpp: with the Bottled Shaders shadow download, both her hands' lights at one point between her hands (one shadow)

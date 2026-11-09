@@ -535,6 +535,7 @@ namespace Plugin
 			static void thunk(RE::ShaderReferenceEffect* a_this)
 			{
 				NoteFleshStarted(a_this);
+				NoteArtLook();  // a shader taken off the game's list by this call is never marked finished: its body light goes at the walk
 				func(a_this);
 			}
 			static inline REL::Relocation<decltype(thunk)> func;

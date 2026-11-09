@@ -72,6 +72,7 @@ namespace Plugin
 		{
 			std::ifstream in(a_file, std::ios::binary);
 			if (!in) {
+				SKSE::log::warn("[SETTINGS-UNREADABLE] {} | could not be opened; its settings are not counted", Fade::PathText(a_file.filename()));
 				return;
 			}
 			std::map<std::string, std::string> block;
@@ -112,6 +113,8 @@ namespace Plugin
 						s.value = s.defaultValue;
 						gIndex[Lower(s.id)] = gSettings.size();
 						gSettings.push_back(std::move(s));
+					} else if (!s.id.empty() && !shapeOk) {
+						SKSE::log::warn("[SETTING-SKIPPED] {} in {} | its choices or slider range do not fit", s.id, Fade::PathText(a_file.filename()));
 					}
 				} else if (kind == "light") {
 					LightCopy c;
@@ -149,7 +152,11 @@ namespace Plugin
 				kind.clear();
 			};
 			std::string line;
+			bool        first = true;
 			while (std::getline(in, line)) {
+				if (std::exchange(first, false) && line.starts_with("\xEF\xBB\xBF")) {
+					line.erase(0, 3);
+				}
 				const auto t = Trim(line);
 				if (t.empty() || t[0] == '#') {
 					continue;
@@ -337,6 +344,9 @@ namespace Plugin
 				if (it->is_regular_file(one) && Lower(Fade::PathText(it->path().extension())) == ".txt") {
 					files.push_back(it->path());
 				}
+			}
+			if (ec) {
+				SKSE::log::warn("settings: the folder could not be read to its end ({}); the files after that point were not read", ec.message());
 			}
 		}
 		std::ranges::sort(files);  // Settings.txt (the main download) before Praedy's Staves Settings.txt

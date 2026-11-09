@@ -2,18 +2,17 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// A Light Placer light taken away and put back in the same frame stays away. Drawing a weapon (or loading a save with one drawn)
+// A light taken away and put back in the same frame stays away. Drawing a weapon (or loading a save with one drawn)
 // suspends and resumes its enchantment effect in one frame: Light Placer queues the light's removal on the suspend and its addition
 // on the resume, and the scene works through its queued additions before its removals - so the light is gone until the weapon is
-// drawn again. Our fix for it is in Light Placer itself (powerof3/LightPlacer#27); until a release carries it, this does the same
-// from outside, right after each effect resumes: a light queued both to be added and to be removed is kept as the scene holds it.
+// drawn again. Light Placer 5.1.0 sees to it itself (powerof3/LightPlacer#27) and this then stands down; with an older one this does
+// it from outside, right after each effect resumes: a light queued both to be added and to be removed is kept as the scene holds it.
 // Installed at data load, after Light Placer hooked the same call when it loaded, so it runs after Light Placer's own resume work.
 //
-// A spell held in the hand loses its Light Placer light when the player enters another cell, until it is sheathed or equipped
-// again: on a cell change Light Placer puts its worn lights back (Actor::ReAddCasterLights) and its effect lights (the cell
-// event), but not the casting art's. So a few frames after the player enters a cell, each Light Placer light under the player's
-// casting art is registered with the scene again, as a re-equip would; that registration is ours to take back when the light
-// leaves the art or Light Placer registers it again itself.
+// A loading screen takes every light out of the scene's lists. Light Placer 5.1.0 puts a casting art's lights back itself
+// (powerof3/LightPlacer#29) and this then stands down; with an older one, a few frames after a loading screen each Light Placer light
+// under the player's casting art is registered with the scene again, as a re-equip would; that registration is ours to take back
+// when the light leaves the art or Light Placer registers it again itself.
 //
 // A light of ours can also stay lit in the scene with no node when the casting art is cleared away in one go (a dispel and a
 // temporary-effects clear with the hands up); every few frames the ones that have stood so for two looks are put out.
@@ -124,8 +123,6 @@ namespace Plugin
 		std::size_t                                          gNextLook = 0;
 		bool                                                 gCellWatchOn = false;
 		std::size_t                                          gCellLogs = 0;
-		const void*                                          gLastSpace = nullptr;  // the interior cell, or the worldspace outside
-		bool                                                 gLastInside = false;
 
 		// a stray light comes of a spell's effects being cleared with its art up, seen at the next spell: looks for two seconds after an
 		// art starts (LightCopies.cpp), an effect ends or a hand moves, none at any other time. Any thread
@@ -273,8 +270,8 @@ namespace Plugin
 			});
 		}
 
-		// Light Placer leaves a light of ours lit in the scene with no node when a casting art is torn down without its removal (a
-		// dispel and a temporary-effects clear with the hands up, then another spell). One that stands without a parent for two looks,
+		// A light of ours can stay lit in the scene with no node when a casting art is torn down without its removal (a dispel and a
+		// temporary-effects clear with the hands up, then another spell). One that stands without a parent for two looks,
 		// a quarter second apart, goes out the way the scene takes any light out; a light with a parent, one being removed already
 		// and another mod's are never touched
 		constexpr std::chrono::milliseconds   kStrayEvery{ 250 };
@@ -352,9 +349,14 @@ namespace Plugin
 		if (REL::Module::IsVR()) {
 			return;
 		}
+		// Light Placer's own version, read only where SKSE has it packed: on 1.5.97 it reads lower, and this stays on as before
+		if (const auto* info = SKSE::GetPluginInfo("Light Placer"); info && REL::Version::unpack(info->version) >= REL::Version{ 5, 1, 0 }) {
+			SKSE::log::info("light placer: 5.1.0 or newer handles an effect's resume and a loading screen itself");
+			return;
+		}
 		REL::Relocation<std::uintptr_t> vtbl{ RE::ShaderReferenceEffect::VTABLE[0] };
 		ResumeAfterLightPlacer::func = vtbl.write_vfunc(0x38, ResumeAfterLightPlacer::thunk);  // ShaderReferenceEffect::Resume
-		SKSE::log::info("light placer: a light put back on an effect's resume is kept (its fix, until a Light Placer release carries it)");
+		SKSE::log::info("light placer: a light queued both to be added and removed on an effect's resume is kept in the scene");
 		if (auto* player = RE::PlayerCharacter::GetSingleton()) {
 			player->AsBGSActorCellEventSource()->AddEventSink(&gCellWatch);
 			gCellWatchOn = true;
@@ -374,8 +376,6 @@ namespace Plugin
 		gStray.Clear();
 		gCellSince.reset();
 		gNextLook = kLookAt.size();
-		gLastSpace = nullptr;  // the first cell of the loaded game came through a loading screen
-		gLastInside = false;
 	}
 
 	void NoteStrayLook() noexcept
@@ -386,7 +386,7 @@ namespace Plugin
 	void KeepCastingLights()
 	{
 		// each of the three has its own beginning and its own end: nothing runs while none of them is on
-		const bool strayLook = gStrayLooks.load(std::memory_order_relaxed) > 0;
+		const bool strayLook = !RecordRoute() && gStrayLooks.load(std::memory_order_relaxed) > 0;  // Light Placer draws no row of ours on the record route
 		const bool cellLook = gCellEntered.load(std::memory_order_relaxed) || (gCellSince && gNextLook < kLookAt.size());
 		if (!gKeepOn || (!strayLook && !cellLook && gReadded.empty())) {
 			return;
@@ -416,19 +416,19 @@ namespace Plugin
 			return;
 		}
 		if (std::chrono::duration<float>(now - *gCellSince).count() >= kLookAt[gNextLook]) {
-			// the lights go only through a loading screen (an interior on either side, or another worldspace); a step across an
-			// exterior cell border keeps them, so it is not looked at
+			// the lights go only through a loading screen; a step across an exterior cell border keeps them, so it is not looked at
 			if (gNextLook == 0) {
-				const auto* cell = player->GetParentCell();
-				const bool  inside = cell && cell->IsInteriorCell();
-				const void* space = inside ? static_cast<const void*>(cell) : static_cast<const void*>(player->GetWorldspace());
-				const bool  through = inside || gLastInside || space != gLastSpace;
-				gLastSpace = space;
-				gLastInside = inside;
+				static std::uint32_t loadingsSeen = 0;
+				const auto           loadings = LoadingScreensEnded();
+				const bool           through = loadings != loadingsSeen;
+				loadingsSeen = loadings;
 				if (!through) {
 					gNextLook = kLookAt.size();
 					return;
 				}
+				// our registrations went with the rest, or a second door would find this list full. Only let go: a light taken out and
+				// added in one frame stays dark
+				gReadded.clear();
 			}
 			LookAfterCellChange(scene, player, gNextLook);
 			++gNextLook;

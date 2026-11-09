@@ -54,9 +54,9 @@ namespace Plugin
 			float                                start{ 0.0f }, duration{ 0.0f }, mean{ 1.0f };
 
 			// the fade the keys give at a_time into the loop (LightMath.h's KeyAt: Truman's KeyframeSequence maths)
-			[[nodiscard]] float At(float a_time) const
+			[[nodiscard]] float At(double a_time) const
 			{
-				return LightKit::KeyAt(keys, interpolation, start + std::fmod((std::max)(a_time, 0.0f), duration));
+				return LightKit::KeyAt(keys, interpolation, start + static_cast<float>(std::fmod((std::max)(a_time, 0.0), static_cast<double>(duration))));
 			}
 		};
 
@@ -76,12 +76,11 @@ namespace Plugin
 		std::unordered_map<const RE::TESObjectLIGH*, Flicker>   gFlickerOf;   // the record lights of flicker rows
 		std::unordered_set<const RE::TESObjectLIGH*>            gOurRecords;  // every record light made here
 		std::unordered_map<const RE::TESObjectLIGH*, RE::Color> gAsMade;      // a row's record light: its color before VanillaLook
-		// seconds, read when a flickering light is written - nothing advances it; wrapped well before a float loses the hundredths a
-		// 2 s loop needs (every loop is far shorter than 3600 s)
-		[[nodiscard]] float FlickerClock()
+		// seconds, read when a flickering light is written - nothing advances it. A double keeps its steps for years and needs no wrap
+		[[nodiscard]] double FlickerClock()
 		{
 			static const auto start = std::chrono::steady_clock::now();
-			return static_cast<float>(std::fmod(std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), 3600.0));
+			return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 		}
 
 		// the keys' signature, so two rows that flicker differently never share one record light
@@ -494,8 +493,8 @@ namespace Plugin
 			return 0.0f;
 		}
 		if (const auto it = gFlickerOf.find(a_record); it != gFlickerOf.end()) {
-			const auto& flicker = it->second;
-			const float now = FlickerClock() + PhaseOf(a_light, flicker.duration);
+			const auto&  flicker = it->second;
+			const double now = FlickerClock() + PhaseOf(a_light, flicker.duration);
 			return a_record->fade * flicker.At(now) / flicker.mean;
 		}
 		return a_record->fade;

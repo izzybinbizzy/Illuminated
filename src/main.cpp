@@ -220,6 +220,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	gLightPlacerFirst = REX::W32::GetModuleHandleA("po3_LightPlacer.dll") != nullptr;
 	// the editor-ID recorders are installed at SKSE's post-load (OnMessage), still before the game reads its plugins
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
-	SKSE::log::info("Illuminated plugin loaded; waiting for the game's data");
+	SKSE::log::info("Illuminated {} loaded on Skyrim {} ({}); waiting for the game's data", SKSE::GetPluginVersion().string("."), REL::Module::get().version().string("."),
+		REL::Module::IsVR() ? "VR build" : "SE / AE build");
 	return true;
 }
