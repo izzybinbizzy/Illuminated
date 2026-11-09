@@ -216,6 +216,12 @@ namespace Plugin
 		}
 		if (gSwitchedOff) {
 			if (LightsOff() || SettingValue(kSwitch, 0) == 0) {
+				// what the sinks noted meanwhile is let go: the look round at the switch finds who is here
+				if (gNotedAny.load(std::memory_order_relaxed)) {
+					std::lock_guard lock(gNotedLock);
+					gNoted.clear();
+					gNotedAny.store(false, std::memory_order_relaxed);
+				}
 				return;
 			}
 			gSwitchedOff = false;

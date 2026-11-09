@@ -518,8 +518,8 @@ namespace Plugin
 	// condition IsBlocking == 1; the game re-checks an active effect's conditions only on its own timer
 	// (fActiveEffectConditionUpdateInterval), so the ward waits for the next check. Here, when the player's block starts, every
 	// one of her active effects that comes from an ENCHANTMENT and whose conditions ask IsBlocking is checked at once
-	// (ActiveEffect::EvaluateConditions, the effect's own virtual - no address needed), and once more on the next frame in case
-	// the game has not yet marked her blocking when the animation event comes. Only those effects: nothing else changes timing.
+	// (ActiveEffect::EvaluateConditions, the effect's own virtual - no address needed). At that event the graph's IsBlocking
+	// already reads true, so once is enough. Only those effects: nothing else changes timing.
 	// It runs with or without Dynamic Wards (the wait is the game's, not the dome's), so it is not behind DynamicWardsLoaded.
 	namespace
 	{
@@ -591,15 +591,7 @@ namespace Plugin
 					}
 					// the graph's events may come off the main thread: the effects are read on it
 					if (auto* tasks = SKSE::GetTaskInterface()) {
-						tasks->AddTask([]() {
-							LightKit::Guarded("shield ward check", []() {
-								RecheckShieldWards();
-								// once more a frame later: IsBlocking may only read true after this frame's update
-								if (auto* again = SKSE::GetTaskInterface()) {
-									again->AddTask([]() { LightKit::Guarded("shield ward check (next frame)", RecheckShieldWards); });
-								}
-							});
-						});
+						tasks->AddTask([]() { LightKit::Guarded("shield ward check", RecheckShieldWards); });
 					}
 				});
 				return RE::BSEventNotifyControl::kContinue;
