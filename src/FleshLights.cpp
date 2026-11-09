@@ -177,15 +177,16 @@ namespace Plugin
 
 	void NoteFleshRoots()
 	{
-		if (LightKit::FleshFx::Hues().empty() && gFades.empty()) {
-			return;  // no flesh spell wears FleshFX's look and FEC is not here: nothing to note, ever
-		}
 		// every magic effect is walked for a few frames after a flesh or FEC shader starts, resumes or ends (LightCopies.cpp); between,
 		// the lights noted stand
 		int left = gFleshLook.load(std::memory_order_relaxed);
 		if (left <= 0) {
 			return;
 		}
+		if (LightKit::FleshFx::Hues().empty() && gFades.empty()) {
+			return;  // no flesh spell wears FleshFX's look and FEC is not here: nothing to note, ever
+		}
+		const LightKit::Cost::Pass pass{ 10, "flesh roots" };
 		gFleshLook.compare_exchange_strong(left, left - 1, std::memory_order_relaxed);  // a start in between keeps its count
 		std::unordered_map<const RE::ShaderReferenceEffect*, NotedLights> roots;
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {

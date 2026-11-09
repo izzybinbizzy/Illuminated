@@ -99,6 +99,7 @@ namespace Plugin
 		if (gMoved.empty() && player->AsActorState()->GetWeaponState() == RE::WEAPON_STATE::kSheathed) {
 			return;
 		}
+		const LightKit::Cost::Pass pass{ 13, "her shadow" };
 		// kept between frames so the player update allocates nothing once they have grown
 		static std::vector<std::pair<RE::NiPointLight*, RE::NiPoint3>> between;  // this frame: a light and the world point it goes to
 		static std::vector<RE::NiPointLight*>                          lights;

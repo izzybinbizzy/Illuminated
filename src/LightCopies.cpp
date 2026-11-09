@@ -346,7 +346,8 @@ namespace Plugin
 			if (gSwapped.empty()) {
 				return;
 			}
-			const float before = gSwapClock;
+			const LightKit::Cost::Pass pass{ 5, "dynamic lighting swap" };
+			const float                before = gSwapClock;
 			gSwapClock += a_delta;
 			if (before < kHandBack && gSwapClock >= kHandBack) {
 				HandBack(false);
@@ -450,8 +451,12 @@ namespace Plugin
 		// once a frame, on the main thread
 		void Frame()
 		{
-			const bool  changed = gRefresh.exchange(false);
-			const float before = gBrightness;
+			if (!gRefresh.load(std::memory_order_relaxed) && !StreamLightsAwake() && !Scaling()) {
+				return;
+			}
+			const LightKit::Cost::Pass pass{ 4, "frame (light copies)" };
+			const bool                 changed = gRefresh.exchange(false);
+			const float                before = gBrightness;
 			if (changed) {
 				RefreshLights();
 				ApplyWardLook();     // the Ward look pick: the next ward raised wears it
@@ -556,37 +561,19 @@ namespace Plugin
 				}
 				func(a_this, a_delta);
 				LightKit::Guarded("player update", [a_delta]() {
-					const Scope all{ 0, "player update, all of ours" };
-					{
-						const Scope c{ 4, "frame (light copies)" };
-						Frame();
-					}
-					{
-						const Scope c{ 5, "dynamic lighting swap" };
-						TickSwapped(a_delta);  // the Dynamic Lighting swap's lights back to Light Placer's own verdict
-					}
+					// each pass times itself after its own early return (LightKit::Cost::Pass); only Ivy's sneak calls keep their meter here
+					Frame();
+					TickSwapped(a_delta);  // the Dynamic Lighting swap's lights back to Light Placer's own verdict
 					if (RecordRoute()) {
-						const Scope c{ 17, "drawn hands (the record route's actors)" };
 						RefreshDrawn();
 					}
-					{
-						const Scope c{ 6, "art lights" };
-						TickArtLights();  // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
-					}
-					{
-						const Scope c{ 7, "atronach lights" };
-						TickAtronachLights();  // the HexRim add-on's atronachs (AtronachLights.cpp)
-					}
-					{
-						const Scope c{ 8, "keep casting lights" };
-						KeepCastingLights();  // a held spell's Light Placer lights after a cell change (LightPlacerQueue.cpp)
-					}
+					TickArtLights();       // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
+					TickAtronachLights();  // the HexRim add-on's atronachs (AtronachLights.cpp)
+					KeepCastingLights();   // a held spell's Light Placer lights after a cell change (LightPlacerQueue.cpp)
 					if (!RecordRoute()) {
-						const Scope c{ 10, "flesh roots" };
 						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
 					}
 					{
-						const Scope      c{ 11, "fading hands" };
 						const SneakPause pause;  // the fading module reads the fades the others left, never our dimmed one
 						Fade::UpdateHands(a_delta);
 					}
@@ -594,14 +581,9 @@ namespace Plugin
 						const Scope c{ 12, "sneak frame end" };
 						SneakFrameEnd(a_delta);  // over every fade written above (SneakFade.cpp)
 					}
-					{
-						const Scope c{ 13, "her shadow" };
-						PlaceHerShadow();  // with the shadow download: her two hands' lights at one point (HerShadow.cpp)
-					}
-					{
-						const Scope c{ 14, "ground lights" };
-						TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
-					}
+					PlaceHerShadow();    // with the shadow download: her two hands' lights at one point (HerShadow.cpp)
+					TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
+					LightKit::Cost::FrameEnd();
 				});
 			}
 			static inline REL::Relocation<decltype(thunk)> func;

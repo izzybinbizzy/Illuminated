@@ -333,6 +333,12 @@ namespace Plugin
 		if (!RecordRoute()) {
 			return;
 		}
+		// no twin, nothing left hidden or refused, nobody else's hands out and hers down: a look would change nothing (Visit)
+		const auto* her = RE::PlayerCharacter::GetSingleton();
+		if (gTwins.empty() && gLeftHidden.empty() && gRefused.empty() && DrawnActors().size() <= 1 && !(her && her->AsActorState()->IsWeaponDrawn())) {
+			return;
+		}
+		const LightKit::Cost::Pass pass{ 14, "ground lights" };
 		ShowLeftHidden();  // before Visit: a twin made this tick hides its light again (Follow)
 		auto* scene = LightKit::Scene();
 		if (!scene || gGroundLightsOn.load(std::memory_order_relaxed) < 0.5f || LightsOff()) {  // switched off (advanced settings file, or all lights off)

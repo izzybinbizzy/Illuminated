@@ -22,6 +22,7 @@ namespace Plugin
 		std::unordered_set<RE::FormID>           gDrawnIds;               // the main thread's
 		std::vector<RE::Actor*>                  gDrawn;                  // this frame's, the main thread's
 		bool                                     gLookAround{ true };
+		std::atomic<bool>                        gDrawWork{ false };  // a sink queued something since the last pass
 
 		// a loading screen takes every light out of the scene's lists and a light of ours is not put back: kept, it lights nothing, and what it
 		// lit keeps drawing it. So each is let go on the main thread and the passes make it again (Dynamic Wards' way). A sink only queues this
@@ -60,6 +61,7 @@ namespace Plugin
 						NoteWeaponLook();
 						std::lock_guard lock(gDrawLock);
 						gDrawQueue.push_back(a_event->actor->GetFormID());
+						gDrawWork.store(true, std::memory_order_relaxed);
 					}
 				});
 				return RE::BSEventNotifyControl::kContinue;
@@ -121,6 +123,7 @@ namespace Plugin
 				NoteWeaponLook();
 				std::lock_guard lock(gDrawLock);
 				gLoadedQueue.emplace_back(a_actor->GetFormID(), a_in);
+				gDrawWork.store(true, std::memory_order_relaxed);
 			}
 		}
 
@@ -217,6 +220,11 @@ namespace Plugin
 
 	void RefreshDrawn()
 	{
+		// nothing queued and only she on the list, her hands read by whoever needs them
+		if (!gLookAround && !gDrawWork.load(std::memory_order_relaxed) && gDrawnIds.empty() && gDrawn.size() == 1) {
+			return;
+		}
+		const LightKit::Cost::Pass pass{ 17, "drawn hands (the record route's actors)" };
 		if (std::exchange(gLookAround, false)) {
 			if (auto* lists = RE::ProcessLists::GetSingleton()) {
 				for (auto& handle : lists->highActorHandles) {
@@ -231,6 +239,7 @@ namespace Plugin
 			loads.clear();
 			{
 				std::lock_guard lock(gDrawLock);
+				gDrawWork.store(false, std::memory_order_relaxed);
 				gDrawnIds.insert(gDrawQueue.begin(), gDrawQueue.end());
 				gDrawQueue.clear();
 				loads.swap(gLoadedQueue);

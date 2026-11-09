@@ -68,7 +68,6 @@ namespace Plugin
 		};
 
 		// written once at data load, read on the main thread after it
-		bool                                                    gOn = false;
 		const char*                                             gWhy = "not decided yet";  // why the route is what it is (DecideRecordRoute)
 		std::unordered_map<std::string, std::vector<Choice>>    gChoices;                  // model -> its record lights, strongest first
 		std::size_t                                             gMade = 0, gRows = 0, gNotOurs = 0, gMissing = 0, gFailed = 0;
@@ -198,38 +197,33 @@ namespace Plugin
 	{
 		const bool lightPlacer = REX::W32::GetModuleHandleA("po3_LightPlacer.dll") != nullptr;
 		const bool shaders = LightingFound() == Lighting::kShaders;
-		gOn = !lightPlacer || !shaders;
+		gRecordRouteOn = !lightPlacer || !shaders;
 		gWhy = !lightPlacer ? "Light Placer is not loaded" :
 		       !shaders     ? "the lighting is not Community Shaders" :
 		                      "Community Shaders with Light Placer";
 		// every Light Placer row waits on the route global: without it Light Placer draws none of ours, so this route lights them
-		if (!SetLightPlacerRoute(!gOn) && !gOn) {
-			gOn = true;
+		if (!SetLightPlacerRoute(!gRecordRouteOn) && !gRecordRouteOn) {
+			gRecordRouteOn = true;
 			gWhy = "the route global could not be made";
 		}
 		// Light Placer loaded before us read its configs before our lights and globals existed and dropped every row naming one;
 		// they exist now, so its own ReloadLP reads them again. If it cannot, this route lights them (never dark)
-		if (!gOn && LightPlacerReadFirst()) {
+		if (!gRecordRouteOn && LightPlacerReadFirst()) {
 			if (ReloadLightPlacer()) {
 				SKSE::log::info("record lights: Light Placer loaded before Illuminated, so its configs were read again (ReloadLP) now that Illuminated's lights exist");
 			} else {
-				gOn = true;
+				gRecordRouteOn = true;
 				gWhy = "Light Placer loaded before Illuminated and its ReloadLP could not be run";
 				static_cast<void>(SetLightPlacerRoute(false));
 			}
 		}
-		KeepConfigLights(gOn);
-		if (gOn) {
+		KeepConfigLights(gRecordRouteOn);
+		if (gRecordRouteOn) {
 			SKSE::log::info("record lights: {} ({}), so the configs light the game's own light records{}", gWhy,
 				LightingName(LightingFound()), lightPlacer ? " - Light Placer, loaded for other mods, draws none of Illuminated's lights" : "");
 		} else {
 			SKSE::log::info("record lights: not used - {}: Light Placer lights the configs", gWhy);
 		}
-	}
-
-	bool RecordRoute()
-	{
-		return gOn;
 	}
 
 	const char* RecordRouteWhy()
@@ -239,7 +233,7 @@ namespace Plugin
 
 	void MakeRecordLights()
 	{
-		if (!gOn) {
+		if (!gRecordRouteOn) {
 			return;
 		}
 		const auto started = std::chrono::steady_clock::now();
@@ -341,7 +335,7 @@ namespace Plugin
 	void RecolorRecordModel(const std::string& a_model, RE::Color a_color)
 	{
 		const auto it = gChoices.find(a_model);
-		if (!gOn || it == gChoices.end()) {
+		if (!gRecordRouteOn || it == gChoices.end()) {
 			return;
 		}
 		// copies of its own: another model's rows may share a record light
@@ -389,7 +383,7 @@ namespace Plugin
 	{
 		static std::unordered_map<std::uint32_t, RE::TESObjectLIGH*> made;              // one per color
 		static const RE::TESObjectLIGH*                              middle = nullptr;  // by form: the copies' list moves as it grows
-		if (!gOn || a_tuned.empty()) {
+		if (!gRecordRouteOn || a_tuned.empty()) {
 			return nullptr;
 		}
 		auto& copies = LightCopies();
@@ -502,7 +496,7 @@ namespace Plugin
 
 	void RecordFlicker(RE::ActorMagicCaster* a_caster)
 	{
-		if (!gTablesReady.load(std::memory_order_acquire) || !gOn || gAllOurs.empty() || !a_caster || REL::Module::IsVR()) {
+		if (!gTablesReady.load(std::memory_order_acquire) || !gRecordRouteOn || gAllOurs.empty() || !a_caster || REL::Module::IsVR()) {
 			return;
 		}
 		RE::NiLight* light = a_caster->light ? a_caster->light->light.get() : nullptr;
@@ -575,7 +569,7 @@ namespace Plugin
 	std::string RecordReport()
 	{
 		return std::format(
-			R"({{"on":{},"why":"{}","lights":{},"flicker":{},"models":{},"rows":{},"notOurs":{},"missing":{},"failed":{},"ms":{:.1f}}})", gOn,
+			R"({{"on":{},"why":"{}","lights":{},"flicker":{},"models":{},"rows":{},"notOurs":{},"missing":{},"failed":{},"ms":{:.1f}}})", gRecordRouteOn,
 			gWhy, gMade, gFlickerOf.size(), gChoices.size(), gRows, gNotOurs, gMissing, gFailed, gMs);
 	}
 }

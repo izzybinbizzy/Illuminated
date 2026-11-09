@@ -460,6 +460,11 @@ namespace Plugin
 		// still name its two settings: they are not drawn
 		constexpr std::string_view kRetiredSettings[]{ "IlluminatedSoulGems", "IlluminatedPraedys" };
 
+		[[nodiscard]] bool Retired(std::string_view a_id)
+		{
+			return std::ranges::contains(kRetiredSettings, a_id);
+		}
+
 		void DrawPage(std::size_t a_page)
 		{
 			if (a_page >= gPages.size()) {
@@ -587,7 +592,7 @@ namespace Plugin
 		const auto&                     settings = Settings();
 		std::unordered_set<std::string> seen;  // the pages in the order they are first named, each once (a retired setting names none)
 		for (const auto& s : settings) {
-			if (std::ranges::find(kRetiredSettings, s.id) == std::ranges::end(kRetiredSettings) && seen.insert(s.page).second) {
+			if (!Retired(s.id) && seen.insert(s.page).second) {
 				gPages.push_back(s.page);
 			}
 		}
@@ -599,7 +604,7 @@ namespace Plugin
 			std::vector<std::size_t>      onPage;
 			std::vector<std::string_view> groups;
 			for (std::size_t i = 0; i < settings.size(); ++i) {
-				if (settings[i].page == gPages[p] && std::ranges::find(kRetiredSettings, settings[i].id) == std::ranges::end(kRetiredSettings)) {
+				if (settings[i].page == gPages[p] && !Retired(settings[i].id)) {
 					onPage.push_back(i);
 					groups.push_back(settings[i].group);
 				}

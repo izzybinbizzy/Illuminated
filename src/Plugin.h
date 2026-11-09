@@ -214,7 +214,9 @@ namespace Plugin
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
 	void                             DecideRecordRoute();     // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer
 	[[nodiscard]] bool               LightPlacerReadFirst();  // main.cpp: Light Placer's SKSE load ran before ours (its configs are read before our lights exist)
-	[[nodiscard]] bool               RecordRoute();
+	inline bool                      gRecordRouteOn = false;  // decided once at data load (RecordLights.cpp DecideRecordRoute)
+	[[nodiscard]] inline bool        RecordRoute() { return gRecordRouteOn; }
+	[[nodiscard]] bool               StreamLightsAwake();                                                    // StreamLights.cpp: a stream or cloud of ours is in the air
 	[[nodiscard]] const char*        RecordRouteWhy();                                                       // the reason, for the log and DevBench
 	void                             MakeRecordLights();                                                     // after MakeLightCopies and ReadCoverage, before pass 1
 	void                             RecolorRecordModel(const std::string& a_model, RE::Color a_color);      // that model's record lights become copies in a_color (data load)

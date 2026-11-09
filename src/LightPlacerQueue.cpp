@@ -383,8 +383,9 @@ namespace Plugin
 		if (!gKeepOn || (!strayLook && !cellLook && gReadded.empty())) {
 			return;
 		}
-		auto* scene = LightKit::Scene();
-		auto* player = RE::PlayerCharacter::GetSingleton();
+		const LightKit::Cost::Pass pass{ 8, "keep casting lights" };
+		auto*                      scene = LightKit::Scene();
+		auto*                      player = RE::PlayerCharacter::GetSingleton();
 		if (!scene || !player) {
 			return;
 		}

@@ -1186,6 +1186,11 @@ namespace Plugin
 		gRowLights = 0;
 	}
 
+	bool StreamLightsAwake()
+	{
+		return gStreamsAwake.load(std::memory_order_relaxed);
+	}
+
 	void StreamLightsFrame()
 	{
 		if (!gStreamsAwake.load(std::memory_order_relaxed)) {

@@ -285,9 +285,14 @@ namespace Plugin
 		std::vector<WeaponWant> gWeaponWants;  // main thread only
 		bool                    gWeaponWaits{ false };
 		// a look for a few frames after what can change a want: a weapon's part can come a moment after its equip
-		constexpr int    kWeaponLooks = 8;
-		constexpr int    kWeaponWaitLooks = 300;
-		std::atomic<int> gWeaponLooks{ kWeaponLooks };
+		constexpr int kWeaponLooks = 8;
+		constexpr int kWeaponWaitLooks = 300;
+		// what the last look saw; the pass rests while these stand and nothing is kept, visited or announced
+		std::vector<RE::Actor*> gDrawnWas;
+		std::size_t             gKeptWas = 0;
+		int                     gWaitsLeft = 0;  // a part or a body not in yet is looked for about 5 s after what asked for it, not for ever
+		bool                    gHerDrawnWas = false;
+		std::atomic<int>        gWeaponLooks{ kWeaponLooks };
 
 		[[nodiscard]] bool LeftHand(const RE::NiAVObject* a_hand)
 		{
@@ -483,7 +488,15 @@ namespace Plugin
 		if (!RecordRoute()) {
 			return;
 		}
-		auto* scene = LightKit::Scene();
+		// she is always on the drawn list, and not every way her weapon goes away sends an event: one value, read each frame
+		auto*      her = RE::PlayerCharacter::GetSingleton();
+		const bool herDrawn = her && her->AsActorState()->IsWeaponDrawn();
+		if (gKept.empty() && gKeptWas == 0 && gArts.empty() && gWeaponWants.empty() && !gArtLook.load(std::memory_order_relaxed) &&
+			gWeaponLooks.load(std::memory_order_relaxed) <= 0 && !(gWeaponWaits && gWaitsLeft > 0) && herDrawn == gHerDrawnWas && DrawnActors() == gDrawnWas) {
+			return;
+		}
+		const LightKit::Cost::Pass pass{ 6, "art lights" };
+		auto*                      scene = LightKit::Scene();
 		if (!scene || gArtLightsOn.load(std::memory_order_relaxed) < 0.5f || LightsOff()) {  // switched off (advanced settings file, or all lights off)
 			for (auto& [key, kept] : gKept) {
 				Drop(kept, scene);  // with a scene, each light leaves its lists too (CodeRabbit, Illuminated #6)
@@ -493,6 +506,9 @@ namespace Plugin
 			gLitCount = 0;
 			gLit = 0;
 			ForgetArts();
+			gKeptWas = 0;
+			gHerDrawnWas = herDrawn;
+			gDrawnWas = DrawnActors();
 			return;
 		}
 		gCap = GlowLimit();
@@ -527,28 +543,21 @@ namespace Plugin
 				gone.clear();  // past the lock: the last reference to a finished effect may be let go here
 			}
 			// what a drawn weapon wants changes only with what announces it (NoteWeaponLook), a walk, the list of drawn actors, or an art light coming or going
-			static std::vector<RE::Actor*> drawnWas;
-			static std::size_t             keptWas = 0;
-			const auto&                    drawn = DrawnActors();
-			int                            looks = gWeaponLooks.load(std::memory_order_relaxed);
-			const bool                     partGone = std::ranges::any_of(gWeaponWants, [](const WeaponWant& a_w) { return !a_w.part->parent; });
-			// a part or a body not in yet is looked for about 5 s after what asked for it, not for ever
-			static int waitsLeft = 0;
-			// she is always on the drawn list, and not every way her weapon goes away sends an event: one value, read each frame
-			static bool herDrawnWas = false;
-			const bool  herDrawn = player && player->AsActorState()->IsWeaponDrawn();
-			const bool  asked = looks > 0 || walked || drawn != drawnWas || gKept.size() != keptWas || herDrawn != herDrawnWas;
-			herDrawnWas = herDrawn;
+			const auto& drawn = DrawnActors();
+			int         looks = gWeaponLooks.load(std::memory_order_relaxed);
+			const bool  partGone = std::ranges::any_of(gWeaponWants, [](const WeaponWant& a_w) { return !a_w.part->parent; });
+			const bool  asked = looks > 0 || walked || drawn != gDrawnWas || gKept.size() != gKeptWas || herDrawn != gHerDrawnWas;
+			gHerDrawnWas = herDrawn;
 			if (asked) {
-				waitsLeft = kWeaponWaitLooks;
+				gWaitsLeft = kWeaponWaitLooks;
 			}
-			const bool waiting = gWeaponWaits && waitsLeft > 0;
-			waitsLeft -= waiting ? 1 : 0;
+			const bool waiting = gWeaponWaits && gWaitsLeft > 0;
+			gWaitsLeft -= waiting ? 1 : 0;
 			if (asked || waiting || partGone) {
 				if (looks > 0) {
 					gWeaponLooks.compare_exchange_strong(looks, looks - 1, std::memory_order_relaxed);  // a note in between keeps its count
 				}
-				drawnWas = drawn;
+				gDrawnWas = drawn;
 				gArtUnder.clear();
 				for (const auto& [key, kept] : gKept) {
 					if (kept.seen && kept.root) {
@@ -570,7 +579,7 @@ namespace Plugin
 					gOnBody.push_back({ w.part.get(), w.actor, w.left });
 				}
 			}
-			keptWas = gKept.size();
+			gKeptWas = gKept.size();
 		}
 		std::erase_if(gKept, [&](auto& a_entry) {
 			if (!a_entry.second.seen) {
