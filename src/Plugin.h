@@ -201,15 +201,14 @@ namespace Plugin
 	// LightCopies.cpp to swap each pair at once when the setting moves
 	[[nodiscard]] ConfigText::Twin DynamicTwinOf(const std::string& a_configAndLight);
 
-	// ------------------------------------------------------------------ LightPlacerQueue.cpp: Light Placer's light put back on a resume stays
+	// ------------------------------------------------------------------ LightPlacerQueue.cpp: stray lights of ours, the scene's queue
 	// the scene's lights waiting to be added, copied under the scene's queue lock (the game and Light Placer add to it)
 	[[nodiscard]] std::vector<RE::NiPointer<RE::BSLight>> QueuedLights(RE::ShadowSceneNode* a_scene);
-	void                                                  KeepLightPlacerLights();  // at data load, after Light Placer hooked the resume when it loaded
-	void                                                  KeepCastingLights();      // once a frame, main thread: the casting art's Light Placer lights after a cell change
+	void                                                  WatchStrayLights();  // at data load, with Light Placer loaded
+	void                                                  StrayLightLooks();   // once a frame, main thread: returns at once with no look asked
 	void                                                  NoteStrayLook() noexcept;
-	void                                                  NoteLoadingEnded() noexcept;  // main thread: the casting art's Light Placer lights are looked at again
-	void                                                  DropCastingLights();          // a game loads: those lights and the last place seen are the old game's
-	void                                                  DropHandBudget();             // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
+	void                                                  ForgetStrayLights();  // a game loads: the last place seen is the old game's
+	void                                                  DropHandBudget();     // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
 
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
 	void                             DecideRecordRoute();     // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer

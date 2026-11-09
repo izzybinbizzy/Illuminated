@@ -7,7 +7,7 @@ The plugin of Illuminated - Spell Lighting NG; it ships with the mod and is requ
 ## What it does
 - Lights spells, enchanted weapons, staves, projectiles, explosions and hazards in each spell's own color. The lighting
   (Community Shaders, ENB or Vanilla) is detected automatically - nothing to pick.
-- **With Light Placer** (Community Shaders): Light Placer hangs the lights on the effect models; the plugin takes the
+- **With Light Placer 5.1.0 or newer** (Community Shaders): Light Placer hangs the lights on the effect models; the plugin takes the
   game's own magic lights off where the mod provides one, so nothing is lit twice.
 - **Without Light Placer**: lights through the game's own light records, with a ground light at the caster's feet.
 - **Sprays, streams and bolts**: each keeps its own light record and wears a row of small lights along it.

@@ -569,7 +569,7 @@ namespace Plugin
 					}
 					TickArtLights();       // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
 					TickAtronachLights();  // the HexRim add-on's atronachs (AtronachLights.cpp)
-					KeepCastingLights();   // a held spell's Light Placer lights after a cell change (LightPlacerQueue.cpp)
+					StrayLightLooks();     // a light of ours left in the scene with no node (LightPlacerQueue.cpp)
 					if (!RecordRoute()) {
 						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
 					}

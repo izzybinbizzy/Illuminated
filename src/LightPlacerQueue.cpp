@@ -2,19 +2,10 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// A light taken away and put back in the same frame stays away. Drawing a weapon (or loading a save with one drawn)
-// suspends and resumes its enchantment effect in one frame: Light Placer queues the light's removal on the suspend and its addition
-// on the resume, and the scene works through its queued additions before its removals - so the light is gone until the weapon is
-// drawn again. Light Placer 5.1.0 sees to it itself (powerof3/LightPlacer#27) and this then stands down; with an older one this does
-// it from outside, right after each effect resumes: a light queued both to be added and to be removed is kept as the scene holds it.
-// Installed at data load, after Light Placer hooked the same call when it loaded, so it runs after Light Placer's own resume work.
+// Light Placer 5.1.0 or newer is what the page asks for: it keeps a light put back on an effect's resume (powerof3/LightPlacer#27) and
+// puts a casting art's lights back after a loading screen (powerof3/LightPlacer#29), so neither is done here.
 //
-// A loading screen takes every light out of the scene's lists. Light Placer 5.1.0 puts a casting art's lights back itself
-// (powerof3/LightPlacer#29) and this then stands down; with an older one, a few frames after a loading screen each Light Placer light
-// under the player's casting art is registered with the scene again, as a re-equip would; that registration is ours to take back
-// when the light leaves the art or Light Placer registers it again itself.
-//
-// A light of ours can also stay lit in the scene with no node when the casting art is cleared away in one go (a dispel and a
+// A light of ours can still stay lit in the scene with no node when the casting art is cleared away in one go (a dispel and a
 // temporary-effects clear with the hands up); every few frames the ones that have stood so for two looks are put out.
 
 #include "Plugin.h"
@@ -24,106 +15,6 @@ namespace Plugin
 {
 	namespace
 	{
-		std::atomic<std::size_t> gKept{ 0 };
-
-		void EraseAll(RE::BSTArray<RE::NiPointer<RE::BSLight>>& a_list, const RE::BSLight* a_light)
-		{
-			for (auto it = a_list.begin(); it != a_list.end();) {
-				it = it->get() == a_light ? a_list.erase(it) : std::next(it);
-			}
-		}
-
-		// the queues as they stood before the resume: how many additions waited, and which lights waited to be removed
-		struct Queued
-		{
-			std::size_t                     added{ 0 };
-			std::vector<const RE::BSLight*> removed;
-		};
-
-		[[nodiscard]] Queued QueuedNow(RE::ShadowSceneNode* a_scene)
-		{
-			auto&               data = a_scene->GetRuntimeData();
-			RE::BSSpinLockGuard locker(data.lightQueueLock);
-			Queued              out{ data.lightQueueAdd.size(), {} };
-			for (const auto& removed : data.lightQueueRemove) {
-				if (removed) {
-					out.removed.push_back(removed.get());
-				}
-			}
-			return out;
-		}
-
-		// under the scene's queue lock. Only an addition THIS resume queued (past a_before.added) of a light whose removal waited
-		// before it: the removal is dropped, and so is that addition when the light is still in the scene, so it is not listed twice
-		std::size_t KeepRequeued(RE::ShadowSceneNode* a_scene, const Queued& a_before)
-		{
-			auto&                           data = a_scene->GetRuntimeData();
-			RE::BSSpinLockGuard             locker(data.lightQueueLock);
-			std::vector<const RE::BSLight*> requeued;
-			for (std::size_t i = a_before.added; i < data.lightQueueAdd.size(); ++i) {
-				const auto* light = data.lightQueueAdd[static_cast<std::uint32_t>(i)].get();
-				if (light && std::ranges::contains(a_before.removed, light) &&
-					std::ranges::any_of(data.lightQueueRemove, [&](const auto& removed) { return removed.get() == light; })) {
-					requeued.push_back(light);
-				}
-			}
-			for (const auto* light : requeued) {
-				EraseAll(data.lightQueueRemove, light);
-				if (std::ranges::any_of(data.activeLights, [&](const auto& active) { return active.get() == light; })) {
-					for (std::size_t i = data.lightQueueAdd.size(); i-- > a_before.added;) {
-						if (data.lightQueueAdd[static_cast<std::uint32_t>(i)].get() == light) {
-							data.lightQueueAdd.erase(data.lightQueueAdd.begin() + static_cast<std::ptrdiff_t>(i));
-						}
-					}
-				}
-			}
-			return requeued.size();
-		}
-
-		struct ResumeAfterLightPlacer
-		{
-			static void thunk(RE::ShaderReferenceEffect* a_this)
-			{
-#ifdef FADE_DEBUG_PAGE
-				if (static std::atomic<int> told = 0; told < 8 && ++told) {
-					SKSE::log::info("[RESUME-THREAD] ShaderReferenceEffect::Resume on thread {}", REX::W32::GetCurrentThreadId());
-				}
-#endif
-				auto*  scene = LightKit::Scene();
-				Queued before;
-				if (scene) {
-					LightKit::Guarded("effect resume queues", [scene, &before]() { before = QueuedNow(scene); });
-				}
-				func(a_this);
-				if (!scene || before.removed.empty()) {
-					return;
-				}
-				LightKit::Guarded("effect resume", [scene, &before]() {
-					if (const auto n = KeepRequeued(scene, before); n > 0) {
-						if (const auto total = gKept.fetch_add(n, std::memory_order_relaxed) + n; total <= 5) {
-							SKSE::log::info("light placer: {} light(s) put back on an effect's resume kept in the scene ({} so far)", n, total);
-						}
-					}
-				});
-			}
-			static inline REL::Relocation<decltype(thunk)> func;
-		};
-
-		// ---- the casting art's lights after a cell change (main thread only, but the event)
-		struct Readded
-		{
-			RE::NiPointer<RE::NiLight> light;
-			RE::NiPointer<RE::BSLight> bs;
-		};
-		std::vector<Readded> gReadded;
-		std::atomic<bool>    gCellEntered{ false };
-		// seconds after the first player update in the new cell: the art and Light Placer's own reattaching may land late
-		constexpr std::array                                 kLookAt{ 0.5f, 2.0f, 5.0f };
-		std::optional<std::chrono::steady_clock::time_point> gCellSince;
-		std::size_t                                          gNextLook = 0;
-		bool                                                 gCellWatchOn = false;
-		std::size_t                                          gCellLogs = 0;
-
 		// a stray light comes of a spell's effects being cleared with its art up, seen at the next spell: looks for two seconds after an
 		// art starts (LightCopies.cpp), an effect ends or a hand moves, none at any other time. Any thread
 		constexpr int    kStrayLooks = 8;
@@ -149,115 +40,6 @@ namespace Plugin
 		};
 		StrayWatch gStrayWatch;
 
-		// the Light Placer lights under the player's casting art - the art itself, and in first person the third-person node of
-		// the magic node's name, where Light Placer hangs them then; only Light Placer's own (named LP_Light[...]) - the game's
-		// casting light, ours and another mod's are never touched here
-		[[nodiscard]] std::vector<RE::NiPointLight*> CastingArtLights(RE::PlayerCharacter* a_player)
-		{
-			std::vector<RE::NiPointLight*> out;
-			auto*                          third = a_player->Get3D(false);
-			const auto                     collect = [&out](RE::NiAVObject* a_root) {
-				if (!a_root) {
-					return;
-				}
-				RE::BSVisit::TraverseScenegraphObjects(a_root, [&out](RE::NiAVObject* a_object) {
-					auto*                  light = netimmerse_cast<RE::NiPointLight*>(a_object);
-					const std::string_view name = light ? light->name.c_str() : "";
-					if (light && name.starts_with("LP_Light[") && !std::ranges::contains(out, light)) {
-						out.push_back(light);
-					}
-					return RE::BSVisit::BSVisitControl::kContinue;
-				});
-			};
-			for (auto* caster : a_player->GetActorRuntimeData().magicCasters) {
-				if (!caster || caster->flags.none(RE::ActorMagicCaster::Flags::kCastingArtAttached)) {
-					continue;
-				}
-				collect(caster->castingArtData.attachedArt.get());
-				if (const auto* node = caster->magicNode; node && third) {
-					collect(third->GetObjectByName(node->name));
-				}
-			}
-			return out;
-		}
-
-		// how the scene holds a light now: queued to be added, or registered (its registrations listed), or not at all
-		struct Held
-		{
-			bool                                    queued{ false };
-			std::vector<RE::NiPointer<RE::BSLight>> active;
-		};
-
-		[[nodiscard]] Held HeldNow(RE::ShadowSceneNode* a_scene, const RE::NiLight* a_light)
-		{
-			auto& data = a_scene->GetRuntimeData();
-			Held  out;
-			for (const auto& bs : data.activeLights) {
-				if (bs && bs->light.get() == a_light) {
-					out.active.push_back(bs);
-				}
-			}
-			for (const auto& bs : data.activeShadowLights) {
-				if (bs && bs->light.get() == a_light) {
-					out.active.emplace_back(bs.get());
-				}
-			}
-			RE::BSSpinLockGuard locker(data.lightQueueLock);
-			out.queued = std::ranges::any_of(data.lightQueueAdd, [a_light](const auto& bs) { return bs && bs->light.get() == a_light; });
-			return out;
-		}
-
-		// a light the scene still holds is never touched: taking a registration out and adding one in the same frame left the
-		// light dark (measured in game); only a light registered nowhere gets one
-		void LookAfterCellChange(RE::ShadowSceneNode* a_scene, RE::PlayerCharacter* a_player, std::size_t a_look)
-		{
-			std::size_t again = 0;
-			std::size_t held = 0;
-			const bool  logging = gCellLogs < 12;
-			for (auto* light : CastingArtLights(a_player)) {
-				if (std::ranges::any_of(gReadded, [light](const Readded& r) { return r.light.get() == light; })) {
-					continue;
-				}
-				const auto now = HeldNow(a_scene, light);
-#ifdef FADE_DEBUG_PAGE
-				if (logging) {
-					SKSE::log::info("[CELL-LIGHT] look {} | {} | registered {} | queued {} | portal strict {} | culled {}", a_look + 1,
-						light->name.c_str(), now.active.size(), now.queued, !now.active.empty() && now.active.front()->portalStrict,
-						light->GetAppCulled());
-				}
-#endif
-				if (now.queued || !now.active.empty()) {
-					++held;
-					continue;
-				}
-				// her casting art's light rides her through doorways: not portal strict, as its row now says
-				if (auto* bs = LightKit::AddToScene(a_scene, light, 1.0f, false)) {
-					gReadded.push_back({ RE::NiPointer<RE::NiLight>(light), RE::NiPointer<RE::BSLight>(bs) });
-					++again;
-				}
-			}
-			if (logging) {
-				++gCellLogs;
-				SKSE::log::info("light placer: cell change look {} - {} light(s) on the casting art held by the scene, {} registered again",
-					a_look + 1, held, again);
-			}
-		}
-
-		// ours goes when its light left the art (a sheathe or an unequip: Light Placer detached it) or the scene holds the light
-		// another way again (Light Placer's own registration back)
-		void TendReadded(RE::ShadowSceneNode* a_scene)
-		{
-			std::erase_if(gReadded, [a_scene](const Readded& r) {
-				const auto held = HeldNow(a_scene, r.light.get());
-				const bool other = held.queued || std::ranges::any_of(held.active, [&r](const auto& bs) { return bs != r.bs; });
-				if (r.light->parent && !other) {
-					return false;
-				}
-				a_scene->RemoveLight(r.bs);
-				return true;
-			});
-		}
-
 		// A light of ours can stay lit in the scene with no node when a casting art is torn down without its removal (a dispel and a
 		// temporary-effects clear with the hands up, then another spell). One that stands without a parent for two looks,
 		// a quarter second apart, goes out the way the scene takes any light out; a light with a parent, one being removed already
@@ -267,7 +49,7 @@ namespace Plugin
 		std::chrono::steady_clock::time_point gStrayAt;
 		std::size_t                           gStrayPutOut = 0;
 		std::size_t                           gStrayLogged = 0;
-		bool                                  gKeepOn = false;
+		bool                                  gWatching = false;
 
 		void PutOutStrayLights(RE::ShadowSceneNode* a_scene)
 		{
@@ -322,52 +104,27 @@ namespace Plugin
 		return out;
 	}
 
-	void KeepLightPlacerLights()
+	void WatchStrayLights()
 	{
 		if (!REX::W32::GetModuleHandleA("po3_LightPlacer.dll")) {
 			return;
 		}
-		gKeepOn = true;  // the stray-light clean-up runs on VR too; the resume hook and the cell watch do not
+		gWatching = true;
 		if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
 			events->AddEventSink<RE::TESActiveEffectApplyRemoveEvent>(&gStrayWatch);
 		}
 		if (auto* actions = SKSE::GetActionEventSource()) {
 			actions->AddEventSink(&gStrayWatch);
 		}
-		if (REL::Module::IsVR()) {
-			return;
+		// only a line in the log: SKSE packs the number differently on 1.5.97, where it reads lower
+		if (const auto* info = SKSE::GetPluginInfo("Light Placer"); info && REL::Version::unpack(info->version) < REL::Version{ 5, 1, 0 }) {
+			SKSE::log::warn("light placer: Illuminated needs 5.1.0 or newer, this one reads as {}", REL::Version::unpack(info->version).string());
 		}
-		// Light Placer's own version, read only where SKSE has it packed: on 1.5.97 it reads lower, and this stays on as before
-		if (const auto* info = SKSE::GetPluginInfo("Light Placer"); info && REL::Version::unpack(info->version) >= REL::Version{ 5, 1, 0 }) {
-			SKSE::log::info("light placer: 5.1.0 or newer handles an effect's resume and a loading screen itself");
-			return;
-		}
-		REL::Relocation<std::uintptr_t> vtbl{ RE::ShaderReferenceEffect::VTABLE[0] };
-		ResumeAfterLightPlacer::func = vtbl.write_vfunc(0x38, ResumeAfterLightPlacer::thunk);  // ShaderReferenceEffect::Resume
-		SKSE::log::info("light placer: a light queued both to be added and removed on an effect's resume is kept in the scene");
-		gCellWatchOn = true;
-		SKSE::log::info("light placer: the casting art's lights are registered again after a loading screen");
 	}
 
-	void DropCastingLights()
+	void ForgetStrayLights()
 	{
-		auto* scene = LightKit::Scene();
-		for (const auto& r : gReadded) {
-			if (scene && r.bs) {
-				scene->RemoveLight(r.bs);
-			}
-		}
-		gReadded.clear();
 		gStray.Clear();
-		gCellSince.reset();
-		gNextLook = kLookAt.size();
-	}
-
-	void NoteLoadingEnded() noexcept
-	{
-		if (gCellWatchOn) {
-			gCellEntered.store(true, std::memory_order_relaxed);
-		}
 	}
 
 	void NoteStrayLook() noexcept
@@ -375,47 +132,19 @@ namespace Plugin
 		gStrayLooks.store(kStrayLooks, std::memory_order_relaxed);
 	}
 
-	void KeepCastingLights()
+	void StrayLightLooks()
 	{
-		// each of the three has its own beginning and its own end: nothing runs while none of them is on
-		const bool strayLook = !RecordRoute() && gStrayLooks.load(std::memory_order_relaxed) > 0;  // Light Placer draws no row of ours on the record route
-		const bool cellLook = gCellEntered.load(std::memory_order_relaxed) || (gCellSince && gNextLook < kLookAt.size());
-		if (!gKeepOn || (!strayLook && !cellLook && gReadded.empty())) {
+		// Light Placer draws no row of ours on the record route
+		if (!gWatching || RecordRoute() || gStrayLooks.load(std::memory_order_relaxed) <= 0) {
 			return;
 		}
-		const LightKit::Cost::Pass pass{ 8, "keep casting lights" };
+		const LightKit::Cost::Pass pass{ 8, "stray lights" };
 		auto*                      scene = LightKit::Scene();
-		auto*                      player = RE::PlayerCharacter::GetSingleton();
-		if (!scene || !player) {
-			return;
-		}
-		if (!gReadded.empty()) {
-			TendReadded(scene);
-		}
-		const auto now = std::chrono::steady_clock::now();
-		if (strayLook && now - gStrayAt >= kStrayEvery) {
+		const auto                 now = std::chrono::steady_clock::now();
+		if (scene && now - gStrayAt >= kStrayEvery) {
 			gStrayAt = now;
 			gStrayLooks.fetch_sub(1, std::memory_order_relaxed);
 			PutOutStrayLights(scene);
-		}
-		if (!gCellWatchOn) {
-			return;
-		}
-		if (gCellEntered.exchange(false, std::memory_order_relaxed)) {
-			gCellSince = now;
-			gNextLook = 0;
-		}
-		if (!gCellSince || gNextLook >= kLookAt.size()) {
-			return;
-		}
-		if (std::chrono::duration<float>(now - *gCellSince).count() >= kLookAt[gNextLook]) {
-			if (gNextLook == 0) {
-				// our registrations went with the rest, or a second door would find this list full. Only let go: a light taken out and
-				// added in one frame stays dark
-				gReadded.clear();
-			}
-			LookAfterCellChange(scene, player, gNextLook);
-			++gNextLook;
 		}
 	}
 }

@@ -31,7 +31,6 @@ namespace Plugin
 			DropArtLights();
 			DropAtronachLights();
 			RenewGroundLights();
-			NoteLoadingEnded();
 		}
 
 		class LoadingWatch final : public RE::BSTEventSink<RE::MenuOpenCloseEvent>
