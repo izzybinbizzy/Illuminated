@@ -20,14 +20,21 @@ namespace Plugin
 		constexpr int    kStrayLooks = 8;
 		std::atomic<int> gStrayLooks{ 0 };
 
+		// only a casting art torn down with the hands up leaves a stray: an effect ending on someone at rest leaves none
+		[[nodiscard]] bool HandsOut(const RE::TESObjectREFR* a_ref)
+		{
+			const auto* actor = a_ref ? a_ref->As<RE::Actor>() : nullptr;
+			return actor && actor->AsActorState()->IsWeaponDrawn();
+		}
+
 		struct StrayWatch final :
 			RE::BSTEventSink<RE::TESActiveEffectApplyRemoveEvent>,
 			RE::BSTEventSink<SKSE::ActionEvent>
 		{
 			RE::BSEventNotifyControl ProcessEvent(const RE::TESActiveEffectApplyRemoveEvent* a_event, RE::BSTEventSource<RE::TESActiveEffectApplyRemoveEvent>*) override
 			{
-				if (a_event && !a_event->isApplied) {
-					NoteStrayLook();
+				if (a_event && !a_event->isApplied && (HandsOut(a_event->target.get()) || HandsOut(a_event->caster.get()))) {
+					NoteStrayLook(StrayWhy::kEffectEnd);
 				}
 				return RE::BSEventNotifyControl::kContinue;
 			}
@@ -38,7 +45,7 @@ namespace Plugin
 				using T = SKSE::ActionEvent::Type;
 				const auto type = a_event ? a_event->type.get() : T::kWeaponSwing;
 				if (type != T::kWeaponSwing && type != T::kBowDraw && type != T::kBowRelease) {
-					NoteStrayLook();
+					NoteStrayLook(StrayWhy::kAction);
 				}
 				return RE::BSEventNotifyControl::kContinue;
 			}
@@ -150,10 +157,18 @@ namespace Plugin
 		gStray.Clear();
 	}
 
-	void NoteStrayLook() noexcept
+	namespace
 	{
+		std::array<std::atomic<std::uint32_t>, static_cast<std::size_t>(StrayWhy::kCount)> gStrayNotes{};
+	}
+
+	void NoteStrayLook(StrayWhy a_why) noexcept
+	{
+		gStrayNotes[static_cast<std::size_t>(a_why)].fetch_add(1, std::memory_order_relaxed);
 		gStrayLooks.store(kStrayLooks, std::memory_order_relaxed);
 	}
+
+	std::uint32_t StrayNotes(std::size_t a_why) noexcept { return a_why < gStrayNotes.size() ? gStrayNotes[a_why].load(std::memory_order_relaxed) : 0; }
 
 	void StrayLightLooks()
 	{

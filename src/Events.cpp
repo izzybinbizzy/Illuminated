@@ -72,7 +72,7 @@ namespace Plugin
 			NoteAtronach3D(a_actor, a_in);
 			Fade::NoteActor3D(a_actor);
 			if (!a_in) {
-				NoteStrayLook();  // a light of its body may be left behind with no node
+				NoteStrayLook(StrayWhy::kBodyGone);  // a light of its body may be left behind with no node
 			}
 			if (gDrawsWatched.load(std::memory_order_relaxed)) {
 				NoteWeaponLook();

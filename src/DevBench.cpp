@@ -61,6 +61,10 @@ namespace Plugin
 						{ "calls", s.calls.load(std::memory_order_relaxed) } });
 				}
 			}
+			out["strayNotes"] = json::object();  // what armed the stray look, by kind (LightPlacerQueue.cpp)
+			for (std::size_t i = 0; i < kStrayWhyNames.size(); ++i) {
+				out["strayNotes"][kStrayWhyNames[i]] = StrayNotes(i);
+			}
 			return out;
 		}
 

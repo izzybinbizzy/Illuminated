@@ -65,6 +65,7 @@ namespace Plugin
 	[[nodiscard]] Lighting    LightingFound();  // never picked by the player - his word
 	[[nodiscard]] const char* LightingName(Lighting a_lighting);
 	[[nodiscard]] bool        InverseSquare();  // lights are drawn inverse square (Community Shaders); off it, LightKit::PlainOf
+	[[nodiscard]] bool        LightLimitFix();  // CommunityShaders.dll is loaded: a light of ours carries Light Limit Fix's words, inverse square or not
 	[[nodiscard]] std::string LightingReport();
 
 	// ------------------------------------------------------------------ EditorIDs.cpp: editor IDs, through the fading module's
@@ -206,9 +207,19 @@ namespace Plugin
 	[[nodiscard]] std::vector<RE::NiPointer<RE::BSLight>> QueuedLights(RE::ShadowSceneNode* a_scene);
 	void                                                  WatchStrayLights();  // at data load, with Light Placer loaded
 	void                                                  StrayLightLooks();   // once a frame, main thread: returns at once with no look asked
-	void                                                  NoteStrayLook() noexcept;
-	void                                                  ForgetStrayLights();  // a game loads: the last place seen is the old game's
-	void                                                  DropHandBudget();     // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
+	enum class StrayWhy : std::uint8_t
+	{
+		kEffectEnd,
+		kAction,
+		kBodyGone,
+		kArtStart,
+		kCount,
+	};
+	inline constexpr std::array<const char*, static_cast<std::size_t>(StrayWhy::kCount)> kStrayWhyNames{ "effect end", "action", "body gone", "art start" };
+	void                                                                                 NoteStrayLook(StrayWhy a_why) noexcept;  // any thread: what can leave a light of ours with no node
+	[[nodiscard]] std::uint32_t                                                          StrayNotes(std::size_t a_why) noexcept;  // devbench's instrument: each kind's count
+	void                                                                                 ForgetStrayLights();                     // a game loads: the last place seen is the old game's
+	void                                                                                 DropHandBudget();                        // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
 
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
 	void                             DecideRecordRoute();     // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer

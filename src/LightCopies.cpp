@@ -503,7 +503,7 @@ namespace Plugin
 			{
 				const bool started = func(a_this);
 				NoteArtLook();
-				NoteStrayLook();
+				NoteStrayLook(StrayWhy::kArtStart);
 				if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
 					NoteFleshStarted(a_this);
 				}

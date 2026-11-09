@@ -132,7 +132,11 @@ namespace Plugin
 					data.radius = { plain.radius, plain.radius, LightKit::kLightSize };
 					light->SetLightAttenuation(plain.radius);
 				}
-				data.ambient = LightKit::Tenth(a_lit.color);
+				if (LightLimitFix()) {
+					LightKit::Isl::SetOwnLinear(light);
+				} else {
+					data.ambient = LightKit::Tenth(a_lit.color);
+				}
 			}
 		}
 

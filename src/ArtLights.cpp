@@ -121,6 +121,8 @@ namespace Plugin
 				// plain record's falloff exponent is no cutoff)
 				LightKit::Isl::SetOwn(a_kept.light.get());
 				LightKit::Isl::SetCutoff(a_kept.light.get(), isl ? a_kept.record->data.fallofExponent : LightKit::CutoffFor(data.fade, radius), 0.01f, 1.0f);
+			} else if (LightLimitFix()) {
+				LightKit::Isl::SetOwnLinear(a_kept.light.get());
 			} else {
 				data.ambient = { data.diffuse.red * kAmbient, data.diffuse.green * kAmbient, data.diffuse.blue * kAmbient };
 			}

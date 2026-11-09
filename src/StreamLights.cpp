@@ -438,6 +438,8 @@ namespace Plugin
 				data.fade = (std::min)(a_fade, IslTop(a_radius));  // past its top the reach would grow instead
 				LightKit::Isl::SetOwn(a_light);
 				LightKit::Isl::SetCutoff(a_light, kDrawnTimes * kK * data.fade / IslRoom(a_radius));
+			} else if (LightLimitFix()) {
+				LightKit::Isl::SetOwnLinear(a_light);
 			} else {
 				data.ambient = LightKit::Tenth(a_color);
 			}
