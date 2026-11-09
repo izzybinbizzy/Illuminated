@@ -101,6 +101,7 @@ namespace Plugin
 		kGlow,  // glows on people: cloaks, flesh spells, FEC's bodies
 		kEnchanted
 	};
+	inline constexpr std::size_t kLightKinds = 4;  // the arrays indexed by LightKind
 
 	// one in-memory copy of a light a config names; the sliders set its fade, radius and cutoff (LightCopies.cpp)
 	struct LightCopy

@@ -63,8 +63,8 @@ namespace Plugin
 		std::atomic<bool>  gRefresh{ false };  // a setting changed: the passes again (RefreshLights)
 		std::atomic<float> gBrightness{ 1.0f };
 		// Brightness x each kind's own strength, by LightKind: what a copy of that kind takes (ApplyLightStrength)
-		std::array<std::atomic<float>, 4> gKindScale{ 1.0f, 1.0f, 1.0f, 1.0f };
-		std::atomic<bool>                 gScaled{ false };  // one of them is not 1: Light Placer's flickering lights are scaled as drawn
+		std::array<std::atomic<float>, kLightKinds> gKindScale{ 1.0f, 1.0f, 1.0f, 1.0f };
+		std::atomic<bool>                           gScaled{ false };  // one of them is not 1: Light Placer's flickering lights are scaled as drawn
 
 		[[nodiscard]] float KindScale(LightKind a_kind)
 		{
@@ -289,7 +289,7 @@ namespace Plugin
 			float             now{ 0.0f };
 			float             ratio{ 1.0f };
 		};
-		using KindRatios = std::array<float, 4>;  // each kind's scale now over before, by LightKind
+		using KindRatios = std::array<float, kLightKinds>;  // each kind's scale now over before, by LightKind
 
 		// the main thread's look at the scene's lights: new flickering lights are listed; on the frame a slider changed
 		// (each kind by its a_ratio) every lit light takes its copy's cutoff and a steady light's fade moves with it - those
