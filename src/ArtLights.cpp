@@ -286,6 +286,7 @@ namespace Plugin
 		bool                    gWeaponWaits{ false };
 		// a look for a few frames after what can change a want: a weapon's part can come a moment after its equip
 		constexpr int    kWeaponLooks = 8;
+		constexpr int    kWeaponWaitLooks = 300;
 		std::atomic<int> gWeaponLooks{ kWeaponLooks };
 
 		[[nodiscard]] bool LeftHand(const RE::NiAVObject* a_hand)
@@ -383,7 +384,11 @@ namespace Plugin
 		void CollectWeapons(RE::Actor* a_actor)
 		{
 			const auto* state = a_actor ? a_actor->AsActorState() : nullptr;
-			if (!a_actor || !a_actor->Is3DLoaded() || !state || !state->IsWeaponDrawn()) {
+			if (!a_actor || !state || !state->IsWeaponDrawn()) {
+				return;
+			}
+			if (!a_actor->Is3DLoaded()) {
+				gWeaponWaits = true;  // the game stores its body a moment after its load is noted, and nothing says so
 				return;
 			}
 			for (const bool left : { false, true }) {
@@ -527,7 +532,14 @@ namespace Plugin
 			const auto&                    drawn = DrawnActors();
 			int                            looks = gWeaponLooks.load(std::memory_order_relaxed);
 			const bool                     partGone = std::ranges::any_of(gWeaponWants, [](const WeaponWant& a_w) { return !a_w.part->parent; });
-			if (looks > 0 || walked || gWeaponWaits || partGone || drawn != drawnWas || gKept.size() != keptWas) {
+			// a part or a body not in yet is looked for about 5 s after what asked for it, not for ever
+			static int waitsLeft = 0;
+			if (looks > 0 || walked || drawn != drawnWas || gKept.size() != keptWas) {
+				waitsLeft = kWeaponWaitLooks;
+			}
+			const bool waiting = gWeaponWaits && waitsLeft > 0;
+			waitsLeft -= waiting ? 1 : 0;
+			if (looks > 0 || walked || waiting || partGone || drawn != drawnWas || gKept.size() != keptWas) {
 				if (looks > 0) {
 					gWeaponLooks.compare_exchange_strong(looks, looks - 1, std::memory_order_relaxed);  // a note in between keeps its count
 				}
