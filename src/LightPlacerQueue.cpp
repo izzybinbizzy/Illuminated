@@ -63,9 +63,9 @@ namespace Plugin
 		std::size_t                           gStrayLogged = 0;
 		bool                                  gWatching = false;
 
-		// no node; or hidden with no reference anywhere up its tree: its body was removed, and Light Placer, which keeps a light whose condition
-		// fails, hidden, never hears of it. A light on any body - her skeletons too - finds that body's reference up its tree and stays: it
-		// comes back when its condition holds (the scene root, not her 3D, tops every attached light)
+		// no node; or hidden on a tree that is no live body: its body was removed, and Light Placer, which keeps a light whose condition fails,
+		// hidden, never hears of it. A light on a live body - a reference up its tree, the tree in the world (the world's root on top) or on one
+		// of her own skeletons - stays: it comes back when its condition holds. A let-go body keeps its reference while its detached tree lives
 		bool LeftBehind(const RE::NiLight* a_light)
 		{
 			if (!a_light->parent) {
@@ -74,12 +74,18 @@ namespace Plugin
 			if (!a_light->GetAppCulled()) {
 				return false;
 			}
+			bool                  referenced = false;
+			const RE::NiAVObject* top = a_light;
 			for (const RE::NiAVObject* node = a_light; node; node = node->parent) {
-				if (node->GetUserData()) {
-					return false;
-				}
+				referenced = referenced || node->GetUserData() != nullptr;
+				top = node;
 			}
-			return true;
+			if (!referenced) {
+				return true;
+			}
+			auto*      player = RE::PlayerCharacter::GetSingleton();
+			const bool hers = player && (top == player->Get3D(false) || top == player->Get3D(true));
+			return top != RE::Main::WorldRootNode() && !hers;
 		}
 
 		void PutOutStrayLights(RE::ShadowSceneNode* a_scene)

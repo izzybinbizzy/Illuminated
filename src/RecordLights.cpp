@@ -235,7 +235,7 @@ namespace Plugin
 
 	void MakeRecordLights()
 	{
-		if (!gRecordRouteOn) {
+		if (!RecordRoute()) {
 			return;
 		}
 		const auto started = std::chrono::steady_clock::now();
@@ -338,7 +338,7 @@ namespace Plugin
 	void RecolorRecordModel(const std::string& a_model, RE::Color a_color)
 	{
 		const auto it = gChoices.find(a_model);
-		if (!gRecordRouteOn || it == gChoices.end()) {
+		if (!RecordRoute() || it == gChoices.end()) {
 			return;
 		}
 		// copies of its own: another model's rows may share a record light
@@ -386,7 +386,7 @@ namespace Plugin
 	{
 		static std::unordered_map<std::uint32_t, RE::TESObjectLIGH*> made;              // one per color
 		static const RE::TESObjectLIGH*                              middle = nullptr;  // by form: the copies' list moves as it grows
-		if (!gRecordRouteOn || a_tuned.empty()) {
+		if (!RecordRoute() || a_tuned.empty()) {
 			return nullptr;
 		}
 		auto& copies = LightCopies();
@@ -499,7 +499,7 @@ namespace Plugin
 
 	void RecordFlicker(RE::ActorMagicCaster* a_caster)
 	{
-		if (!gTablesReady.load(std::memory_order_acquire) || !gRecordRouteOn || gAllOurs.empty() || !a_caster || REL::Module::IsVR()) {
+		if (!gTablesReady.load(std::memory_order_acquire) || !RecordRoute() || gAllOurs.empty() || !a_caster || REL::Module::IsVR()) {
 			return;
 		}
 		RE::NiLight* light = a_caster->light ? a_caster->light->light.get() : nullptr;

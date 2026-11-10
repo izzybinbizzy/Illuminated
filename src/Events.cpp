@@ -212,6 +212,7 @@ namespace Plugin
 			for (const auto& [id, loaded] : loads) {
 				if (!loaded) {
 					gDrawnIds.erase(id);
+					gNo3D.erase(id);
 				} else if (HandsDrawn(RE::TESForm::LookupByID<RE::Actor>(id))) {
 					gDrawnIds.insert(id);
 				}
