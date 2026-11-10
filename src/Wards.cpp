@@ -588,7 +588,7 @@ namespace Plugin
 					}
 					static std::atomic_bool told{ false };  // the graph's events may come off the main thread
 					if (!told.exchange(true)) {
-						SKSE::log::info("wards: a block started - the shield wards are checked at once");
+						SKSE::log::info("wards: a block started or ended - the shield wards are checked at once");
 					}
 					// the graph's events may come off the main thread: the effects are read on it
 					if (auto* tasks = SKSE::GetTaskInterface()) {
@@ -680,25 +680,26 @@ namespace Plugin
 			return;
 		}
 		static GraphWatch watch;
-		static const bool watching = [] {
-			if (auto* updates = SKSE::GetNiNodeUpdateEventSource()) {
+		// all four sinks at once, and only once every source is there: a source missing now is tried again next time (CodeRabbit on #65)
+		static bool watching = false;
+		if (!watching) {
+			auto* updates = SKSE::GetNiNodeUpdateEventSource();
+			auto* actions = SKSE::GetActionEventSource();
+			auto* events = RE::ScriptEventSourceHolder::GetSingleton();
+			if (updates && actions && events) {
 				updates->AddEventSink(&watch);
-			}
-			if (auto* actions = SKSE::GetActionEventSource()) {
 				actions->AddEventSink(&watch);
-			}
-			if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
 				events->AddEventSink<RE::TESObjectLoadedEvent>(&watch);
 				events->AddEventSink<RE::TESSwitchRaceCompleteEvent>(&watch);
+				watching = true;
 			}
-			return true;
-		}();
-		static_cast<void>(watching);
+		}
 		RE::BSTSmartPointer<RE::BSAnimationGraphManager> graph;
 		player->GetAnimationGraphManager(graph);
 		player->RemoveAnimationGraphEventSink(&gBlockWatch);
 		const bool added = graph && player->AddAnimationGraphEventSink(&gBlockWatch);
-		gWatchedGraph = added ? graph : nullptr;
+		// kept even when the add failed, so the next event does not try the same graph again (CodeRabbit on #65)
+		gWatchedGraph = graph;
 		SKSE::log::info("wards: the block watch is {} the player's animation graph", added ? "on" : "NOT on (no graph yet)");
 	}
 }

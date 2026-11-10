@@ -96,7 +96,8 @@ namespace Plugin
 			return;
 		}
 		// her hands down and nothing of hers moved: nothing to do (a draw's first frames already light her hands)
-		if (gMoved.empty() && player->AsActorState()->GetWeaponState() == RE::WEAPON_STATE::kSheathed) {
+		const auto* state = player->AsActorState();
+		if (gMoved.empty() && (!state || state->GetWeaponState() == RE::WEAPON_STATE::kSheathed)) {
 			return;
 		}
 		const LightKit::Cost::Pass pass{ 13, "her shadow" };
