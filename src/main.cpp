@@ -52,6 +52,7 @@
 //                      shared word for word with our other plugins
 
 #include "Fade.h"
+#include "FloorLightFix.h"
 #include "Plugin.h"
 #include "RuntimeGuard.h"
 
@@ -209,11 +210,12 @@ namespace
 
 SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
-	SKSE::Init(a_skse, { .trampoline = true, .trampolineSize = 128 });
+	SKSE::Init(a_skse, { .trampoline = true, .trampolineSize = 128 + FloorLightFix::kTrampolineBytes });
 	// the wrong game: loaded but idle - a false here makes SKSE add its own "exit game?" box over the guard's
 	if (!RuntimeGuard::RightGame("Illuminated", "Illuminated - Spell Lighting NG", "Illuminated - VR")) {
 		return true;
 	}
+	FloorLightFix::Install();
 	// SKSE loads its plugins one at a time (LoadLibrary, then the plugin's load), and each listener is called in the order it
 	// registered: a Light Placer module already here registered first, so at data load it reads its configs before our
 	// lights exist and drops every row that names one (Light Placer has no preload; SKSE's scan loads only as resources)
