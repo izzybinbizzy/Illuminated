@@ -45,7 +45,6 @@
 //   GroundLights.cpp   without Light Placer: a twin of each hand light that lights the ground
 //   ArtLights.cpp      without Light Placer: lights of ours on lit art and weapon models (bound weapons) and flesh spells
 //   FleshLights.cpp    the flesh spells' lights in FleshFX's hue, where FleshFX's look wins (LightKit.h FleshFx)
-//   AtronachLights.cpp a glow on the atronach races an add-on's settings file names
 //   Fade*.cpp, Fade*.h the fading module (identical in RELight - Spell Addon but for FadeConfig.h and FadeDevBench.cpp -
 //                      PC Runner\fade copies check.py); its hooks are in FadeMain.cpp
 //   SKSEMenuFramework.h, DevBenchAPI.*  those mods' own files; DevBenchGlue.h, MenuStyle.h, Translation.h are
@@ -100,9 +99,8 @@ namespace
 		LightKit::FleshFx::Find();  // which flesh spells wear FleshFX's look: their lights take its hue (FleshLights.cpp)
 		NoteFecShaders(cov);        // before the passes forget the editor IDs
 		NoteSpellHazards();
-		FindShadowSigns();    // once here, never on the first frame of play
-		ReadAtronachRaces();  // the same
-		WatchActors3D();      // after the races: the atronachs and the fading hear of an actor's 3D
+		FindShadowSigns();  // once here, never on the first frame of play
+		WatchActors3D();    // after the races: the atronachs and the fading hear of an actor's 3D
 		if (record) {
 			MakeRecordLights();    // before passes 1 and 2, which point the records at them
 			TintWardRecords();     // a recolored 360 Ward's color onto the ward hand's record lights
@@ -153,7 +151,6 @@ namespace
 	{
 		KeepCopiesOutOfPortals();  // every mod's data load has run by now (a portal-strict patcher among them)
 		DropArtLights();
-		DropAtronachLights();
 		DropGroundLights();
 		ForgetDrawn();
 		DropHerShadow();

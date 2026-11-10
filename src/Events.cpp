@@ -32,7 +32,6 @@ namespace Plugin
 		void AfterLoadingScreen()
 		{
 			DropArtLights();
-			DropAtronachLights();
 			RenewGroundLights();
 		}
 
@@ -73,7 +72,6 @@ namespace Plugin
 		// a_hadBody: the body this call let go was there - a load clears thousands of empty slots, which leave nothing behind
 		void Note3D(RE::Actor* a_actor, bool a_in, bool a_hadBody = false)
 		{
-			NoteAtronach3D(a_actor, a_in);
 			Fade::NoteActor3D(a_actor);
 			if (!a_in && a_hadBody) {
 				NoteStrayLook(StrayWhy::kBodyGone);  // a light of its body may be left behind with no node

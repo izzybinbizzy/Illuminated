@@ -7,7 +7,7 @@
 // game in here, so tests/test_fade.cpp builds and checks it off the game (PC Runner\fade tests.py).
 //
 //   Trim, ParseInt, ParseFloat, Split   text helpers; a number is read only when the WHOLE field is one ("12abc" is not 12)
-//   Clause, ParseConditions             the GetGlobalValue items of a light's conditions, as tests of OR-runs
+//   Clause, ParseConditions             the GetGlobalValue items of a light's conditions, as tests of OR-runs (and the artifact clause)
 //   DynamicRow, TwinOf, ConfigName,
 //   LightPlacerKey, LightPlacerIndex,
 //   TwinKey, SwapTwins                  the Dynamic Lighting switch at once (LightCopies.cpp SwapDynamicTwins)
@@ -105,8 +105,14 @@ namespace ConfigText
 	// OR run it is the one item that cannot hold here, so the run's other items decide (CodeRabbit on Illuminated #20).
 	inline constexpr std::string_view kRouteGlobal = "illuminatedlightplacerroute";
 
-	// Only GetGlobalValue items are kept. A run of OR items is one test, as the game reads it; a test that holds anything
-	// else (IsSneaking OR a setting) cannot be decided from the settings, so it is left out: it may be true.
+	// THE ARTIFACTS STAY LIT: Enchanted weapons off puts out an enchantment row unless its holder has a weapon with the game's
+	// DaedricArtifact keyword (lagen ARTIFACT_SPARE, an OR beside the setting). That item is kept as this clause, which no
+	// setting can name; the record route answers it from the held weapon (ConditionsHold's a_artifact) and reads it false elsewhere
+	inline constexpr std::string_view kArtifactClause = "@daedricartifact";
+	inline constexpr std::string_view kArtifactKeyword = "DaedricArtifact";
+
+	// Only GetGlobalValue items and the artifact item are kept. A run of OR items is one test, as the game reads it; a test that
+	// holds anything else (IsSneaking OR a setting) cannot be decided from the settings, so it is left out: it may be true.
 	[[nodiscard]] inline std::vector<std::vector<Clause>> ParseConditions(const std::vector<std::string>& a_conditions)
 	{
 		std::vector<std::vector<Clause>> out;
@@ -119,14 +125,18 @@ namespace ConfigText
 			}
 			const bool isOr = Lower(words.back()) == "or";
 			auto       fn = words.begin();
-			while (fn != words.end() && Lower(*fn) != "getglobalvalue") {
+			while (fn != words.end() && Lower(*fn) != "getglobalvalue" && Lower(*fn) != "wornhaskeyword") {
 				++fn;
 			}
-			if (fn != words.end() && std::distance(fn, words.end()) >= 5 && LightKit::SameText(*(fn + 2), "NONE") && *(fn + 3) == "==") {
+			const bool artifact = fn != words.end() && Lower(*fn) == "wornhaskeyword";
+			if (fn != words.end() && std::distance(fn, words.end()) >= 5 && LightKit::SameText(*(fn + 2), "NONE") && *(fn + 3) == "==" &&
+				(!artifact || LightKit::SameText(*(fn + 1), kArtifactKeyword))) {
 				int v = 0;
 				if (ParseInt(*(fn + 4), v)) {
 					// a route clause is left out: alone, its run is empty and so no test (the gate); in an OR run the other items decide
-					if (auto global = Lower(*(fn + 1)); global != kRouteGlobal) {
+					if (artifact) {
+						run.push_back({ std::string(kArtifactClause), v });
+					} else if (auto global = Lower(*(fn + 1)); global != kRouteGlobal) {
 						run.push_back({ std::move(global), v });
 					}
 				} else {

@@ -370,10 +370,10 @@ namespace Plugin
 				SetById("IlluminatedFrostArt", 1);  // Kittytail
 				SetById("IlluminatedHealingArt", 1);
 				SetById("IlluminatedShockArt", 1);
-				// the HexRim patches are data options (Configs: Kittytail, Other Mods); the atronachs are the HexRim page's
+				// the HexRim patches are data options (Configs: Kittytail, Other Mods)
 				for (const char* id : { "IlluminatedAstralMagic2", "IlluminatedConstellationMagic", "IlluminatedFrostbittenDreamsMagic",
 						 "IlluminatedHolyTemplarMagic", "IlluminatedWinterWonderlandMagic", "IlluminatedWildwakerMagic",
-						 "IlluminatedDragonsUseThuum", "IlluminatedTheRestlessDead", "IlluminatedHexRimAtronachs" }) {
+						 "IlluminatedDragonsUseThuum", "IlluminatedTheRestlessDead" }) {
 					SetById(id, 1);
 				}
 			}

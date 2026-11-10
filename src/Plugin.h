@@ -129,14 +129,9 @@ namespace Plugin
 		std::string                      values;  // key=value;key=value
 	};
 
-	struct AtronachRow
-	{
-		std::string race;  // the race's editor id
-		RE::NiColor color;
-	};
-
 	using ConfigText::ParseConditions;  // ConfigText.h (game-free)
-	[[nodiscard]] bool                            ConditionsHold(const std::vector<std::vector<Clause>>& a_tests);
+	// a_artifact: the holder's weapon is a Daedric artifact (ArtLights.cpp), so the artifact clause holds (ConfigText.h)
+	[[nodiscard]] bool                            ConditionsHold(const std::vector<std::vector<Clause>>& a_tests, bool a_artifact = false);
 	void                                          LoadSettings();
 	void                                          ApplyGlobals();
 	[[nodiscard]] bool                            SetLightPlacerRoute(bool a_lightPlacerDraws);  // the route global every Light Placer row waits on (his answer Q7); false = it could not be made
@@ -145,7 +140,6 @@ namespace Plugin
 	[[nodiscard]] std::vector<Setting>&           Settings();
 	[[nodiscard]] const std::vector<MenuNote>&    Notes();
 	[[nodiscard]] const std::vector<SprayMarker>& SprayMarkers();
-	[[nodiscard]] const std::vector<AtronachRow>& AtronachRows();  // the HexRim add-on's [atronach] blocks
 	[[nodiscard]] bool                            PluginLoaded(std::string_view a_plugin);
 	[[nodiscard]] bool                            PraedyStavesLoaded();                                                               // a Praedy's Staves AIO plugin or one of its patches loads
 	[[nodiscard]] bool                            PluginLoadedStartingWith(std::initializer_list<std::string_view> a_lowerPrefixes);  // lower-case name starts: a mod shipped under several plugin names
@@ -245,7 +239,7 @@ namespace Plugin
 	void                             RecolorRecordModel(const std::string& a_model, RE::Color a_color);      // that model's record lights become copies in a_color (data load)
 	void                             RecordFlicker(RE::ActorMagicCaster* a_caster);                          // after a caster's update: its hand light's flicker
 	void                             RecordTablesReady();                                                    // the data load is done: RecordFlicker may read the tables
-	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model);                             // nullptr: no row lights that model now
+	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model, bool a_artifact = false);    // nullptr: no row lights that model now
 	[[nodiscard]] RE::TESObjectLIGH* RecordLightOfData(const std::string& a_model);                          // its first row's light, whatever the settings
 	[[nodiscard]] float              RecordFadeNow(const RE::TESObjectLIGH* a_record, const void* a_light);  // its fade now, a flicker's keys played
 	// ArtLights.cpp (his report: "bound weapons not lighting up on vanilla"): a light of ours on every art effect and
@@ -257,20 +251,15 @@ namespace Plugin
 	void NoteArtLook();
 	void NoteWeaponLook() noexcept;  // any thread: something changed what a drawn weapon wants (ArtLights.cpp)
 	// Events.cpp: SKSE's weapon draw events - the actors with drawn hands, for the record route's per-actor passes
-	void                                         WatchDraws();                                         // data load, record route
-	void                                         WatchActors3D();                                      // data load: each actor's 3D, in and out, and the loading screen
-	void                                         NoteAtronach3D(const RE::Actor* a_actor, bool a_in);  // any thread: that actor's 3D came or went
-	void                                         RefreshDrawn();                                       // main thread, once a frame before the art lights
-	[[nodiscard]] const std::vector<RE::Actor*>& DrawnActors();                                        // this frame's: the player first, then every actor with drawn hands
-	void                                         ForgetDrawn();                                        // a game loads, or a new one starts
-	[[nodiscard]] RE::Color                      VanillaLook(RE::Color a_color);                       // RecordLights.cpp: a light's color as Vanilla wears it
-	[[nodiscard]] RE::Color                      ColorAsMade(const RE::TESObjectLIGH* a_light);        // a record light's color before VanillaLook, else its own
-	void                                         ReadAtronachRaces();                                  // AtronachLights.cpp: once, at data load
-	void                                         TickAtronachLights();                                 // AtronachLights.cpp: once a frame, in the player update
-	[[nodiscard]] std::size_t                    ArtGlowsLit();                                        // ArtLights.cpp: the glows lit now, which count against the same limit
-	inline constexpr std::uint32_t               kRecordPortalStrict = 1u << 13;                       // TES_LIGHT_FLAGS::kPortalStrict
-	void                                         DropAtronachLights();                                 // a game loads, or a new one starts
-	void                                         NoteAtronachLook();                                   // the settings changed: every atronach near her again
+	void                                         WatchDraws();                                   // data load, record route
+	void                                         WatchActors3D();                                // data load: each actor's 3D, in and out, and the loading screen
+	void                                         RefreshDrawn();                                 // main thread, once a frame before the art lights
+	[[nodiscard]] const std::vector<RE::Actor*>& DrawnActors();                                  // this frame's: the player first, then every actor with drawn hands
+	void                                         ForgetDrawn();                                  // a game loads, or a new one starts
+	[[nodiscard]] RE::Color                      VanillaLook(RE::Color a_color);                 // RecordLights.cpp: a light's color as Vanilla wears it
+	[[nodiscard]] RE::Color                      ColorAsMade(const RE::TESObjectLIGH* a_light);  // a record light's color before VanillaLook, else its own
+	[[nodiscard]] std::size_t                    ArtGlowsLit();                                  // ArtLights.cpp: the glows lit now, which count against the same limit
+	inline constexpr std::uint32_t               kRecordPortalStrict = 1u << 13;                 // TES_LIGHT_FLAGS::kPortalStrict
 	[[nodiscard]] std::size_t                    ArtLightCount();
 	[[nodiscard]] std::size_t                    ArtLightsLitNow();
 	[[nodiscard]] std::size_t                    ArtLightsMade();

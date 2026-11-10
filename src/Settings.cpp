@@ -20,7 +20,6 @@ namespace Plugin
 		Fade::StringMap<std::size_t>    gIndex;  // lower-case id -> index
 		std::vector<MenuNote>           gNotes;
 		std::vector<SprayMarker>        gMarkers;
-		std::vector<AtronachRow>        gAtronachs;
 		std::vector<LightCopy>          gLights;
 		std::unordered_set<std::string> gLightIds;   // lower-case ids of gLights, for the duplicate check
 		std::vector<char>               gAvailable;  // per setting: are the mods it needs loaded (worked out once, main thread)
@@ -157,14 +156,6 @@ namespace Plugin
 					m.when = ParseConditions(Split(block["when"], ';'));
 					m.values = block["values"];
 					gMarkers.push_back(std::move(m));
-				} else if (kind == "atronach") {
-					int        rgb[3]{};
-					const auto parts = Split(block["color"], ',');
-					if (!block["race"].empty() && parts.size() == 3 && ParseInt(parts[0], rgb[0]) && ParseInt(parts[1], rgb[1]) && ParseInt(parts[2], rgb[2])) {
-						gAtronachs.push_back({ block["race"], { std::clamp(rgb[0], 0, 255) / 255.0f, std::clamp(rgb[1], 0, 255) / 255.0f, std::clamp(rgb[2], 0, 255) / 255.0f } });
-					} else {
-						SKSE::log::warn("settings: an [atronach] row without a race or a color r,g,b, left out: race '{}', color '{}'", block["race"], block["color"]);
-					}
 				}
 				block.clear();
 				kind.clear();
@@ -329,12 +320,15 @@ namespace Plugin
 	bool PulseRealistic() { return Realistic(); }
 
 	// ------------------------------------------------------------------ conditions
-	bool ConditionsHold(const std::vector<std::vector<Clause>>& a_tests)
+	bool ConditionsHold(const std::vector<std::vector<Clause>>& a_tests, bool a_artifact)
 	{
 		// a setting no settings file names reads 0, as the game reads a missing global
-		const auto holds = [](const Clause& a_c) {
+		const auto holds = [a_artifact](const Clause& a_c) {
 			if (a_c.global == kPraedyClause) {
 				return (gPraedyOn.load() ? 1 : 0) == a_c.value;
+			}
+			if (a_c.global == ConfigText::kArtifactClause) {
+				return (a_artifact ? 1 : 0) == a_c.value;
 			}
 			const auto it = gIndex.find(a_c.global);
 			return (it == gIndex.end() ? 0 : gSettings[it->second].value.load()) == a_c.value;
@@ -352,7 +346,6 @@ namespace Plugin
 		gMarkers.clear();
 		gLights.clear();
 		gLightIds.clear();
-		gAtronachs.clear();
 		std::error_code       ec;
 		std::vector<fs::path> files;
 		if (fs::is_directory(SettingsFolder(), ec)) {
@@ -643,7 +636,6 @@ namespace Plugin
 	std::vector<Setting>&           Settings() { return gSettings; }
 	const std::vector<MenuNote>&    Notes() { return gNotes; }
 	const std::vector<SprayMarker>& SprayMarkers() { return gMarkers; }
-	const std::vector<AtronachRow>& AtronachRows() { return gAtronachs; }
 	bool                            PluginLoaded(std::string_view a_plugin) { return Loaded(a_plugin); }
 
 	bool PraedyStavesLoaded()

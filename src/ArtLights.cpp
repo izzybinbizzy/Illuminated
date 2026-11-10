@@ -306,6 +306,20 @@ namespace Plugin
 		// skeleton (the player in first person: a cloak, a bound weapon's art) - the third-person node of the same name as the
 		// one the art hangs under, as RELight's body lights do (the body node for one on an arm). A light under the first-person
 		// skeleton lights nothing in the world (Dynamic Wards 3.1), so in first person those lights were dark while third person lit.
+		// An art whose model carries attach techniques ("AttachT" strings, as MuffleHitFX does) has the game move its pieces between
+		// the skeleton's nodes and track them; a light of ours put in that art is swept into the tracking and later read freed
+		// (RELight's Featherfall / Muffle crash). Such art lights from the body node, which the game never moves
+		[[nodiscard]] bool MovedByTheGame(const RE::NiAVObject* a_art, const RE::NiAVObject* a_root)
+		{
+			static const RE::BSFixedString kAttachTechniques{ "AttachT" };
+			for (const RE::NiAVObject* up = a_art; up && up != a_root; up = up->parent) {
+				if (up->HasExtraData(kAttachTechniques)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
 		[[nodiscard]] RE::NiAVObject* ArtNode(RE::ModelReferenceEffect* a_art, const RE::NiAVObject*& a_hand)
 		{
 			a_hand = nullptr;
@@ -314,6 +328,9 @@ namespace Plugin
 			auto* const actor = ref ? ref->As<RE::Actor>() : nullptr;
 			auto* const first = actor ? actor->Get3D(true) : nullptr;
 			auto* const third = actor ? actor->Get3D(false) : nullptr;
+			if (art && third && MovedByTheGame(art, third)) {
+				return BodyNode(third);
+			}
 			if (!art || !first || !third || first == third) {
 				return art;
 			}
@@ -363,30 +380,48 @@ namespace Plugin
 		// own model were followed here), so an ordinary enchanted weapon stayed dark on Vanilla and ENB. The shader the game
 		// plays on the blade is the costliest effect's (measured on Chillrend, 2026-10-13 and the E2 test 2026-10-16), so that effect's row comes
 		// first, then the first effect whose shader has a row that holds now
-		RE::TESObjectLIGH* ShaderRowLight(const RE::Effect* a_effect)
+		RE::TESObjectLIGH* ShaderRowLight(const RE::Effect* a_effect, bool a_artifact)
 		{
 			const auto* shader = a_effect && a_effect->baseEffect ? a_effect->baseEffect->data.enchantShader : nullptr;
 			if (!shader) {
 				return nullptr;
 			}
 			const auto it = gEnchShaderKey.find(shader);
-			return it == gEnchShaderKey.end() ? nullptr : RecordLightFor(it->second);
+			return it == gEnchShaderKey.end() ? nullptr : RecordLightFor(it->second, a_artifact);
 		}
 
-		RE::TESObjectLIGH* EnchantShaderLight(const RE::EnchantmentItem* a_ench)
+		RE::TESObjectLIGH* EnchantShaderLight(const RE::EnchantmentItem* a_ench, bool a_artifact)
 		{
 			if (!a_ench) {
 				return nullptr;
 			}
-			if (auto* record = ShaderRowLight(a_ench->GetCostliestEffectItem())) {
+			if (auto* record = ShaderRowLight(a_ench->GetCostliestEffectItem(), a_artifact)) {
 				return record;
 			}
 			for (const auto* effect : a_ench->effects) {
-				if (auto* record = ShaderRowLight(effect)) {
+				if (auto* record = ShaderRowLight(effect, a_artifact)) {
 					return record;
 				}
 			}
 			return nullptr;
+		}
+
+		// the artifacts stay lit with Enchanted weapons off (ConfigText.h kArtifactClause): the game's own DaedricArtifact keyword,
+		// Skyrim.esm 0xA8668, on either hand - as Light Placer's WornHasKeyword reads the holder, not one hand
+		[[nodiscard]] bool HoldsArtifact(const RE::Actor* a_actor)
+		{
+			static const auto* const keyword = RE::TESForm::LookupByID<RE::BGSKeyword>(0x000A8668);
+			if (!a_actor || !keyword) {
+				return false;
+			}
+			for (const bool left : { false, true }) {
+				auto*       form = a_actor->GetEquippedObject(left);
+				const auto* weapon = form ? form->As<RE::TESObjectWEAP>() : nullptr;
+				if (weapon && weapon->HasKeyword(keyword)) {
+					return true;
+				}
+			}
+			return false;
 		}
 
 		void CollectWeapons(RE::Actor* a_actor)
@@ -399,6 +434,7 @@ namespace Plugin
 				gWeaponWaits = true;  // the game stores its body a moment after its load is noted, and nothing says so
 				return;
 			}
+			const bool artifact = HoldsArtifact(a_actor);
 			for (const bool left : { false, true }) {
 				auto* form = a_actor->GetEquippedObject(left);
 				auto* weapon = form ? form->As<RE::TESObjectWEAP>() : nullptr;
@@ -406,14 +442,15 @@ namespace Plugin
 					continue;
 				}
 				const auto& model = ModelKey(weapon, weapon->GetModel());
-				auto*       record = model.empty() ? nullptr : RecordLightFor(model);
+				auto*       record = model.empty() ? nullptr : RecordLightFor(model, artifact);
 				if (!record) {
 					// the held instance's own (FadeCharge.cpp ReadHand: the WORN copy's - the entry can hold other copies of the
 					// same weapon, CodeRabbit's point on #13 - else the weapon record's). ReadHand counts a bound weapon's time
 					// and reads no enchantment, so a bound weapon on an ordinary model (Odin's) takes its record's own
 					const auto* ench = Fade::ReadHand(a_actor, left).ench;
 					record = EnchantShaderLight(ench ? ench : weapon->IsBound() ? weapon->formEnchanting :
-																				  nullptr);
+																				  nullptr,
+						artifact);
 				}
 				if (!record) {
 					continue;
@@ -440,7 +477,8 @@ namespace Plugin
 					return false;
 				}
 				const auto& model = ModelKey(art->artObject, art->artObject->GetModel());
-				const auto* record = model.empty() ? nullptr : RecordLightFor(model);
+				const auto  holder = model.empty() ? RE::NiPointer<RE::TESObjectREFR>{} : art->target.get();
+				const auto* record = model.empty() ? nullptr : RecordLightFor(model, HoldsArtifact(holder ? holder->As<RE::Actor>() : nullptr));
 				if (!record) {
 					return false;
 				}
