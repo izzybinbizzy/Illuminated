@@ -62,10 +62,11 @@ namespace Plugin
 			Family           family{ Family::kNone };
 			std::string_view model;
 			std::string_view global;  // lower case, as ParseConditions keeps it
+			std::string_view setting;
 		};
-		constexpr std::array<ArtHand, 3>          kArtHands{ { { Family::kShock, "magic\\shockhandeffects.nif", "illuminatedshockart" },
-			{ Family::kFire, "magic\\fireball01handeffects.nif", "illuminatedfireart" },
-			{ Family::kFrost, "magic\\frostbolthandfx01.nif", "illuminatedfrostart" } } };
+		constexpr std::array<ArtHand, 3>          kArtHands{ { { Family::kShock, "magic\\shockhandeffects.nif", "illuminatedshockart", "IlluminatedShockArt" },
+			{ Family::kFire, "magic\\fireball01handeffects.nif", "illuminatedfireart", "IlluminatedFireArt" },
+			{ Family::kFrost, "magic\\frostbolthandfx01.nif", "illuminatedfrostart", "IlluminatedFrostArt" } } };
 		Fade::StringMap<std::vector<ConfigLight>> gArtHandRows;  // found by a model's text with no string made (every hazard update asks)
 
 		[[nodiscard]] bool IsArtHand(std::string_view a_model)
@@ -86,7 +87,7 @@ namespace Plugin
 			}
 			if (const auto* c = data->Get("color"); c && c->kind == Json::Kind::kArray && c->items.size() == 3) {
 				const auto channel = [&](std::size_t a_i) {
-					return static_cast<std::uint8_t>(std::clamp(std::lround(Number(&c->items[a_i], 0.0f)), 0L, 255L));
+					return static_cast<std::uint8_t>(std::lround(std::clamp(Number(&c->items[a_i], 0.0f), 0.0f, 255.0f)));
 				};
 				out.r = channel(0);
 				out.g = channel(1);
@@ -117,6 +118,7 @@ namespace Plugin
 			const auto    t0 = Clock::now();
 			std::ifstream in(a_file, std::ios::binary | std::ios::ate);
 			if (!in) {
+				SKSE::log::warn("[CONFIG-UNREADABLE] {} | could not be opened; its lights are not counted", Fade::PathText(a_file.filename()));
 				return;
 			}
 			// the whole file in one read into one buffer
@@ -284,38 +286,33 @@ namespace Plugin
 		gReadMs = gParseMs = 0.0;
 		const auto started = Clock::now();
 		const auto root = fs::current_path() / "Data" / "LightPlacer";
-		for (const auto folder : { kOurFolder, kCSFolder }) {
+		// the error code form throughout: a folder that cannot be stepped into (locked, broken under MO2's virtual
+		// files) ends the walk instead of throwing out of the game's message handler
+		const auto readFolder = [](const fs::path& a_dir, std::string_view a_name, const auto& a_read) {
 			std::error_code ec;
-			const auto      dir = LightPlacerDir(folder);
-			if (!fs::is_directory(dir, ec)) {
-				continue;
+			if (!fs::is_directory(a_dir, ec)) {
+				return;
 			}
-			// the error code form throughout: a folder that cannot be stepped into (locked, broken under MO2's virtual
-			// files) ends the walk instead of throwing out of the game's message handler
-			for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
+			for (auto it = fs::recursive_directory_iterator(a_dir, fs::directory_options::skip_permission_denied, ec);
 				!ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
 				std::error_code one;  // one unreadable entry is skipped, the walk goes on
 				if (it->is_regular_file(one) && Lower(Fade::PathText(it->path().extension())) == ".json") {
-					ReadConfig(it->path(), gCoverage, false, folder == kOurFolder ? ConfigText::ConfigName(it->path(), root) : std::string{});
+					a_read(it->path());
 				}
 			}
+			if (ec) {
+				SKSE::log::warn("configs: {} could not be read to its end ({}); the files after that point were not read", a_name, ec.message());
+			}
+		};
+		for (const auto folder : { kOurFolder, kCSFolder }) {
+			readFolder(LightPlacerDir(folder), folder, [&](const fs::path& a_file) {
+				ReadConfig(a_file, gCoverage, false, folder == kOurFolder ? ConfigText::ConfigName(a_file, root) : std::string{});
+			});
 		}
 		// the beam rows (lagen move_beams): Data\SKSE\Plugins\Illuminated\Streams, a folder Light Placer never reads
 		decltype(gStreamRows){}.swap(gStreamRows);
 		decltype(gCloudModels){}.swap(gCloudModels);
-		{
-			std::error_code ec;
-			const auto      dir = OurFolder() / "Streams";
-			if (fs::is_directory(dir, ec)) {
-				for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
-					!ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
-					std::error_code one;
-					if (it->is_regular_file(one) && Lower(Fade::PathText(it->path().extension())) == ".json") {
-						ReadConfig(it->path(), gCoverage, true);
-					}
-				}
-			}
-		}
+		readFolder(OurFolder() / "Streams", "the Streams folder", [](const fs::path& a_file) { ReadConfig(a_file, gCoverage, true); });
 		const double total = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
 		const auto   dynamic = std::ranges::count_if(gTwinRows, [](const auto& a_kv) { return ConfigText::TwinOf(a_kv.second) == ConfigText::Twin::kDynamic; });
 		SKSE::log::info(
@@ -361,8 +358,7 @@ namespace Plugin
 			return std::nullopt;
 		}
 		// only the pick decides: the route, Dynamic Lighting and sneaking twins of one pick share its color
-		static const std::array<std::string, 3> kSettings{ "IlluminatedShockArt", "IlluminatedFireArt", "IlluminatedFrostArt" };
-		const int                               pick = SettingValue(kSettings[static_cast<std::size_t>(hand - kArtHands.begin())], 0);
+		const int pick = SettingValue(hand->setting, 0);
 		for (const auto& row : rows->second) {
 			if (!row.hasColor) {
 				continue;

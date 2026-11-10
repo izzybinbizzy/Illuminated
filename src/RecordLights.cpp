@@ -54,9 +54,9 @@ namespace Plugin
 			float                                start{ 0.0f }, duration{ 0.0f }, mean{ 1.0f };
 
 			// the fade the keys give at a_time into the loop (LightMath.h's KeyAt: Truman's KeyframeSequence maths)
-			[[nodiscard]] float At(float a_time) const
+			[[nodiscard]] float At(double a_time) const
 			{
-				return LightKit::KeyAt(keys, interpolation, start + std::fmod((std::max)(a_time, 0.0f), duration));
+				return LightKit::KeyAt(keys, interpolation, start + static_cast<float>(std::fmod((std::max)(a_time, 0.0), static_cast<double>(duration))));
 			}
 		};
 
@@ -68,15 +68,19 @@ namespace Plugin
 		};
 
 		// written once at data load, read on the main thread after it
-		bool                                                    gOn = false;
 		const char*                                             gWhy = "not decided yet";  // why the route is what it is (DecideRecordRoute)
 		std::unordered_map<std::string, std::vector<Choice>>    gChoices;                  // model -> its record lights, strongest first
 		std::size_t                                             gMade = 0, gRows = 0, gNotOurs = 0, gMissing = 0, gFailed = 0;
 		double                                                  gMs = 0.0;
-		std::unordered_map<const RE::TESObjectLIGH*, Flicker>   gFlickerOf;      // the record lights of flicker rows
-		std::unordered_set<const RE::TESObjectLIGH*>            gOurRecords;     // every record light made here
-		std::unordered_map<const RE::TESObjectLIGH*, RE::Color> gAsMade;         // a row's record light: its color before VanillaLook
-		std::atomic<float>                                      gClock{ 0.0f };  // seconds, advanced once a frame on the main thread
+		std::unordered_map<const RE::TESObjectLIGH*, Flicker>   gFlickerOf;   // the record lights of flicker rows
+		std::unordered_set<const RE::TESObjectLIGH*>            gOurRecords;  // every record light made here
+		std::unordered_map<const RE::TESObjectLIGH*, RE::Color> gAsMade;      // a row's record light: its color before VanillaLook
+		// seconds, read when a flickering light is written - nothing advances it. A double keeps its steps for years and needs no wrap
+		[[nodiscard]] double FlickerClock()
+		{
+			static const auto start = std::chrono::steady_clock::now();
+			return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+		}
 
 		// the keys' signature, so two rows that flicker differently never share one record light
 		[[nodiscard]] std::string KeysOf(const ConfigLight& a_row)
@@ -193,38 +197,35 @@ namespace Plugin
 	{
 		const bool lightPlacer = REX::W32::GetModuleHandleA("po3_LightPlacer.dll") != nullptr;
 		const bool shaders = LightingFound() == Lighting::kShaders;
-		gOn = !lightPlacer || !shaders;
+		// decided in a local and stored once: the effect and cell-animation hooks read it on game threads
+		bool on = !lightPlacer || !shaders;
 		gWhy = !lightPlacer ? "Light Placer is not loaded" :
 		       !shaders     ? "the lighting is not Community Shaders" :
 		                      "Community Shaders with Light Placer";
 		// every Light Placer row waits on the route global: without it Light Placer draws none of ours, so this route lights them
-		if (!SetLightPlacerRoute(!gOn) && !gOn) {
-			gOn = true;
+		if (!SetLightPlacerRoute(!on) && !on) {
+			on = true;
 			gWhy = "the route global could not be made";
 		}
 		// Light Placer loaded before us read its configs before our lights and globals existed and dropped every row naming one;
 		// they exist now, so its own ReloadLP reads them again. If it cannot, this route lights them (never dark)
-		if (!gOn && LightPlacerReadFirst()) {
+		if (!on && LightPlacerReadFirst()) {
 			if (ReloadLightPlacer()) {
 				SKSE::log::info("record lights: Light Placer loaded before Illuminated, so its configs were read again (ReloadLP) now that Illuminated's lights exist");
 			} else {
-				gOn = true;
+				on = true;
 				gWhy = "Light Placer loaded before Illuminated and its ReloadLP could not be run";
 				static_cast<void>(SetLightPlacerRoute(false));
 			}
 		}
-		KeepConfigLights(gOn);
-		if (gOn) {
+		gRecordRouteOn.store(on, std::memory_order_relaxed);
+		KeepConfigLights(on);
+		if (on) {
 			SKSE::log::info("record lights: {} ({}), so the configs light the game's own light records{}", gWhy,
 				LightingName(LightingFound()), lightPlacer ? " - Light Placer, loaded for other mods, draws none of Illuminated's lights" : "");
 		} else {
 			SKSE::log::info("record lights: not used - {}: Light Placer lights the configs", gWhy);
 		}
-	}
-
-	bool RecordRoute()
-	{
-		return gOn;
 	}
 
 	const char* RecordRouteWhy()
@@ -234,7 +235,7 @@ namespace Plugin
 
 	void MakeRecordLights()
 	{
-		if (!gOn) {
+		if (!RecordRoute()) {
 			return;
 		}
 		const auto started = std::chrono::steady_clock::now();
@@ -306,6 +307,7 @@ namespace Plugin
 						added.push_back({ .id = std::format("record {} {},{},{}", copy.id, light->data.color.red, light->data.color.green,
 											  light->data.color.blue),
 							.base = copy.id,
+							.kind = copy.kind,
 							.form = light,
 							.startFade = copy.startFade * share,
 							.startRadius = copy.startRadius,
@@ -336,7 +338,7 @@ namespace Plugin
 	void RecolorRecordModel(const std::string& a_model, RE::Color a_color)
 	{
 		const auto it = gChoices.find(a_model);
-		if (!gOn || it == gChoices.end()) {
+		if (!RecordRoute() || it == gChoices.end()) {
 			return;
 		}
 		// copies of its own: another model's rows may share a record light
@@ -384,7 +386,7 @@ namespace Plugin
 	{
 		static std::unordered_map<std::uint32_t, RE::TESObjectLIGH*> made;              // one per color
 		static const RE::TESObjectLIGH*                              middle = nullptr;  // by form: the copies' list moves as it grows
-		if (!gOn || a_tuned.empty()) {
+		if (!RecordRoute() || a_tuned.empty()) {
 			return nullptr;
 		}
 		auto& copies = LightCopies();
@@ -463,14 +465,6 @@ namespace Plugin
 		return files && std::ranges::any_of(*files, [](const RE::TESFile* f) { return f && LightKit::SameText(f->GetFilename(), "ENB Light.esp"); });
 	}
 
-	void AdvanceRecordFlicker(float a_delta)
-	{
-		if (gOn && a_delta > 0.0f && a_delta < 1.0f) {
-			// wrapped well before a float loses the hundredths a 2 s loop needs (every loop is far shorter than 3600 s)
-			gClock.store(std::fmod(gClock.load(std::memory_order_relaxed) + a_delta, 3600.0f), std::memory_order_relaxed);
-		}
-	}
-
 	namespace
 	{
 		// the caster hook is installed with the other hooks part way through the data load (MakeLightCopies), while the
@@ -496,8 +490,8 @@ namespace Plugin
 			return 0.0f;
 		}
 		if (const auto it = gFlickerOf.find(a_record); it != gFlickerOf.end()) {
-			const auto& flicker = it->second;
-			const float now = gClock.load(std::memory_order_relaxed) + PhaseOf(a_light, flicker.duration);
+			const auto&  flicker = it->second;
+			const double now = FlickerClock() + PhaseOf(a_light, flicker.duration);
 			return a_record->fade * flicker.At(now) / flicker.mean;
 		}
 		return a_record->fade;
@@ -505,7 +499,7 @@ namespace Plugin
 
 	void RecordFlicker(RE::ActorMagicCaster* a_caster)
 	{
-		if (!gTablesReady.load(std::memory_order_acquire) || !gOn || gAllOurs.empty() || !a_caster || REL::Module::IsVR()) {
+		if (!gTablesReady.load(std::memory_order_acquire) || !RecordRoute() || gAllOurs.empty() || !a_caster || REL::Module::IsVR()) {
 			return;
 		}
 		RE::NiLight* light = a_caster->light ? a_caster->light->light.get() : nullptr;
@@ -538,14 +532,14 @@ namespace Plugin
 				LightKit::Isl::Write(point, ambient);
 			}
 		}
-		// a steady one takes its record's fade too, so Brightness and Dim in daylight reach a hand already lit (run 9,
+		// a steady one takes its record's fade too, so Brightness reaches a hand already lit (run 9,
 		// the game set it once, when the spell was readied, and it never moved after); a flicker plays its keys
 		// under Realistic a spell with a kind takes its shape in place of the flicker's keys, around the same mean fade (as RELight)
 		const bool left = a_caster->GetCastingSource() == RE::MagicSystem::CastingSource::kLeftHand;
 		const auto kind = PulseRealistic() ? LightKit::PulseKindOfHand(a_caster->GetCasterAsActor(), left) : Pulse::Kind::kNone;
 		if (kind != Pulse::Kind::kNone) {
 			const auto seed = static_cast<std::uint32_t>(std::hash<const void*>{}(light));
-			data.fade = record->fade * Pulse::Factor(kind, gClock.load(std::memory_order_relaxed), seed);
+			data.fade = record->fade * Pulse::Factor(kind, FlickerClock(), seed);
 		} else {
 			data.fade = RecordFadeNow(record, light);
 		}
@@ -555,14 +549,14 @@ namespace Plugin
 		}
 	}
 
-	RE::TESObjectLIGH* RecordLightFor(const std::string& a_model)
+	RE::TESObjectLIGH* RecordLightFor(const std::string& a_model, bool a_artifact)
 	{
 		const auto it = gChoices.find(a_model);
 		if (it == gChoices.end() || LightsOff()) {  // all lights off: no record light of ours, the form keeps its own (CodeRabbit, #24)
 			return nullptr;
 		}
 		for (const auto& c : it->second) {
-			if (ConditionsHold(c.test)) {
+			if (ConditionsHold(c.test, a_artifact)) {
 				return c.light;
 			}
 		}
@@ -578,7 +572,7 @@ namespace Plugin
 	std::string RecordReport()
 	{
 		return std::format(
-			R"({{"on":{},"why":"{}","lights":{},"flicker":{},"models":{},"rows":{},"notOurs":{},"missing":{},"failed":{},"ms":{:.1f}}})", gOn,
+			R"({{"on":{},"why":"{}","lights":{},"flicker":{},"models":{},"rows":{},"notOurs":{},"missing":{},"failed":{},"ms":{:.1f}}})", RecordRoute(),
 			gWhy, gMade, gFlickerOf.size(), gChoices.size(), gRows, gNotOurs, gMissing, gFailed, gMs);
 	}
 }

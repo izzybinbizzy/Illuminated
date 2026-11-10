@@ -20,7 +20,6 @@ namespace Plugin
 		Fade::StringMap<std::size_t>    gIndex;  // lower-case id -> index
 		std::vector<MenuNote>           gNotes;
 		std::vector<SprayMarker>        gMarkers;
-		std::vector<AtronachRow>        gAtronachs;
 		std::vector<LightCopy>          gLights;
 		std::unordered_set<std::string> gLightIds;   // lower-case ids of gLights, for the duplicate check
 		std::vector<char>               gAvailable;  // per setting: are the mods it needs loaded (worked out once, main thread)
@@ -44,9 +43,23 @@ namespace Plugin
 		// draws none of ours (the route global held at 0) and every pass treats every config as unlit (Coverage::ModelLit)
 		constexpr std::string_view kLightsOff = "IlluminatedLightsOff";
 		constexpr std::string_view kQuality = "IlluminatedQuality";  // 0 Quality, 1 Performance (his order 2026-10-20)
-		// his checklist 336 answer ("limit but optional in performance"): the glows on people are capped (ArtLights.cpp)
-		constexpr std::string_view kGlowLimit = "IlluminatedGlowLimit";
-		constexpr std::string_view kGlowLimitCount = "IlluminatedGlowLimitCount";
+		// the four strengths beside the main sliders (lagen.STRENGTH_IDS), 25-200 %
+		constexpr std::string_view kExplosionStrength = "IlluminatedExplosionStrength";
+		constexpr std::string_view kStreamStrength = "IlluminatedStreamStrength";
+		constexpr std::string_view kGlowStrength = "IlluminatedBodyGlowStrength";
+		constexpr std::string_view kEnchantedStrength = "IlluminatedEnchantedStrength";
+
+		// a light copy's kind= line (lagen.row_kind): none named is Brightness alone
+		[[nodiscard]] LightKind KindOf(std::string_view a_text)
+		{
+			if (a_text == "explosion") {
+				return LightKind::kExplosion;
+			}
+			if (a_text == "glow") {
+				return LightKind::kGlow;
+			}
+			return a_text == "enchanted" ? LightKind::kEnchanted : LightKind::kOther;
+		}
 
 		[[nodiscard]] float RouteNow() { return LightsOff() ? 0.0f : gRouteValue; }
 
@@ -75,6 +88,7 @@ namespace Plugin
 		{
 			std::ifstream in(a_file, std::ios::binary);
 			if (!in) {
+				SKSE::log::warn("[SETTINGS-UNREADABLE] {} | could not be opened; its settings are not counted", Fade::PathText(a_file.filename()));
 				return;
 			}
 			std::map<std::string, std::string> block;
@@ -115,6 +129,8 @@ namespace Plugin
 						s.value = s.defaultValue;
 						gIndex[Lower(s.id)] = gSettings.size();
 						gSettings.push_back(std::move(s));
+					} else if (!s.id.empty() && !shapeOk) {
+						SKSE::log::warn("[SETTING-SKIPPED] {} in {} | its choices or slider range do not fit", s.id, Fade::PathText(a_file.filename()));
 					}
 				} else if (kind == "light") {
 					LightCopy c;
@@ -128,6 +144,7 @@ namespace Plugin
 						c.cutoff = 0.0f;
 					}
 					c.flicker = block["flicker"] == "1";
+					c.kind = KindOf(block["kind"]);
 					if (!c.id.empty() && !c.base.empty() && gLightIds.insert(Lower(c.id)).second) {
 						gLights.push_back(std::move(c));
 					}
@@ -139,20 +156,16 @@ namespace Plugin
 					m.when = ParseConditions(Split(block["when"], ';'));
 					m.values = block["values"];
 					gMarkers.push_back(std::move(m));
-				} else if (kind == "atronach") {
-					int        rgb[3]{};
-					const auto parts = Split(block["color"], ',');
-					if (!block["race"].empty() && parts.size() == 3 && ParseInt(parts[0], rgb[0]) && ParseInt(parts[1], rgb[1]) && ParseInt(parts[2], rgb[2])) {
-						gAtronachs.push_back({ block["race"], { std::clamp(rgb[0], 0, 255) / 255.0f, std::clamp(rgb[1], 0, 255) / 255.0f, std::clamp(rgb[2], 0, 255) / 255.0f } });
-					} else {
-						SKSE::log::warn("settings: an [atronach] row without a race or a color r,g,b, left out: race '{}', color '{}'", block["race"], block["color"]);
-					}
 				}
 				block.clear();
 				kind.clear();
 			};
 			std::string line;
+			bool        first = true;
 			while (std::getline(in, line)) {
+				if (std::exchange(first, false) && line.starts_with("\xEF\xBB\xBF")) {
+					line.erase(0, 3);
+				}
 				const auto t = Trim(line);
 				if (t.empty() || t[0] == '#') {
 					continue;
@@ -307,12 +320,15 @@ namespace Plugin
 	bool PulseRealistic() { return Realistic(); }
 
 	// ------------------------------------------------------------------ conditions
-	bool ConditionsHold(const std::vector<std::vector<Clause>>& a_tests)
+	bool ConditionsHold(const std::vector<std::vector<Clause>>& a_tests, bool a_artifact)
 	{
 		// a setting no settings file names reads 0, as the game reads a missing global
-		const auto holds = [](const Clause& a_c) {
+		const auto holds = [a_artifact](const Clause& a_c) {
 			if (a_c.global == kPraedyClause) {
 				return (gPraedyOn.load() ? 1 : 0) == a_c.value;
+			}
+			if (a_c.global == ConfigText::kArtifactClause) {
+				return (a_artifact ? 1 : 0) == a_c.value;
 			}
 			const auto it = gIndex.find(a_c.global);
 			return (it == gIndex.end() ? 0 : gSettings[it->second].value.load()) == a_c.value;
@@ -330,7 +346,6 @@ namespace Plugin
 		gMarkers.clear();
 		gLights.clear();
 		gLightIds.clear();
-		gAtronachs.clear();
 		std::error_code       ec;
 		std::vector<fs::path> files;
 		if (fs::is_directory(SettingsFolder(), ec)) {
@@ -340,6 +355,9 @@ namespace Plugin
 				if (it->is_regular_file(one) && Lower(Fade::PathText(it->path().extension())) == ".txt") {
 					files.push_back(it->path());
 				}
+			}
+			if (ec) {
+				SKSE::log::warn("settings: the folder could not be read to its end ({}); the files after that point were not read", ec.message());
 			}
 		}
 		std::ranges::sort(files);  // Settings.txt (the main download) before Praedy's Staves Settings.txt
@@ -568,12 +586,35 @@ namespace Plugin
 		return SettingValue(kQuality, 0) != 0;
 	}
 
+	float KindStrength(LightKind a_kind)
+	{
+		std::string_view id;
+		switch (a_kind) {
+		case LightKind::kExplosion:
+			id = kExplosionStrength;
+			break;
+		case LightKind::kGlow:
+			id = kGlowStrength;
+			break;
+		case LightKind::kEnchanted:
+			id = kEnchantedStrength;
+			break;
+		default:
+			return 1.0f;
+		}
+		return static_cast<float>(SettingValue(id, 100)) / 100.0f;
+	}
+
+	float StreamStrength()
+	{
+		return static_cast<float>(SettingValue(kStreamStrength, 100)) / 100.0f;
+	}
+
 	std::size_t GlowLimit()
 	{
-		if (SettingValue(kGlowLimit, 1) == 0) {
-			return (std::numeric_limits<std::size_t>::max)();
-		}
-		return static_cast<std::size_t>((std::max)(SettingValue(kGlowLimitCount, 16), 1));
+		// off Community Shaders the game lights a surface with only a few lights at once and switches the rest off (they flicker
+		// as the camera moves): 5 there, as the rows; Light Limit Fix takes far more, and 16 keeps a big fight smooth
+		return LightingFound() == Lighting::kShaders ? 16 : 5;
 	}
 
 	bool RegisterEditorID(RE::TESForm* a_form, const std::string& a_id)
@@ -595,7 +636,6 @@ namespace Plugin
 	std::vector<Setting>&           Settings() { return gSettings; }
 	const std::vector<MenuNote>&    Notes() { return gNotes; }
 	const std::vector<SprayMarker>& SprayMarkers() { return gMarkers; }
-	const std::vector<AtronachRow>& AtronachRows() { return gAtronachs; }
 	bool                            PluginLoaded(std::string_view a_plugin) { return Loaded(a_plugin); }
 
 	bool PraedyStavesLoaded()

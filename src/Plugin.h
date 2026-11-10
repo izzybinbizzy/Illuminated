@@ -65,6 +65,7 @@ namespace Plugin
 	[[nodiscard]] Lighting    LightingFound();  // never picked by the player - his word
 	[[nodiscard]] const char* LightingName(Lighting a_lighting);
 	[[nodiscard]] bool        InverseSquare();  // lights are drawn inverse square (Community Shaders); off it, LightKit::PlainOf
+	[[nodiscard]] bool        LightLimitFix();  // CommunityShaders.dll is loaded: a light of ours carries Light Limit Fix's words, inverse square or not
 	[[nodiscard]] std::string LightingReport();
 
 	// ------------------------------------------------------------------ EditorIDs.cpp: editor IDs, through the fading module's
@@ -92,14 +93,25 @@ namespace Plugin
 		std::string page, group, label, text;
 	};
 
+	// the four strengths beside the two main sliders (his "All four"): which one a light copy answers to (lagen.row_kind)
+	enum class LightKind : std::uint8_t
+	{
+		kOther,  // Brightness alone
+		kExplosion,
+		kGlow,  // glows on people: cloaks, flesh spells, FEC's bodies
+		kEnchanted
+	};
+	inline constexpr std::size_t kLightKinds = 4;  // the arrays indexed by LightKind
+
 	// one in-memory copy of a light a config names; the sliders set its fade, radius and cutoff (LightCopies.cpp)
 	struct LightCopy
 	{
 		std::string        id, base;
-		float              fade{ 0.0f };      // the config's own fade, or 0: the base light's
-		int                radius{ 0 };       // the config's own radius, or 0: the base light's
-		float              cutoff{ 0.0f };    // the config's own inverse-square cutoff, or 0: the base light's
-		bool               flicker{ false };  // its lights flicker (a fadeController): Brightness is applied as they are drawn
+		float              fade{ 0.0f };               // the config's own fade, or 0: the base light's
+		int                radius{ 0 };                // the config's own radius, or 0: the base light's
+		float              cutoff{ 0.0f };             // the config's own inverse-square cutoff, or 0: the base light's
+		bool               flicker{ false };           // its lights flicker (a fadeController): Brightness is applied as they are drawn
+		LightKind          kind{ LightKind::kOther };  // the strength it answers to beside Brightness (Settings.cpp KindStrength)
 		RE::TESObjectLIGH* form{ nullptr };
 		float              startFade{ 0.0f };
 		std::uint32_t      startRadius{ 0 };
@@ -117,14 +129,9 @@ namespace Plugin
 		std::string                      values;  // key=value;key=value
 	};
 
-	struct AtronachRow
-	{
-		std::string race;  // the race's editor id
-		RE::NiColor color;
-	};
-
 	using ConfigText::ParseConditions;  // ConfigText.h (game-free)
-	[[nodiscard]] bool                            ConditionsHold(const std::vector<std::vector<Clause>>& a_tests);
+	// a_artifact: the holder's weapon is a Daedric artifact (ArtLights.cpp), so the artifact clause holds (ConfigText.h)
+	[[nodiscard]] bool                            ConditionsHold(const std::vector<std::vector<Clause>>& a_tests, bool a_artifact = false);
 	void                                          LoadSettings();
 	void                                          ApplyGlobals();
 	[[nodiscard]] bool                            SetLightPlacerRoute(bool a_lightPlacerDraws);  // the route global every Light Placer row waits on (his answer Q7); false = it could not be made
@@ -133,23 +140,24 @@ namespace Plugin
 	[[nodiscard]] std::vector<Setting>&           Settings();
 	[[nodiscard]] const std::vector<MenuNote>&    Notes();
 	[[nodiscard]] const std::vector<SprayMarker>& SprayMarkers();
-	[[nodiscard]] const std::vector<AtronachRow>& AtronachRows();  // the HexRim add-on's [atronach] blocks
 	[[nodiscard]] bool                            PluginLoaded(std::string_view a_plugin);
 	[[nodiscard]] bool                            PraedyStavesLoaded();                                                               // a Praedy's Staves AIO plugin or one of its patches loads
 	[[nodiscard]] bool                            PluginLoadedStartingWith(std::initializer_list<std::string_view> a_lowerPrefixes);  // lower-case name starts: a mod shipped under several plugin names
 	[[nodiscard]] bool                            SettingAvailable(const Setting& a_setting);
 	[[nodiscard]] int                             AllowedValue(const Setting& a_setting, int a_value);  // clamped, and on a slider's step
 	[[nodiscard]] int                             SettingValue(std::string_view a_id, int a_fallback);
-	[[nodiscard]] bool                            LightsOff();        // Performance > all of Illuminated's lights off (his switch)
-	[[nodiscard]] bool                            PulseRealistic();   // Dynamic Lighting is Realistic: hand lights and rows pulse in their kind's shape (Pulse.h)
-	[[nodiscard]] bool                            PerformanceMode();  // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
-	[[nodiscard]] std::size_t                     GlowLimit();        // Performance > Limit glows on people: the most glows on people lit at once (no limit: the type's max)
+	[[nodiscard]] float                           KindStrength(LightKind a_kind);  // Configs > a kind's Strength: 1 = as made
+	[[nodiscard]] float                           StreamStrength();                // Configs > Streams' Strength: the rows and the clouds
+	[[nodiscard]] bool                            LightsOff();                     // Performance > all of Illuminated's lights off (his switch)
+	[[nodiscard]] bool                            PulseRealistic();                // Dynamic Lighting is Realistic: hand lights and rows pulse in their kind's shape (Pulse.h)
+	[[nodiscard]] bool                            PerformanceMode();               // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
+	[[nodiscard]] std::size_t                     GlowLimit();                     // Performance > Limit glows on people: the most glows on people lit at once (no limit: the type's max)
 	[[nodiscard]] bool                            RegisterEditorID(RE::TESForm* a_form, const std::string& a_id);
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
 	void                                          MakeLightCopies();         // LightCopies.cpp
 	void                                          KeepCopiesOutOfPortals();  // LightCopies.cpp: once, before a game loads
 	void                                          NoteSpellHazards();        // LightCopies.cpp: the hazard tint's tables, while editor IDs are kept
-	[[nodiscard]] float                           BrightnessNow();           // LightCopies.cpp: Brightness x Dim in daylight x Vanilla's strength, as the copies take it
+	[[nodiscard]] float                           BrightnessNow();           // LightCopies.cpp: Brightness x Vanilla's strength, as the copies take it
 	// StreamLights.cpp: pass 6 - each spray, stream and bolt keeps its own light record and wears a row of small lights along it
 	// (his stream rule), and a ward dome's light when Dynamic Wards is not here
 	void               StreamLights();
@@ -201,46 +209,67 @@ namespace Plugin
 	// LightCopies.cpp to swap each pair at once when the setting moves
 	[[nodiscard]] ConfigText::Twin DynamicTwinOf(const std::string& a_configAndLight);
 
-	// ------------------------------------------------------------------ LightPlacerQueue.cpp: Light Placer's light put back on a resume stays
+	// ------------------------------------------------------------------ LightPlacerQueue.cpp: stray lights of ours, the scene's queue
 	// the scene's lights waiting to be added, copied under the scene's queue lock (the game and Light Placer add to it)
 	[[nodiscard]] std::vector<RE::NiPointer<RE::BSLight>> QueuedLights(RE::ShadowSceneNode* a_scene);
-	void                                                  KeepLightPlacerLights();  // at data load, after Light Placer hooked the resume when it loaded
-	void                                                  KeepCastingLights();      // once a frame, main thread: the casting art's Light Placer lights after a cell change
-	void                                                  DropCastingLights();      // a game loads: those lights and the last place seen are the old game's
-	void                                                  DropHandBudget();         // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
+	void                                                  WatchStrayLights();  // at data load, with Light Placer loaded
+	void                                                  StrayLightLooks();   // once a frame, main thread: returns at once with no look asked
+	enum class StrayWhy : std::uint8_t
+	{
+		kEffectEnd,
+		kAction,
+		kBodyGone,
+		kArtStart,
+		kCount,
+	};
+	inline constexpr std::array<const char*, static_cast<std::size_t>(StrayWhy::kCount)> kStrayWhyNames{ "effect end", "action", "body gone", "art start" };
+	void                                                                                 NoteStrayLook(StrayWhy a_why) noexcept;  // any thread: what can leave a light of ours with no node
+	[[nodiscard]] std::uint32_t                                                          StrayNotes(std::size_t a_why) noexcept;  // devbench's instrument: each kind's count
+	void                                                                                 ForgetStrayLights();                     // a game loads: the last place seen is the old game's
+	void                                                                                 DropHandBudget();                        // LightCopies.cpp, a game loads: the casting lights the budget put out are the old game's
 
 	// ------------------------------------------------------------------ RecordLights.cpp: the game's own light records (no Light Placer)
-	void                             DecideRecordRoute();     // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer
-	[[nodiscard]] bool               LightPlacerReadFirst();  // main.cpp: Light Placer's SKSE load ran before ours (its configs are read before our lights exist)
-	[[nodiscard]] bool               RecordRoute();
+	void                             DecideRecordRoute();      // before ReadCoverage, after ReadLighting: Vanilla / ENB, or no Light Placer
+	[[nodiscard]] bool               LightPlacerReadFirst();   // main.cpp: Light Placer's SKSE load ran before ours (its configs are read before our lights exist)
+	inline std::atomic<bool>         gRecordRouteOn{ false };  // decided once at data load (RecordLights.cpp DecideRecordRoute), read by game threads
+	[[nodiscard]] inline bool        RecordRoute() { return gRecordRouteOn.load(std::memory_order_relaxed); }
+	[[nodiscard]] bool               StreamLightsAwake();                                                    // StreamLights.cpp: a stream or cloud of ours is in the air
 	[[nodiscard]] const char*        RecordRouteWhy();                                                       // the reason, for the log and DevBench
 	void                             MakeRecordLights();                                                     // after MakeLightCopies and ReadCoverage, before pass 1
 	void                             RecolorRecordModel(const std::string& a_model, RE::Color a_color);      // that model's record lights become copies in a_color (data load)
 	void                             RecordFlicker(RE::ActorMagicCaster* a_caster);                          // after a caster's update: its hand light's flicker
 	void                             RecordTablesReady();                                                    // the data load is done: RecordFlicker may read the tables
-	void                             AdvanceRecordFlicker(float a_delta);                                    // once a frame, on the main thread
-	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model);                             // nullptr: no row lights that model now
+	[[nodiscard]] RE::TESObjectLIGH* RecordLightFor(const std::string& a_model, bool a_artifact = false);    // nullptr: no row lights that model now
 	[[nodiscard]] RE::TESObjectLIGH* RecordLightOfData(const std::string& a_model);                          // its first row's light, whatever the settings
 	[[nodiscard]] float              RecordFadeNow(const RE::TESObjectLIGH* a_record, const void* a_light);  // its fade now, a flicker's keys played
 	// ArtLights.cpp (his report: "bound weapons not lighting up on vanilla"): a light of ours on every art effect and
 	// drawn weapon whose model a config row lights now; once a frame on the main thread
-	void                           NoteEnchantShaders();  // at load, while the passes' editor IDs are still known (record route)
-	void                           TickArtLights();
-	void                           DropArtLights();                                // a game loads, or a new one starts
-	[[nodiscard]] RE::Color        VanillaLook(RE::Color a_color);                 // RecordLights.cpp: a light's color as Vanilla wears it
-	[[nodiscard]] RE::Color        ColorAsMade(const RE::TESObjectLIGH* a_light);  // a record light's color before VanillaLook, else its own
-	void                           ReadAtronachRaces();                            // AtronachLights.cpp: once, at data load
-	void                           TickAtronachLights();                           // AtronachLights.cpp: once a frame, in the player update
-	[[nodiscard]] std::size_t      ArtGlowsLit();                                  // ArtLights.cpp: the glows lit now, which count against the same limit
-	inline constexpr std::uint32_t kRecordPortalStrict = 1u << 13;                 // TES_LIGHT_FLAGS::kPortalStrict
-	void                           DropAtronachLights();                           // a game loads, or a new one starts
-	[[nodiscard]] std::size_t      ArtLightCount();
-	[[nodiscard]] std::size_t      ArtLightsLitNow();
-	[[nodiscard]] std::size_t      ArtLightsMade();
+	void NoteEnchantShaders();  // at load, while the passes' editor IDs are still known (record route)
+	void TickArtLights();
+	void DropArtLights();  // a game loads, or a new one starts
+	// an art started somewhere, or the settings changed (any thread): TickArtLights walks every effect again
+	void NoteArtLook();
+	void NoteWeaponLook() noexcept;  // any thread: something changed what a drawn weapon wants (ArtLights.cpp)
+	// Events.cpp: SKSE's weapon draw events - the actors with drawn hands, for the record route's per-actor passes
+	void                                         WatchDraws();                                   // data load, record route
+	void                                         WatchActors3D();                                // data load: each actor's 3D, in and out, and the loading screen
+	void                                         RefreshDrawn();                                 // main thread, once a frame before the art lights
+	[[nodiscard]] const std::vector<RE::Actor*>& DrawnActors();                                  // this frame's: the player first, then every actor with drawn hands
+	void                                         ForgetDrawn();                                  // a game loads, or a new one starts
+	[[nodiscard]] RE::Color                      VanillaLook(RE::Color a_color);                 // RecordLights.cpp: a light's color as Vanilla wears it
+	[[nodiscard]] RE::Color                      ColorAsMade(const RE::TESObjectLIGH* a_light);  // a record light's color before VanillaLook, else its own
+	[[nodiscard]] std::size_t                    ArtGlowsLit();                                  // ArtLights.cpp: the glows lit now, which count against the same limit
+	inline constexpr std::uint32_t               kRecordPortalStrict = 1u << 13;                 // TES_LIGHT_FLAGS::kPortalStrict
+	[[nodiscard]] std::size_t                    ArtLightCount();
+	[[nodiscard]] std::size_t                    ArtLightsLitNow();
+	[[nodiscard]] std::size_t                    ArtLightsMade();
 	// FleshLights.cpp (his call on FleshFX: "the dim light in its own color"): with Light Placer, a flesh spell's light takes
 	// FleshFX's hue right after Light Placer wrote it (the effect's update, any thread); without it ArtLights.cpp does
-	void FleshLightPlacer(RE::ShaderReferenceEffect* a_effect);
-	void NoteFleshRoots();  // main thread, once a frame: where each flesh effect's lights hang (FleshLightPlacer only reads it)
+	void               FleshLightPlacer(RE::ShaderReferenceEffect* a_effect);
+	void               NoteFleshRoots();                                             // main thread, once a frame: where each flesh effect's lights hang (FleshLightPlacer only reads it)
+	[[nodiscard]] bool FleshNoted() noexcept;                                        // any thread: a flesh or FEC light is noted
+	void               DropFleshRoots();                                             // a game loads, or a new one starts
+	void               NoteFleshStarted(const RE::ShaderReferenceEffect* a_effect);  // a shader started, resumed or ended (any thread): NoteFleshRoots looks if it is one of ours
 	// Frozen Electrocuted Combustion's shaders a config row lights (gen.FEC), found at data load while editor IDs are known
 	struct Coverage;
 	void                                                                             NoteFecShaders(const Coverage& a_cov);
@@ -251,7 +280,8 @@ namespace Plugin
 	// GroundLights.cpp (his report: no light on the ground on Vanilla): a twin of each hand's casting light, made the
 	// way Dynamic Wards makes its hand light (land lighting on); once a frame on the main thread
 	void                      TickGroundLights();
-	void                      DropGroundLights();  // a game loads, or a new one starts: the twins and the hands they follow are the old game's
+	void                      DropGroundLights();   // a game loads, or a new one starts: the twins and the hands they follow are the old game's
+	void                      RenewGroundLights();  // a loading screen ended: every twin let go, the next visit hangs a new one
 	[[nodiscard]] std::size_t GroundLightCount();
 	[[nodiscard]] std::size_t GroundLightsMade();
 	// HerShadow.cpp: with the Bottled Shaders shadow download, both her hands' lights at one point between her hands (one shadow)
@@ -365,7 +395,6 @@ namespace Plugin
 	void                                     TintWardRecords();                                             // Wards.cpp: the same color onto the record route's ward hand lights (after MakeRecordLights)
 	[[nodiscard]] std::optional<RE::NiColor> StrangeWardColor();                                            // Wards.cpp: its pick's color, none = the vanilla blue-white
 	void                                     WatchBlocking();                                               // Wards.cpp: a shield's ward checked the moment a block starts (each game load)
-	void                                     KeepBlockWatch(float a_delta);                                 // Wards.cpp, player update: the watch follows a rebuilt animation graph
 
 	// ------------------------------------------------------------------ VfxPacks.cpp: the VFX switcher (his yes 2026-10-19)
 	// OFF in this release (his order 2026-10-19: "keep the spell switcher turned off in illuminated for now so we can ship with

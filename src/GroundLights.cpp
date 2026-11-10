@@ -11,7 +11,7 @@
 // save, Flames readied, the ground in front of her): his build -0.09 on the ground, the game's light with its "land" flag set
 // afterwards +0.98 - so the flag alone is not enough, the light has to be MADE that way.
 //
-// So, Dynamic Wards' way (its DomeLights.cpp Make): the game's casting light is kept - flicker, Brightness, Reach, daylight,
+// So, Dynamic Wards' way (its DomeLights.cpp Make): the game's casting light is kept - flicker, Brightness, Reach,
 // sneaking, the light budget and the fading module all keep writing to it as before - but it is hidden, and a twin made like
 // Dynamic Wards' hand light copies it every frame (color, strength, reach). The twin hangs beside the hand's magic node (on its
 // parent, at the magic node's place), not under it: the fading module scales every light under the magic node, and the twin
@@ -37,7 +37,7 @@ namespace Plugin
 			RE::NiPointer<RE::BSLight>      bs;
 			bool                            seen{ false };
 			RE::NiPointer<RE::NiAVObject>   anchor;              // where it sits: magic's third-person counterpart (also in first person), or magic itself when there is none
-			bool                            handsDown{ false };  // dropped because the hands went down: the game's light stays hidden
+			bool                            handsDown{ false };  // dropped because the hands went down or the actor went: the game's light stays hidden
 			RE::NiPointer<RE::NiAVObject>   magic;               // the nearest node above the casting light whose name holds "MagicNode", or the light's own parent when none does
 		};
 
@@ -53,6 +53,13 @@ namespace Plugin
 		// the game's casting lights left hidden when their hands went down (a twin dropped with handsDown); main thread only
 		std::unordered_map<std::uint64_t, RE::NiPointer<RE::NiPointLight>> gLeftHidden;
 
+		// its actor or that actor's 3D has gone: nobody is left to end its casting light, which must not come back lit
+		[[nodiscard]] bool ActorGone(std::uint64_t a_key)
+		{
+			auto* actor = RE::TESForm::LookupByID<RE::Actor>(static_cast<RE::FormID>(a_key >> 1));
+			return !actor || !actor->Is3DLoaded();
+		}
+
 		void Drop(Twin& a_twin, RE::ShadowSceneNode* a_scene)
 		{
 			if (a_scene && a_twin.bs) {
@@ -61,7 +68,7 @@ namespace Plugin
 			if (a_twin.light && a_twin.light->parent) {
 				a_twin.light->parent->DetachChild(a_twin.light.get());
 			}
-			if (a_twin.source && !a_twin.handsDown) {
+			if (a_twin.source && a_twin.source->parent && !a_twin.handsDown) {
 				a_twin.source->SetAppCulled(false);  // the game's light shows again
 			}
 			a_twin = {};
@@ -71,6 +78,7 @@ namespace Plugin
 		void DropAll(RE::ShadowSceneNode* a_scene)
 		{
 			for (auto& entry : gTwins) {
+				entry.second.handsDown = entry.second.handsDown || ActorGone(entry.first);
 				Drop(entry.second, a_scene);
 			}
 			gTwins.clear();
@@ -258,6 +266,9 @@ namespace Plugin
 			// game's light hidden as the game keeps it.
 			const auto* state = a_actor->AsActorState();
 			const bool  readied = state && state->IsWeaponDrawn();
+			if (!readied && gTwins.empty()) {
+				return;  // hands down and no twin anywhere to mark: the two hands' look would change nothing
+			}
 			for (std::uint64_t hand = 0; hand < 2; ++hand) {
 				const auto key = (static_cast<std::uint64_t>(a_actor->GetFormID()) << 1) | hand;
 				auto*      caster = casters[hand];
@@ -289,6 +300,7 @@ namespace Plugin
 				}
 				auto& twin = it != gTwins.end() ? it->second : gTwins[key];
 				if (twin.light && (twin.source.get() != source || twin.parent.get() != parent)) {
+					twin.handsDown = twin.handsDown || twin.source.get() != source;  // the hand has a new light: the old one is never shown again
 					Drop(twin, a_scene);
 				}
 				if (!twin.light && !Make(twin, source, parent)) {
@@ -321,6 +333,12 @@ namespace Plugin
 		if (!RecordRoute()) {
 			return;
 		}
+		// no twin, nothing left hidden or refused, nobody else's hands out and hers down: a look would change nothing (Visit)
+		const auto* her = RE::PlayerCharacter::GetSingleton();
+		if (gTwins.empty() && gLeftHidden.empty() && gRefused.empty() && DrawnActors().size() <= 1 && !(her && her->AsActorState()->IsWeaponDrawn())) {
+			return;
+		}
+		const LightKit::Cost::Pass pass{ 14, "ground lights" };
 		ShowLeftHidden();  // before Visit: a twin made this tick hides its light again (Follow)
 		auto* scene = LightKit::Scene();
 		if (!scene || gGroundLightsOn.load(std::memory_order_relaxed) < 0.5f || LightsOff()) {  // switched off (advanced settings file, or all lights off)
@@ -334,20 +352,33 @@ namespace Plugin
 		for (auto& entry : gTwins) {
 			entry.second.seen = false;
 		}
-		auto* player = RE::PlayerCharacter::GetSingleton();
-		Visit(player, scene);
-		if (auto* lists = RE::ProcessLists::GetSingleton()) {
-			for (auto& handle : lists->highActorHandles) {
-				if (auto actor = handle.get(); actor && actor.get() != player) {
-					Visit(actor.get(), scene);
-				}
+		for (auto* actor : DrawnActors()) {
+			Visit(actor, scene);  // the player first, then every actor with drawn hands (Events.cpp)
+		}
+		// an actor whose hands went down since still holds a twin: its look marks the twin hands-down, so the game's light is left
+		// hidden as the game keeps it
+		static std::vector<RE::FormID> down;
+		down.clear();
+		for (const auto& [key, twin] : gTwins) {
+			const auto id = static_cast<RE::FormID>(key >> 1);
+			if (!twin.seen && std::ranges::find(down, id) == down.end()) {
+				down.push_back(id);
+			}
+		}
+		for (const auto id : down) {
+			auto*       actor = RE::TESForm::LookupByID<RE::Actor>(id);
+			const auto* state = actor ? actor->AsActorState() : nullptr;
+			if (state && !state->IsWeaponDrawn()) {
+				Visit(actor, scene);
 			}
 		}
 		std::erase_if(gTwins, [&](auto& a_entry) {
 			if (!a_entry.second.seen) {
-				if (a_entry.second.handsDown && a_entry.second.source) {
+				const bool gone = ActorGone(a_entry.first);
+				if (a_entry.second.handsDown && a_entry.second.source && !gone) {
 					gLeftHidden.insert_or_assign(a_entry.first, a_entry.second.source);
 				}
+				a_entry.second.handsDown = a_entry.second.handsDown || gone;
 				Drop(a_entry.second, scene);
 				return true;
 			}
@@ -356,8 +387,27 @@ namespace Plugin
 		gLive.store(gTwins.size(), std::memory_order_relaxed);
 	}
 
+	void RenewGroundLights()
+	{
+		auto* scene = LightKit::Scene();
+		for (auto& [key, twin] : gTwins) {
+			// the hand's light stays hidden: the next visit hangs a new twin for it, and with the hands down it is left as the game keeps it
+			if (twin.source && !ActorGone(key)) {
+				gLeftHidden.insert_or_assign(key, twin.source);
+			}
+			twin.handsDown = true;
+			Drop(twin, scene);
+		}
+		gTwins.clear();
+		gRefused.clear();
+		gLive.store(0, std::memory_order_relaxed);
+	}
+
 	void DropGroundLights()
 	{
+		for (auto& entry : gTwins) {
+			entry.second.handsDown = true;  // a load: the old game's 3D goes, nothing is given back to it
+		}
 		DropAll(LightKit::Scene());
 		gLeftHidden.clear();  // a load: the lights left hidden went with the old game's 3D
 	}

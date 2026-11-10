@@ -428,7 +428,8 @@ namespace Plugin
 		// way below: the size in the radius' z, the attenuation, then Community Shaders' own words or a tenth for ambient)
 		void Dress(RE::NiPointLight* a_light, const RE::NiColor& a_color, float a_fade, float a_radius, bool a_isl)
 		{
-			auto& data = a_light->GetLightRuntimeData();
+			const auto turn = LightKit::Turn();  // the sneak fade dims a row light on other threads; taken after gLiveLock
+			auto&      data = a_light->GetLightRuntimeData();
 			data.diffuse = a_color;
 			data.fade = a_fade;
 			data.radius = { a_radius, a_radius, kLightSize };
@@ -437,6 +438,8 @@ namespace Plugin
 				data.fade = (std::min)(a_fade, IslTop(a_radius));  // past its top the reach would grow instead
 				LightKit::Isl::SetOwn(a_light);
 				LightKit::Isl::SetCutoff(a_light, kDrawnTimes * kK * data.fade / IslRoom(a_radius));
+			} else if (LightLimitFix()) {
+				LightKit::Isl::SetOwnLinear(a_light);
 			} else {
 				data.ambient = LightKit::Tenth(a_color);
 			}
@@ -550,7 +553,7 @@ namespace Plugin
 		void MoveRows()
 		{
 			const bool  isl = InverseSquare();
-			const float bright = BrightnessNow() * RowStrengthFor(LightingFound()), reachPct = Percent("IlluminatedReach");
+			const float rowBright = BrightnessNow() * StreamStrength(), bright = rowBright * RowStrengthFor(LightingFound()), reachPct = Percent("IlluminatedReach");
 			// a spray's own light is steady and Light Placer's hand lights are separate objects, so the row flickers by itself
 			// while the Flicker switch is on - in its spell's shape under Realistic
 			static const auto start = std::chrono::steady_clock::now();
@@ -616,8 +619,8 @@ namespace Plugin
 					const float reach = s.reach * reachPct * RowReachFor(LightingFound());
 					// at full strength five lights wash a stream out white off Community Shaders
 					const float want = rec->second.fade * s.strength * bright * (isl ? 1.0f : kRowPlain);
-					// a dimmer Brightness or daylight lowers the cap too, so the sliders still reach a capped row
-					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow(), 1.0f) : 0.0f);
+					// a dimmer Brightness lowers the cap too, so the sliders still reach a capped row
+					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(rowBright, 1.0f) : 0.0f);
 					Dress(light, color, steady * (flickers ? BeamRow::Pulsing(kind, seconds, i, seed) : 1.0f), reach, isl);
 					light->local.translate = toLocal * (axis.start + axis.dir * (s.along * length));  // on the path, in the root's units
 					if (static std::size_t told = 0; told < 6) {
@@ -712,8 +715,9 @@ namespace Plugin
 			// one light, not a row: where the inverse-square cap holds, its reach (and with it that cap) is its own
 			const float cloudReach = isl ? kCloudReachShaders : RowReachFor(LightingFound());
 			const float reach = rec->second.reach * Percent("IlluminatedReach") * cloudReach;
-			const float want = rec->second.fade * BrightnessNow() * RowStrengthFor(LightingFound());
-			const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(BrightnessNow(), 1.0f) : 0.0f);
+			const float rowBright = BrightnessNow() * StreamStrength();
+			const float want = rec->second.fade * rowBright * RowStrengthFor(LightingFound());
+			const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(rowBright, 1.0f) : 0.0f);
 			RE::NiColor color = rec->second.color;
 			if (const auto own = a_c.spell ? Fade::Items::ChoiceColor(a_c.spell) : std::nullopt) {
 				color = *own;  // the spell's Lights by Item color
@@ -864,7 +868,7 @@ namespace Plugin
 			RE::NiNode* parent = root;
 			Told("making its light", a_ref);
 			const bool isl = InverseSquare();
-			// ENB and Vanilla (Lighting.cpp): the reach asked for, drawn by the game's own lighting. Brightness x Dim in daylight,
+			// ENB and Vanilla (Lighting.cpp): the reach asked for, drawn by the game's own lighting. Brightness,
 			// as every light copy takes it (LightCopies.cpp)
 			const auto                              plain = LightKit::PlainAt(r.fade, 0.0f, r.radius);
 			const float                             radius = (isl ? r.radius : plain.radius) * Percent("IlluminatedReach");
@@ -933,6 +937,9 @@ namespace Plugin
 			}
 		}
 
+		// the per-frame pass runs from a projectile's 3D loading or going until nothing of it is left to move or let go
+		std::atomic<bool> gStreamsAwake{ true };
+
 		// ------------------------------------------------------------------ the two hooks
 		// Load3D builds a reference's 3D (vtable slot 0x6A); Release3DRelatedData takes it apart (0x6B)
 		template <class T>
@@ -949,6 +956,7 @@ namespace Plugin
 						gToHang.emplace_back(a_this);  // held by its refcount, no handle made on this thread
 					}
 				});
+				gStreamsAwake.store(true, std::memory_order_relaxed);  // after the work: the pass goes to sleep only under gLiveLock
 				return object;
 			}
 
@@ -966,6 +974,7 @@ namespace Plugin
 			static void thunk(T* a_this)
 			{
 				LightKit::Guarded("ward light (3D release)", [a_this]() { DropLights(a_this); });
+				gStreamsAwake.store(true, std::memory_order_relaxed);
 				original(a_this);
 			}
 
@@ -1180,8 +1189,16 @@ namespace Plugin
 		gRowLights = 0;
 	}
 
+	bool StreamLightsAwake()
+	{
+		return gStreamsAwake.load(std::memory_order_relaxed);
+	}
+
 	void StreamLightsFrame()
 	{
+		if (!gStreamsAwake.load(std::memory_order_relaxed)) {
+			return;
+		}
 		{
 			// what the last frame dropped under gLiveLock, let go here with the lock free (L12)
 			std::vector<RE::NiPointer<RE::TESObjectREFR>> letGo;
@@ -1232,6 +1249,9 @@ namespace Plugin
 				MoveRows();  // his checklist 140: every bolt's row follows its real length this frame
 			}
 			if (gToHang.empty() && gToDrop.empty()) {
+				if (gLive.empty() && gLetGo.empty() && gParkedRows.empty() && gCloudWait.empty() && gClouds.empty()) {
+					gStreamsAwake.store(false, std::memory_order_relaxed);
+				}
 				return;
 			}
 			auto* scene = LightKit::Scene();

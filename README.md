@@ -7,13 +7,15 @@ The plugin of Illuminated - Spell Lighting NG; it ships with the mod and is requ
 ## What it does
 - Lights spells, enchanted weapons, staves, projectiles, explosions and hazards in each spell's own color. The lighting
   (Community Shaders, ENB or Vanilla) is detected automatically - nothing to pick.
-- **With Light Placer** (Community Shaders): Light Placer hangs the lights on the effect models; the plugin takes the
+- **With Light Placer 5.1.0 or newer** (Community Shaders): Light Placer hangs the lights on the effect models; the plugin takes the
   game's own magic lights off where the mod provides one, so nothing is lit twice.
 - **Without Light Placer**: lights through the game's own light records, with a ground light at the caster's feet.
-- **Sprays, streams and bolts**: each projectile wears a raised copy of its own light record, the way
-  [ReLight](https://github.com/TrumanGIT/ReLight) by Truman lights them (GPL-3.0-or-later, used with permission).
-- Fading, Dynamic Lighting, dim in daylight, a light budget for big fights, Lights by Item, presets, Brightness and
-  Reach, the charge gems, VAER Reborn's swirls kept, and wards when Dynamic Wards is not installed.
+- **Sprays, streams and bolts**: each keeps its own light record and wears a row of small lights along it.
+- Fading, Dynamic Lighting, a light budget for big fights, Lights by Item, presets, Brightness and Reach, the charge
+  gems, VAER Reborn's swirls kept, and wards when Dynamic Wards is not installed.
+- The stream lights, the draw events and the flicker's keyframe maths follow [ReLight](https://github.com/TrumanGIT/ReLight)
+  by Truman; the effect and update hooks follow [Light Placer](https://github.com/powerof3/LightPlacer) by powerof3 (both
+  GPL-3.0, used with permission).
 - **Reticle bars through Reticle Arcs** - with Reticle Arcs installed, each hand's spell light, a bound weapon's time and
   an enchanted weapon's charge are offered to it as add-on bars (its published interface only); no reticle of its own.
 

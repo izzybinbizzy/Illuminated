@@ -95,6 +95,12 @@ namespace Plugin
 		if (!player || !strings) {
 			return;
 		}
+		// her hands down and nothing of hers moved: nothing to do (a draw's first frames already light her hands)
+		const auto* state = player->AsActorState();
+		if (gMoved.empty() && (!state || state->GetWeaponState() == RE::WEAPON_STATE::kSheathed)) {
+			return;
+		}
+		const LightKit::Cost::Pass pass{ 13, "her shadow" };
 		// kept between frames so the player update allocates nothing once they have grown
 		static std::vector<std::pair<RE::NiPointLight*, RE::NiPoint3>> between;  // this frame: a light and the world point it goes to
 		static std::vector<RE::NiPointLight*>                          lights;

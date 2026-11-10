@@ -139,9 +139,6 @@ namespace Plugin
 
 		constexpr std::string_view kDynamicLightingId = "IlluminatedDynamicLighting";
 		constexpr std::string_view kPulseShapesId = "IlluminatedPulseShapes";
-		// Performance > the glow cap (his checklist 336): the count is greyed while the cap is off, and drawn as a count
-		constexpr std::string_view kGlowLimitId = "IlluminatedGlowLimit";
-		constexpr std::string_view kGlowCountId = "IlluminatedGlowLimitCount";
 
 		// Dynamic Lighting as one pick of three: Off, Regular (the pulsing as before), Cinematic (a shape per kind of spell)
 		void DrawDynamicLighting(const Setting& a_s)
@@ -175,21 +172,13 @@ namespace Plugin
 				ImGuiMCP::PopID();
 				return;
 			}
-			const bool greyed = (a_s.id == kYieldENBId && !YieldUsable()) || (a_s.id == kGlowCountId && SettingValue(kGlowLimitId, 1) == 0);
+			const bool greyed = a_s.id == kYieldENBId && !YieldUsable();
 			ImGuiMCP::BeginDisabled(greyed);
 			if (a_s.isSlider) {
 				// live while it is dragged, on its step (his report: "the sliders also stopped working live during sliding and only
 				// work after the click is released") - SetSetting queues one task however many steps it moves
 				int v = a_s.value.load();
-				// the word translated, the number not: a % in a translation is doubled so it can never become a format of its own
-				std::string format = "%d%%";
-				if (a_s.id == kGlowCountId) {
-					format = "%d ";
-					for (const char* c = T("lights"); *c; ++c) {
-						format += *c == '%' ? std::string("%%") : std::string(1, *c);
-					}
-				}
-				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, format.c_str());
+				ImGuiMCP::SliderInt(T(a_s.label.c_str()), &v, a_s.minValue, a_s.maxValue, "%d%%");
 				const bool released = ImGuiMCP::IsItemDeactivatedAfterEdit();
 				if (v = AllowedValue(a_s, v); v != a_s.value) {
 					SetSetting(a_index, v, false);  // applied at once, written when it is let go
@@ -381,10 +370,10 @@ namespace Plugin
 				SetById("IlluminatedFrostArt", 1);  // Kittytail
 				SetById("IlluminatedHealingArt", 1);
 				SetById("IlluminatedShockArt", 1);
-				// the HexRim patches are data options (Configs: Kittytail, Other Mods); the atronachs are the HexRim page's
+				// the HexRim patches are data options (Configs: Kittytail, Other Mods)
 				for (const char* id : { "IlluminatedAstralMagic2", "IlluminatedConstellationMagic", "IlluminatedFrostbittenDreamsMagic",
 						 "IlluminatedHolyTemplarMagic", "IlluminatedWinterWonderlandMagic", "IlluminatedWildwakerMagic",
-						 "IlluminatedDragonsUseThuum", "IlluminatedTheRestlessDead", "IlluminatedHexRimAtronachs" }) {
+						 "IlluminatedDragonsUseThuum", "IlluminatedTheRestlessDead" }) {
 					SetById(id, 1);
 				}
 			}
@@ -470,6 +459,11 @@ namespace Plugin
 		// mod. put them into a new mod" - Soul Gem Hub lights them). An older install's settings file may
 		// still name its two settings: they are not drawn
 		constexpr std::string_view kRetiredSettings[]{ "IlluminatedSoulGems", "IlluminatedPraedys" };
+
+		[[nodiscard]] bool Retired(std::string_view a_id)
+		{
+			return std::ranges::contains(kRetiredSettings, a_id);
+		}
 
 		void DrawPage(std::size_t a_page)
 		{
@@ -598,7 +592,7 @@ namespace Plugin
 		const auto&                     settings = Settings();
 		std::unordered_set<std::string> seen;  // the pages in the order they are first named, each once (a retired setting names none)
 		for (const auto& s : settings) {
-			if (std::ranges::find(kRetiredSettings, s.id) == std::ranges::end(kRetiredSettings) && seen.insert(s.page).second) {
+			if (!Retired(s.id) && seen.insert(s.page).second) {
 				gPages.push_back(s.page);
 			}
 		}
@@ -610,7 +604,7 @@ namespace Plugin
 			std::vector<std::size_t>      onPage;
 			std::vector<std::string_view> groups;
 			for (std::size_t i = 0; i < settings.size(); ++i) {
-				if (settings[i].page == gPages[p] && std::ranges::find(kRetiredSettings, settings[i].id) == std::ranges::end(kRetiredSettings)) {
+				if (settings[i].page == gPages[p] && !Retired(settings[i].id)) {
 					onPage.push_back(i);
 					groups.push_back(settings[i].group);
 				}

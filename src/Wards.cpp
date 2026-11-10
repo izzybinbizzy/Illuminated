@@ -518,14 +518,15 @@ namespace Plugin
 	// condition IsBlocking == 1; the game re-checks an active effect's conditions only on its own timer
 	// (fActiveEffectConditionUpdateInterval), so the ward waits for the next check. Here, when the player's block starts, every
 	// one of her active effects that comes from an ENCHANTMENT and whose conditions ask IsBlocking is checked at once
-	// (ActiveEffect::EvaluateConditions, the effect's own virtual - no address needed), and once more on the next frame in case
-	// the game has not yet marked her blocking when the animation event comes. Only those effects: nothing else changes timing.
+	// (ActiveEffect::EvaluateConditions, the effect's own virtual - no address needed). At that event the graph's IsBlocking
+	// already reads true, so once is enough. Only those effects: nothing else changes timing.
 	// It runs with or without Dynamic Wards (the wait is the game's, not the dome's), so it is not behind DynamicWardsLoaded.
 	namespace
 	{
 		// the animation event the player's graph sends as a block begins (read off the game's own events 2026-10-19 - a block sends
 		// "blockStartOut"; "blockStart" is the input event's name and never reached the graph)
 		constexpr std::string_view kBlockTag = "blockStartOut";
+		constexpr std::string_view kBlockEndTag = "blockStop";
 
 		// an enchantment's effect whose conditions ask IsBlocking (the shield wards: Spellbreaker, Artificer's two extra
 		// Spellbreaker effects, the Crusader shields, any mod's shield that works the same way)
@@ -582,24 +583,16 @@ namespace Plugin
 			{
 				LightKit::Guarded("block watch", [a_event]() {
 					const std::string_view tag = a_event ? a_event->tag.c_str() : "";
-					if (!LightKit::SameText(tag, kBlockTag)) {
+					if (!LightKit::SameText(tag, kBlockTag) && !LightKit::SameText(tag, kBlockEndTag)) {
 						return;
 					}
 					static std::atomic_bool told{ false };  // the graph's events may come off the main thread
 					if (!told.exchange(true)) {
-						SKSE::log::info("wards: a block started - the shield wards are checked at once");
+						SKSE::log::info("wards: a block started or ended - the shield wards are checked at once");
 					}
 					// the graph's events may come off the main thread: the effects are read on it
 					if (auto* tasks = SKSE::GetTaskInterface()) {
-						tasks->AddTask([]() {
-							LightKit::Guarded("shield ward check", []() {
-								RecheckShieldWards();
-								// once more a frame later: IsBlocking may only read true after this frame's update
-								if (auto* again = SKSE::GetTaskInterface()) {
-									again->AddTask([]() { LightKit::Guarded("shield ward check (next frame)", RecheckShieldWards); });
-								}
-							});
-						});
+						tasks->AddTask([]() { LightKit::Guarded("shield ward check", RecheckShieldWards); });
 					}
 				});
 				return RE::BSEventNotifyControl::kContinue;
@@ -607,14 +600,78 @@ namespace Plugin
 		};
 		BlockWatch gBlockWatch;
 		// the graph the watch is on (main thread only): a transformation (werewolf, Vampire Lord) or a 3D reset builds the player a
-		// new one, and a new game has none at its first message - KeepBlockWatch puts the watch on whatever graph she has now
+		// new one, and a new game has none at its first message - GraphWatch puts the watch on whatever graph she has now
 		// held (not only its address): the graph it replaced stays alive until the next check, so a new graph can never take
 		// the same address and look like the watched one (CodeRabbit's point on #27)
 		RE::BSTSmartPointer<RE::BSAnimationGraphManager> gWatchedGraph;
-		float                                            gWatchClock = 0.0f;
+
+		// the main thread, from the events below: a graph that is not the one the watch is on gets the watch
+		void CheckBlockGraph()
+		{
+			auto*                                            player = RE::PlayerCharacter::GetSingleton();
+			RE::BSTSmartPointer<RE::BSAnimationGraphManager> graph;
+			if (player && player->GetAnimationGraphManager(graph) && graph && graph.get() != gWatchedGraph.get()) {
+				WatchBlocking();
+			}
+		}
+
+		void NoteGraphLook()
+		{
+			static std::atomic<bool> queued{ false };
+			auto*                    tasks = SKSE::GetTaskInterface();
+			if (tasks && !queued.exchange(true)) {
+				tasks->AddTask([]() {
+					queued = false;
+					LightKit::Guarded("block watch", []() { CheckBlockGraph(); });
+				});
+			}
+		}
+
+		// her graph is built with her 3D: SKSE's 3D-update event, her load event, a race change. She cannot block before she draws, so
+		// her own draw looks too (a new game has no graph at its first message). Each only noted: the main thread looks
+		class GraphWatch final :
+			public RE::BSTEventSink<SKSE::NiNodeUpdateEvent>,
+			public RE::BSTEventSink<SKSE::ActionEvent>,
+			public RE::BSTEventSink<RE::TESObjectLoadedEvent>,
+			public RE::BSTEventSink<RE::TESSwitchRaceCompleteEvent>
+		{
+		public:
+			RE::BSEventNotifyControl ProcessEvent(const SKSE::NiNodeUpdateEvent* a_event, RE::BSTEventSource<SKSE::NiNodeUpdateEvent>*) override
+			{
+				if (a_event && a_event->reference && a_event->reference->IsPlayerRef()) {
+					NoteGraphLook();
+				}
+				return RE::BSEventNotifyControl::kContinue;
+			}
+
+			RE::BSEventNotifyControl ProcessEvent(const SKSE::ActionEvent* a_event, RE::BSTEventSource<SKSE::ActionEvent>*) override
+			{
+				using T = SKSE::ActionEvent::Type;
+				if (a_event && a_event->actor && a_event->actor->IsPlayerRef() && (a_event->type.get() == T::kBeginDraw || a_event->type.get() == T::kEndDraw)) {
+					NoteGraphLook();
+				}
+				return RE::BSEventNotifyControl::kContinue;
+			}
+
+			RE::BSEventNotifyControl ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*) override
+			{
+				if (a_event && a_event->loaded && a_event->formID == 0x14) {
+					NoteGraphLook();
+				}
+				return RE::BSEventNotifyControl::kContinue;
+			}
+
+			RE::BSEventNotifyControl ProcessEvent(const RE::TESSwitchRaceCompleteEvent* a_event, RE::BSTEventSource<RE::TESSwitchRaceCompleteEvent>*) override
+			{
+				if (a_event && a_event->subject && a_event->subject->IsPlayerRef()) {
+					NoteGraphLook();
+				}
+				return RE::BSEventNotifyControl::kContinue;
+			}
+		};
 	}
 
-	// a game loaded or a new one started (main.cpp), or her graph was rebuilt (KeepBlockWatch): the watch is put on the graph
+	// a game loaded or a new one started (main.cpp), or her graph was rebuilt (GraphWatch): the watch is put on the graph
 	// she has (taken off first, so it is never on twice)
 	void WatchBlocking()
 	{
@@ -622,26 +679,27 @@ namespace Plugin
 		if (!player) {
 			return;
 		}
+		static GraphWatch watch;
+		// all four sinks at once, and only once every source is there: a source missing now is tried again next time (CodeRabbit on #65)
+		static bool watching = false;
+		if (!watching) {
+			auto* updates = SKSE::GetNiNodeUpdateEventSource();
+			auto* actions = SKSE::GetActionEventSource();
+			auto* events = RE::ScriptEventSourceHolder::GetSingleton();
+			if (updates && actions && events) {
+				updates->AddEventSink(&watch);
+				actions->AddEventSink(&watch);
+				events->AddEventSink<RE::TESObjectLoadedEvent>(&watch);
+				events->AddEventSink<RE::TESSwitchRaceCompleteEvent>(&watch);
+				watching = true;
+			}
+		}
 		RE::BSTSmartPointer<RE::BSAnimationGraphManager> graph;
 		player->GetAnimationGraphManager(graph);
 		player->RemoveAnimationGraphEventSink(&gBlockWatch);
 		const bool added = graph && player->AddAnimationGraphEventSink(&gBlockWatch);
-		gWatchedGraph = added ? graph : nullptr;
+		// kept even when the add failed, so the next event does not try the same graph again (CodeRabbit on #65)
+		gWatchedGraph = graph;
 		SKSE::log::info("wards: the block watch is {} the player's animation graph", added ? "on" : "NOT on (no graph yet)");
-	}
-
-	// player update (LightCopies.cpp), main thread: once a second, a graph that is not the one the watch is on gets the watch
-	void KeepBlockWatch(float a_delta)
-	{
-		gWatchClock += std::max(a_delta, 0.0f);
-		if (gWatchClock < 1.0f) {
-			return;
-		}
-		gWatchClock = 0.0f;
-		auto*                                            player = RE::PlayerCharacter::GetSingleton();
-		RE::BSTSmartPointer<RE::BSAnimationGraphManager> graph;
-		if (player && player->GetAnimationGraphManager(graph) && graph && graph.get() != gWatchedGraph.get()) {
-			WatchBlocking();
-		}
 	}
 }

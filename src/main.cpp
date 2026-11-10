@@ -45,13 +45,13 @@
 //   GroundLights.cpp   without Light Placer: a twin of each hand light that lights the ground
 //   ArtLights.cpp      without Light Placer: lights of ours on lit art and weapon models (bound weapons) and flesh spells
 //   FleshLights.cpp    the flesh spells' lights in FleshFX's hue, where FleshFX's look wins (LightKit.h FleshFx)
-//   AtronachLights.cpp a glow on the atronach races an add-on's settings file names
 //   Fade*.cpp, Fade*.h the fading module (identical in RELight - Spell Addon but for FadeConfig.h and FadeDevBench.cpp -
 //                      PC Runner\fade copies check.py); its hooks are in FadeMain.cpp
 //   SKSEMenuFramework.h, DevBenchAPI.*  those mods' own files; DevBenchGlue.h, MenuStyle.h, Translation.h are
 //                      shared word for word with our other plugins
 
 #include "Fade.h"
+#include "FloorLightFix.h"
 #include "Plugin.h"
 #include "RuntimeGuard.h"
 
@@ -89,7 +89,7 @@ namespace
 		RegisterMenuTail();    // Lights by Item / Spell, then Performance last, below the fading pages (his order 2026-10-20)
 		LightSettings();
 		MakeLightCopies();                   // after pass 0 (the copies take its flags), before Light Placer reads its configs
-		KeepLightPlacerLights();             // a Light Placer light put back on an effect's resume stays (LightPlacerQueue.cpp)
+		WatchStrayLights();                  // a light of ours left in the scene with no node (LightPlacerQueue.cpp)
 		VaerSwirls();                        // pass 7: VAER Reborn's swirls - the settings are loaded by now (HIS CALL)
 		Wards();                             // before pass 1: an effect it silences must not be followed by the casting-light pass
 		DecideRecordRoute();                 // Vanilla / ENB, or no Light Placer: the configs light the game's own light records (RecordLights.cpp)
@@ -99,12 +99,13 @@ namespace
 		LightKit::FleshFx::Find();  // which flesh spells wear FleshFX's look: their lights take its hue (FleshLights.cpp)
 		NoteFecShaders(cov);        // before the passes forget the editor IDs
 		NoteSpellHazards();
-		FindShadowSigns();    // once here, never on the first frame of play
-		ReadAtronachRaces();  // the same
+		FindShadowSigns();  // once here, never on the first frame of play
+		WatchActors3D();    // the fading hears of an actor's 3D
 		if (record) {
 			MakeRecordLights();    // before passes 1 and 2, which point the records at them
 			TintWardRecords();     // a recolored 360 Ward's color onto the ward hand's record lights
 			NoteEnchantShaders();  // a drawn weapon's enchantment shader -> its rows (ArtLights.cpp), before the editor IDs go
+			WatchDraws();          // the actors with drawn hands, for the drawn-weapon lights and the ground twins (Events.cpp)
 		}
 		if (cov.files == 0) {
 			SKSE::log::warn(
@@ -150,13 +151,14 @@ namespace
 	{
 		KeepCopiesOutOfPortals();  // every mod's data load has run by now (a portal-strict patcher among them)
 		DropArtLights();
-		DropAtronachLights();
 		DropGroundLights();
+		ForgetDrawn();
 		DropHerShadow();
 		DropStreamLights();
 		DropSneakFade();
-		DropCastingLights();
+		ForgetStrayLights();
 		DropHandBudget();
+		DropFleshRoots();
 		Fade::OnGameLoading();
 	}
 
@@ -178,6 +180,7 @@ namespace
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
 			ForgetOldGame();
+			LightKit::Cost::Reset();  // the worst times start again with each game
 			break;
 		case SKSE::MessagingInterface::kPostLoadGame:
 		case SKSE::MessagingInterface::kNewGame:
@@ -204,17 +207,19 @@ namespace
 
 SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
-	SKSE::Init(a_skse, { .trampoline = true, .trampolineSize = 128 });
+	SKSE::Init(a_skse, { .trampoline = true, .trampolineSize = 128 + FloorLightFix::kTrampolineBytes });
 	// the wrong game: loaded but idle - a false here makes SKSE add its own "exit game?" box over the guard's
 	if (!RuntimeGuard::RightGame("Illuminated", "Illuminated - Spell Lighting NG", "Illuminated - VR")) {
 		return true;
 	}
+	FloorLightFix::Install();
 	// SKSE loads its plugins one at a time (LoadLibrary, then the plugin's load), and each listener is called in the order it
 	// registered: a Light Placer module already here registered first, so at data load it reads its configs before our
 	// lights exist and drops every row that names one (Light Placer has no preload; SKSE's scan loads only as resources)
 	gLightPlacerFirst = REX::W32::GetModuleHandleA("po3_LightPlacer.dll") != nullptr;
 	// the editor-ID recorders are installed at SKSE's post-load (OnMessage), still before the game reads its plugins
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
-	SKSE::log::info("Illuminated plugin loaded; waiting for the game's data");
+	SKSE::log::info("Illuminated {} loaded on Skyrim {} ({}); waiting for the game's data", SKSE::GetPluginVersion().string("."), REL::Module::get().version().string("."),
+		REL::Module::IsVR() ? "VR build" : "SE / AE build");
 	return true;
 }

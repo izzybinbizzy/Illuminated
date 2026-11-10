@@ -154,11 +154,43 @@ namespace Plugin
 		return same ? same : a_root;
 	}
 
+	namespace
+	{
+		// frames NoteFleshRoots still walks every frame: Light Placer may hang a starting effect's lights a few frames after it starts
+		constexpr int    kFleshLookFrames = 10;
+		std::atomic<int> gFleshLook{ kFleshLookFrames };
+		// a flesh or FEC light is noted: a shader effect's update has its color to write
+		std::atomic<bool> gFleshNoted{ false };
+	}
+
+	bool FleshNoted() noexcept
+	{
+		return gFleshNoted.load(std::memory_order_relaxed);
+	}
+
+	void NoteFleshStarted(const RE::ShaderReferenceEffect* a_effect)
+	{
+		// from the game's effect hooks: nothing may leave here
+		LightKit::Guarded("flesh started", [a_effect]() {
+			if (a_effect && (LightKit::FleshFx::HueOf(a_effect->effectData) || TrackedFade(a_effect))) {
+				gFleshLook.store(kFleshLookFrames, std::memory_order_relaxed);
+			}
+		});
+	}
+
 	void NoteFleshRoots()
 	{
+		// every magic effect is walked for a few frames after a flesh or FEC shader starts, resumes or ends (LightCopies.cpp); between,
+		// the lights noted stand
+		int left = gFleshLook.load(std::memory_order_relaxed);
+		if (left <= 0) {
+			return;
+		}
 		if (LightKit::FleshFx::Hues().empty() && gFades.empty()) {
 			return;  // no flesh spell wears FleshFX's look and FEC is not here: nothing to note, ever
 		}
+		const LightKit::Cost::Pass pass{ 10, "flesh roots" };
+		gFleshLook.compare_exchange_strong(left, left - 1, std::memory_order_relaxed);  // a start in between keeps its count
 		std::unordered_map<const RE::ShaderReferenceEffect*, NotedLights> roots;
 		if (auto* lists = RE::ProcessLists::GetSingleton()) {
 			lists->ForEachMagicTempEffect([&](RE::BSTempEffect* a_effect) {
@@ -203,9 +235,22 @@ namespace Plugin
 				}
 			}
 			gRoots.swap(roots);
+			gFleshNoted.store(!gRoots.empty(), std::memory_order_relaxed);
 		}
 		std::scoped_lock lock{ gRootLock, gMissLock };
 		std::erase_if(gMisses, [](const auto& a_miss) { return !gRoots.contains(a_miss.first); });
+	}
+
+	void DropFleshRoots()
+	{
+		std::unordered_map<const RE::ShaderReferenceEffect*, NotedLights> gone;  // let go past the locks
+		{
+			std::scoped_lock lock{ gRootLock, gMissLock };
+			gone.swap(gRoots);
+			gMisses.clear();
+		}
+		gFleshNoted.store(false, std::memory_order_relaxed);
+		gFleshLook.store(kFleshLookFrames, std::memory_order_relaxed);
 	}
 
 	void FleshLightPlacer(RE::ShaderReferenceEffect* a_effect)
