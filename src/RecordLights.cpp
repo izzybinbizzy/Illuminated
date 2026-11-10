@@ -197,28 +197,30 @@ namespace Plugin
 	{
 		const bool lightPlacer = REX::W32::GetModuleHandleA("po3_LightPlacer.dll") != nullptr;
 		const bool shaders = LightingFound() == Lighting::kShaders;
-		gRecordRouteOn = !lightPlacer || !shaders;
+		// decided in a local and stored once: the effect and cell-animation hooks read it on game threads
+		bool on = !lightPlacer || !shaders;
 		gWhy = !lightPlacer ? "Light Placer is not loaded" :
 		       !shaders     ? "the lighting is not Community Shaders" :
 		                      "Community Shaders with Light Placer";
 		// every Light Placer row waits on the route global: without it Light Placer draws none of ours, so this route lights them
-		if (!SetLightPlacerRoute(!gRecordRouteOn) && !gRecordRouteOn) {
-			gRecordRouteOn = true;
+		if (!SetLightPlacerRoute(!on) && !on) {
+			on = true;
 			gWhy = "the route global could not be made";
 		}
 		// Light Placer loaded before us read its configs before our lights and globals existed and dropped every row naming one;
 		// they exist now, so its own ReloadLP reads them again. If it cannot, this route lights them (never dark)
-		if (!gRecordRouteOn && LightPlacerReadFirst()) {
+		if (!on && LightPlacerReadFirst()) {
 			if (ReloadLightPlacer()) {
 				SKSE::log::info("record lights: Light Placer loaded before Illuminated, so its configs were read again (ReloadLP) now that Illuminated's lights exist");
 			} else {
-				gRecordRouteOn = true;
+				on = true;
 				gWhy = "Light Placer loaded before Illuminated and its ReloadLP could not be run";
 				static_cast<void>(SetLightPlacerRoute(false));
 			}
 		}
-		KeepConfigLights(gRecordRouteOn);
-		if (gRecordRouteOn) {
+		gRecordRouteOn.store(on, std::memory_order_relaxed);
+		KeepConfigLights(on);
+		if (on) {
 			SKSE::log::info("record lights: {} ({}), so the configs light the game's own light records{}", gWhy,
 				LightingName(LightingFound()), lightPlacer ? " - Light Placer, loaded for other mods, draws none of Illuminated's lights" : "");
 		} else {
@@ -570,7 +572,7 @@ namespace Plugin
 	std::string RecordReport()
 	{
 		return std::format(
-			R"({{"on":{},"why":"{}","lights":{},"flicker":{},"models":{},"rows":{},"notOurs":{},"missing":{},"failed":{},"ms":{:.1f}}})", gRecordRouteOn,
+			R"({{"on":{},"why":"{}","lights":{},"flicker":{},"models":{},"rows":{},"notOurs":{},"missing":{},"failed":{},"ms":{:.1f}}})", RecordRoute(),
 			gWhy, gMade, gFlickerOf.size(), gChoices.size(), gRows, gNotOurs, gMissing, gFailed, gMs);
 	}
 }

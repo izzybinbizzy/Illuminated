@@ -19,10 +19,13 @@ namespace Plugin
 		std::vector<RE::FormID>                  gDrawQueue;              // gDrawLock
 		std::vector<std::pair<RE::FormID, bool>> gLoadedQueue;            // gDrawLock
 		std::atomic<bool>                        gDrawsWatched{ false };  // the record route's: only it reads the queues
-		std::unordered_set<RE::FormID>           gDrawnIds;               // the main thread's
-		std::vector<RE::Actor*>                  gDrawn;                  // this frame's, the main thread's
-		bool                                     gLookAround{ true };
-		std::atomic<bool>                        gDrawWork{ false };  // a sink queued something since the last pass
+		// a drawn actor whose body the game has not stored yet (a queued load) stays listed this many passes, as ArtLights' weapon waits
+		constexpr int                       kNo3DPasses = 300;
+		std::unordered_map<RE::FormID, int> gNo3D;      // the main thread's: passes waited for each one's body
+		std::unordered_set<RE::FormID>      gDrawnIds;  // the main thread's
+		std::vector<RE::Actor*>             gDrawn;     // this frame's, the main thread's
+		bool                                gLookAround{ true };
+		std::atomic<bool>                   gDrawWork{ false };  // a sink queued something since the last pass
 
 		// a loading screen takes every light out of the scene's lists and a light of ours is not put back: kept, it lights nothing, and what it
 		// lit keeps drawing it. So each is let go on the main thread and the passes make it again (Dynamic Wards' way). A sink only queues this
@@ -101,6 +104,10 @@ namespace Plugin
 			{
 				const bool hadBody = a_this->Get3D() != nullptr;
 				set(a_this, a_object, a_queue3DTasks);
+				// a load clears thousands of empty slots: nothing came and nothing went, so nothing is noted
+				if (!a_object && !hadBody) {
+					return;
+				}
 				LightKit::Guarded("actor 3D set", [a_this, a_object, hadBody]() { Note3D(a_this, a_object != nullptr, hadBody); });
 			}
 			static inline REL::Relocation<decltype(LoadThunk)> load;
@@ -217,11 +224,21 @@ namespace Plugin
 		}
 		std::erase_if(gDrawnIds, [&](RE::FormID a_id) {
 			auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_id);
-			// put away, gone, its body unloaded or not an actor: looked at again when it draws or its body loads with the hands out
-			// (Note3D). She needs no place here: she is always on the list
-			if (!HandsDrawn(actor) || actor == player || !actor->Is3DLoaded()) {
+			// put away, gone or not an actor: looked at again when it draws or its body loads with the hands out (Note3D). She needs no
+			// place here: she is always on the list
+			if (!HandsDrawn(actor) || actor == player) {
+				gNo3D.erase(a_id);
 				return true;
 			}
+			// its body not stored yet: kept a while (a queued load stores it later), then dropped until its body loads
+			if (!actor->Is3DLoaded()) {
+				if (++gNo3D[a_id] <= kNo3DPasses) {
+					return false;
+				}
+				gNo3D.erase(a_id);
+				return true;
+			}
+			gNo3D.erase(a_id);
 			// a far actor stays listed and is looked at from the moment it comes near, as the passes always did
 			const auto* process = actor->GetActorRuntimeData().currentProcess;
 			if (actor != player && process && process->InHighProcess()) {
@@ -241,6 +258,7 @@ namespace Plugin
 			gLoadedQueue.clear();
 		}
 		gDrawnIds.clear();
+		gNo3D.clear();
 		gDrawn.clear();
 		gLookAround = true;
 	}
