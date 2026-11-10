@@ -701,6 +701,7 @@ namespace Plugin
 				SKSE::log::warn("{}: the expected call is not there (another plugin rewrote it?); {}", a_what, a_lost);
 				return;
 			}
+			// trampoline sites: 3 (explosion update, hazard update, cell animations)
 			Thunk::func = SKSE::GetTrampoline().write_call<5>(a_site.address(), Thunk::thunk);
 		}
 
