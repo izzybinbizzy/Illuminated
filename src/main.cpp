@@ -207,7 +207,8 @@ namespace
 
 SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
-	SKSE::Init(a_skse, { .trampoline = true, .trampolineSize = 128 + FloorLightFix::kTrampolineBytes });
+	// 14 bytes per 5-byte call site: the charge meter's two and the three Light Placer update wraps; `trampoline check.py` counts them
+	SKSE::Init(a_skse, { .trampoline = true, .trampolineSize = 5 * 14 + FloorLightFix::kTrampolineBytes });
 	// the wrong game: loaded but idle - a false here makes SKSE add its own "exit game?" box over the guard's
 	if (!RuntimeGuard::RightGame("Illuminated", "Illuminated - Spell Lighting NG", "Illuminated - VR")) {
 		return true;
