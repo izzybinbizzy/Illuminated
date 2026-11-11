@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "LightMath.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <span>
@@ -24,11 +26,7 @@ namespace StrayLights
 	inline constexpr int kLooks = 2;
 
 	// without case: Light Placer names the folder as the mod manager merged it, "illuminated" as well as "Illuminated"
-	[[nodiscard]] constexpr bool IsOurs(std::string_view a_name) noexcept
-	{
-		constexpr auto lower = [](char a_c) { return a_c >= 'A' && a_c <= 'Z' ? static_cast<char>(a_c - 'A' + 'a') : a_c; };
-		return std::ranges::equal(a_name.substr(0, kOurs.size()), kOurs, {}, lower, lower);
-	}
+	[[nodiscard]] inline bool IsOurs(std::string_view a_name) noexcept { return LightKit::SameText(a_name.substr(0, kOurs.size()), kOurs); }
 
 	struct Seen
 	{

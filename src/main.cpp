@@ -100,9 +100,8 @@ namespace
 		LightKit::FleshFx::Find();  // which flesh spells wear FleshFX's look: their lights take its hue (FleshLights.cpp)
 		NoteFecShaders(cov);        // before the passes forget the editor IDs
 		NoteSpellHazards();
-		FindShadowSigns();           // once here, never on the first frame of play
-		WatchActors3D();             // the fading hears of an actor's 3D
-		ShieldWardWatch::Install();  // a worn ward comes up as her block starts
+		FindShadowSigns();  // once here, never on the first frame of play
+		WatchActors3D();    // the fading hears of an actor's 3D
 		if (record) {
 			MakeRecordLights();    // before passes 1 and 2, which point the records at them
 			TintWardRecords();     // a recolored 360 Ward's color onto the ward hand's record lights
@@ -178,6 +177,7 @@ namespace
 			Fade::OnPostLoad();
 			break;
 		case SKSE::MessagingInterface::kDataLoaded:
+			ShieldWardWatch::Install();  // ahead of the load work: a stop there does not cost it
 			OnDataLoaded();
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
