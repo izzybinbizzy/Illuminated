@@ -54,6 +54,7 @@
 #include "FloorLightFix.h"
 #include "Plugin.h"
 #include "RuntimeGuard.h"
+#include "ShieldWardWatch.h"
 
 using namespace Plugin;
 
@@ -176,6 +177,7 @@ namespace
 			Fade::OnPostLoad();
 			break;
 		case SKSE::MessagingInterface::kDataLoaded:
+			ShieldWardWatch::Install();  // ahead of the load work: a stop there does not cost it
 			OnDataLoaded();
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
@@ -186,7 +188,6 @@ namespace
 		case SKSE::MessagingInterface::kNewGame:
 			// a save holds the plugin's globals as they were when it was made; the settings file is the truth
 			ApplyGlobals();
-			WatchBlocking();  // the player's animation graph is new after a load: the shield's ward watch goes on it again
 			if (a_msg->type == SKSE::MessagingInterface::kNewGame) {
 				ForgetOldGame();
 			}
@@ -207,8 +208,9 @@ namespace
 
 SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
-	// 14 bytes per 5-byte call site: the charge meter's two and the three Light Placer update wraps; `trampoline check.py` counts them
-	SKSE::Init(a_skse, { .trampoline = true, .trampolineSize = 5 * 14 + FloorLightFix::kTrampolineBytes });
+	// 14 bytes per 5-byte call site: the charge meter's two and the three Light Placer update wraps; `trampoline check.py` counts them.
+	// VR writes none of them, so it asks for none
+	SKSE::Init(a_skse, { .trampoline = !REL::Module::IsVR(), .trampolineSize = 5 * 14 + FloorLightFix::kTrampolineBytes });
 	// the wrong game: loaded but idle - a false here makes SKSE add its own "exit game?" box over the guard's
 	if (!RuntimeGuard::RightGame("Illuminated", "Illuminated - Spell Lighting NG", "Illuminated - VR")) {
 		return true;

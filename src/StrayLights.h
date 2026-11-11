@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "LightMath.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <span>
@@ -23,7 +25,8 @@ namespace StrayLights
 	// looks in a row a light must stand without a node before it goes: Light Placer detaches one a moment before the scene removes it
 	inline constexpr int kLooks = 2;
 
-	[[nodiscard]] constexpr bool IsOurs(std::string_view a_name) noexcept { return a_name.starts_with(kOurs); }
+	// without case: Light Placer names the folder as the mod manager merged it, "illuminated" as well as "Illuminated"
+	[[nodiscard]] inline bool IsOurs(std::string_view a_name) noexcept { return LightKit::SameText(a_name.substr(0, kOurs.size()), kOurs); }
 
 	struct Seen
 	{

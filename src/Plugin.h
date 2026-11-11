@@ -394,7 +394,6 @@ namespace Plugin
 	void                                     TintWardHands(RE::ActorMagicCaster* a_caster);                 // Wards.cpp: a recolored 360 Ward's color onto Light Placer's ward hand rows (caster update)
 	void                                     TintWardRecords();                                             // Wards.cpp: the same color onto the record route's ward hand lights (after MakeRecordLights)
 	[[nodiscard]] std::optional<RE::NiColor> StrangeWardColor();                                            // Wards.cpp: its pick's color, none = the vanilla blue-white
-	void                                     WatchBlocking();                                               // Wards.cpp: a shield's ward checked the moment a block starts (each game load)
 
 	// ------------------------------------------------------------------ VfxPacks.cpp: the VFX switcher (his yes 2026-10-19)
 	// OFF in this release (his order 2026-10-19: "keep the spell switcher turned off in illuminated for now so we can ship with
