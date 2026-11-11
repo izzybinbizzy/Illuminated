@@ -348,20 +348,6 @@ namespace Plugin
 			return std::ranges::any_of(data.lightQueueAdd, [&](const RE::NiPointer<RE::BSLight>& a_queued) { return a_queued.get() == a_bs; });
 		}
 
-		// Off the scene by its NiLight, the engine's own removal: a light Open Shaders' Promote made a shadow caster stays in the scene
-		// when it is removed by its BSLight. One still in the add queue goes by its BSLight
-		void TakeOff(RE::ShadowSceneNode* a_scene, const RE::NiPointer<RE::BSLight>& a_bs)
-		{
-			if (!a_scene || !a_bs) {
-				return;
-			}
-			if (auto* light = a_bs->light.get(); light && !WaitingToBeAdded(a_scene, a_bs.get())) {
-				a_scene->RemoveLight(light);
-			} else {
-				a_scene->RemoveLight(a_bs);
-			}
-		}
-
 		// ------------------------------------------------------------------ forgetting one live projectile
 		// gLiveLock is held by every caller; the main thread's (the scene node is touched)
 		void Forget(const RE::NiAVObject* a_root, RE::ShadowSceneNode* a_scene)
@@ -1001,6 +987,20 @@ namespace Plugin
 				original = REL::Relocation<std::uintptr_t>(T::VTABLE[0]).write_vfunc(0x6B, thunk);
 			}
 		};
+	}
+
+	// Off the scene by its NiLight, the engine's own removal: a light Open Shaders' Promote made a shadow caster stays in the scene
+	// when it is removed by its BSLight. One still in the add queue goes by its BSLight
+	void TakeOff(RE::ShadowSceneNode* a_scene, const RE::NiPointer<RE::BSLight>& a_bs)
+	{
+		if (!a_scene || !a_bs) {
+			return;
+		}
+		if (auto* light = a_bs->light.get(); light && !WaitingToBeAdded(a_scene, a_bs.get())) {
+			a_scene->RemoveLight(light);
+		} else {
+			a_scene->RemoveLight(a_bs);
+		}
 	}
 
 	bool StreamLightsOn()
