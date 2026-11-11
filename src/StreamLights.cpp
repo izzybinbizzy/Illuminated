@@ -340,6 +340,28 @@ namespace Plugin
 			return { a_light->data.color.red / 255.0f, a_light->data.color.green / 255.0f, a_light->data.color.blue / 255.0f };
 		}
 
+		// The removal by NiLight searches only the scene's lists, not its add queue
+		[[nodiscard]] bool WaitingToBeAdded(RE::ShadowSceneNode* a_scene, const RE::BSLight* a_bs)
+		{
+			auto&                     data = a_scene->GetRuntimeData();
+			const RE::BSSpinLockGuard guard(data.lightQueueLock);
+			return std::ranges::any_of(data.lightQueueAdd, [&](const RE::NiPointer<RE::BSLight>& a_queued) { return a_queued.get() == a_bs; });
+		}
+
+		// Off the scene by its NiLight, the engine's own removal: a light Open Shaders' Promote made a shadow caster stays in the scene
+		// when it is removed by its BSLight. One still in the add queue goes by its BSLight
+		void TakeOff(RE::ShadowSceneNode* a_scene, const RE::NiPointer<RE::BSLight>& a_bs)
+		{
+			if (!a_scene || !a_bs) {
+				return;
+			}
+			if (auto* light = a_bs->light.get(); light && !WaitingToBeAdded(a_scene, a_bs.get())) {
+				a_scene->RemoveLight(light);
+			} else {
+				a_scene->RemoveLight(a_bs);
+			}
+		}
+
 		// ------------------------------------------------------------------ forgetting one live projectile
 		// gLiveLock is held by every caller; the main thread's (the scene node is touched)
 		void Forget(const RE::NiAVObject* a_root, RE::ShadowSceneNode* a_scene)
@@ -348,12 +370,8 @@ namespace Plugin
 			if (it == gLive.end()) {
 				return;
 			}
-			if (a_scene) {
-				for (auto& bs : it->second.lights) {
-					if (bs) {
-						a_scene->RemoveLight(bs);
-					}
-				}
+			for (auto& bs : it->second.lights) {
+				TakeOff(a_scene, bs);
 			}
 			if (const auto c = gLiveCount.find(it->second.base); c != gLiveCount.end() && c->second) {
 				--c->second;
@@ -646,9 +664,7 @@ namespace Plugin
 			if (!a_cloud.light) {
 				return;
 			}
-			if (a_scene) {
-				a_scene->RemoveLight(a_cloud.light);
-			}
+			TakeOff(a_scene, a_cloud.light);
 			if (auto* light = a_cloud.light->light.get(); light && light->parent) {
 				light->parent->DetachChild(light);
 			}
