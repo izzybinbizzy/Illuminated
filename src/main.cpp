@@ -54,6 +54,7 @@
 #include "FloorLightFix.h"
 #include "Plugin.h"
 #include "RuntimeGuard.h"
+#include "ShieldWardWatch.h"
 
 using namespace Plugin;
 
@@ -99,8 +100,9 @@ namespace
 		LightKit::FleshFx::Find();  // which flesh spells wear FleshFX's look: their lights take its hue (FleshLights.cpp)
 		NoteFecShaders(cov);        // before the passes forget the editor IDs
 		NoteSpellHazards();
-		FindShadowSigns();  // once here, never on the first frame of play
-		WatchActors3D();    // the fading hears of an actor's 3D
+		FindShadowSigns();           // once here, never on the first frame of play
+		WatchActors3D();             // the fading hears of an actor's 3D
+		ShieldWardWatch::Install();  // a worn ward comes up as her block starts
 		if (record) {
 			MakeRecordLights();    // before passes 1 and 2, which point the records at them
 			TintWardRecords();     // a recolored 360 Ward's color onto the ward hand's record lights
@@ -186,7 +188,6 @@ namespace
 		case SKSE::MessagingInterface::kNewGame:
 			// a save holds the plugin's globals as they were when it was made; the settings file is the truth
 			ApplyGlobals();
-			WatchBlocking();  // the player's animation graph is new after a load: the shield's ward watch goes on it again
 			if (a_msg->type == SKSE::MessagingInterface::kNewGame) {
 				ForgetOldGame();
 			}
@@ -207,8 +208,9 @@ namespace
 
 SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
-	// 14 bytes per 5-byte call site: the charge meter's two and the three Light Placer update wraps; `trampoline check.py` counts them
-	SKSE::Init(a_skse, { .trampoline = true, .trampolineSize = 5 * 14 + FloorLightFix::kTrampolineBytes });
+	// 14 bytes per 5-byte call site: the charge meter's two and the three Light Placer update wraps; `trampoline check.py` counts them.
+	// VR writes none of them, so it asks for none
+	SKSE::Init(a_skse, { .trampoline = !REL::Module::IsVR(), .trampolineSize = 5 * 14 + FloorLightFix::kTrampolineBytes });
 	// the wrong game: loaded but idle - a false here makes SKSE add its own "exit game?" box over the guard's
 	if (!RuntimeGuard::RightGame("Illuminated", "Illuminated - Spell Lighting NG", "Illuminated - VR")) {
 		return true;

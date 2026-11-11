@@ -431,6 +431,7 @@ namespace Plugin
 			};
 			const auto& lists = scene->GetRuntimeData();
 			look(lists.activeLights);
+			look(lists.activeShadowLights);  // a shadow caster (Open Shaders' Promote, the shadow download) sits here instead
 			look(QueuedLights(scene));
 			const bool  on = now != 0;
 			std::size_t swapped = 0;
@@ -502,7 +503,8 @@ namespace Plugin
 				const auto      turn = LightKit::Turn();  // let go at the brace, before Fade::Rebase (the fading lock comes before the turn)
 				std::lock_guard l{ gFlickerLock };
 				VisitList(lights.activeLights, changed, ratio, moved);
-				VisitList(queued, changed, ratio, moved);  // added before the next draw
+				VisitList(lights.activeShadowLights, changed, ratio, moved);  // a shadow caster sits here instead
+				VisitList(queued, changed, ratio, moved);                     // added before the next draw
 				if (!Scaling()) {
 					gFlickers.clear();  // Light Placer's own values stand from here on
 					Reindex();

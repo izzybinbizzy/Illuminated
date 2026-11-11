@@ -23,7 +23,12 @@ namespace StrayLights
 	// looks in a row a light must stand without a node before it goes: Light Placer detaches one a moment before the scene removes it
 	inline constexpr int kLooks = 2;
 
-	[[nodiscard]] constexpr bool IsOurs(std::string_view a_name) noexcept { return a_name.starts_with(kOurs); }
+	// without case: Light Placer names the folder as the mod manager merged it, "illuminated" as well as "Illuminated"
+	[[nodiscard]] constexpr bool IsOurs(std::string_view a_name) noexcept
+	{
+		constexpr auto lower = [](char a_c) { return a_c >= 'A' && a_c <= 'Z' ? static_cast<char>(a_c - 'A' + 'a') : a_c; };
+		return std::ranges::equal(a_name.substr(0, kOurs.size()), kOurs, {}, lower, lower);
+	}
 
 	struct Seen
 	{
