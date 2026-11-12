@@ -38,3 +38,6 @@ their author (see `src/DevBenchAPI.LICENSE.txt`) and copied unchanged. devbench 
 
 `src/ReticleArcsAPI.h` is Reticle Arcs' add-on interface by Chiktabba, MIT licensed (the notice at its top), copied
 unchanged. Reticle Arcs is not required.
+
+`src/HudNGNativeAPI.h` is HUD NG's native API by Ckw25, GPL-3.0-or-later with the Modding Exception (see
+`src/HudNGNativeAPI.LICENSE.txt`), copied unchanged. HUD NG is not required.

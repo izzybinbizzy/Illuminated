@@ -348,12 +348,8 @@ namespace Plugin
 			if (it == gLive.end()) {
 				return;
 			}
-			if (a_scene) {
-				for (auto& bs : it->second.lights) {
-					if (bs) {
-						a_scene->RemoveLight(bs);
-					}
-				}
+			for (auto& bs : it->second.lights) {
+				LightKit::TakeOff(a_scene, bs);
 			}
 			if (const auto c = gLiveCount.find(it->second.base); c != gLiveCount.end() && c->second) {
 				--c->second;
@@ -646,9 +642,7 @@ namespace Plugin
 			if (!a_cloud.light) {
 				return;
 			}
-			if (a_scene) {
-				a_scene->RemoveLight(a_cloud.light);
-			}
+			LightKit::TakeOff(a_scene, a_cloud.light);
 			if (auto* light = a_cloud.light->light.get(); light && light->parent) {
 				light->parent->DetachChild(light);
 			}
