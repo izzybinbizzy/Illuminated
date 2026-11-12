@@ -165,7 +165,6 @@ namespace Plugin
 	void               ApplyStreamLights(bool a_log);                                                    // StreamLights.cpp: the setting, on or off
 	void               DropStreamLights();                                                               // a game loads, or a new one starts: every row and ward light the old game had
 	void               StreamLightsFrame();                                                              // StreamLights.cpp: once a frame, what a loader thread left to do
-	void               TakeOff(RE::ShadowSceneNode* a_scene, const RE::NiPointer<RE::BSLight>& a_bs);    // StreamLights.cpp: a light of ours out of the scene, the engine's own way
 	void               ApplyLightStrength(bool a_log, bool a_quiet = false);                             // LightCopies.cpp: the sliders onto the copies (a flicker's Brightness as it is drawn); a_quiet: a daylight step, no log line
 	void               RequestRefresh();                                                                 // LightCopies.cpp: RefreshLights at the next frame, on the main thread
 	void               NoteFadeWrite(const RE::NiPointLight* a_light, float a_before, float a_after);    // LightCopies.cpp: the fading module wrote it (never scaled twice)

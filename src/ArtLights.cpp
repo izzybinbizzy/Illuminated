@@ -88,7 +88,7 @@ namespace Plugin
 			if (a_kept.light && !a_kept.hers && gLit > 0) {
 				--gLit;
 			}
-			TakeOff(a_scene, a_kept.bs);
+			LightKit::TakeOff(a_scene, a_kept.bs);
 			if (a_kept.light && a_kept.light->parent) {
 				a_kept.light->parent->DetachChild(a_kept.light.get());
 			}
