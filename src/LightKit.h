@@ -1,10 +1,9 @@
-// LightKit - small helpers Illuminated and RELight - Spell Lighting NG both use
+// LightKit - small helpers Illuminated, RELight - Spell Lighting NG and Illuminated - Creature Lighting NG use
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see the LICENSE file and the notice at the top of main.cpp.
 //
-// The two mods never run together, so each carries its own copy of this file - kept byte for byte the same as the other
-// by PC Runner\fade copies check.py (in preflight), as the fading module is. A change is made in one copy and copied to the
-// other in the same pass. Nothing here knows which mod it is in.
+// Each plugin carries its own copy of this file, kept byte for byte the master's in Tools\Shared Plugin Code\ by
+// PC Runner\shared code sync.py. A change is made in the master and synced to every copy. Nothing here knows which mod it is in.
 //
 //   Relaxed      a value one thread writes and another reads, with nothing else depending on it
 //   NewForm      a form made in memory by the game's own factory; IsCallAt, a call site's check before it is hooked
