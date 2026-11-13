@@ -146,7 +146,7 @@ namespace Plugin
 			const std::vector<const char*> items{ T("Off"), T("Regular"), T("Cinematic") };
 			const std::vector<const char*> tips{ T("Steady lights, no pulse or flicker."),
 				T("Lights pulse as they always have: fire crackles, absorb spells beat, the rest breathe gently."),
-				T("Each kind of spell pulses its own way: fire flickers, shock snaps, healing breathes.") };
+				T("Each kind of spell pulses its own way (fire flickers, shock snaps); with Light Placer it pulses like Regular.") };
 			int                            v = a_s.value.load() == 0 ? 0 : SettingValue(kPulseShapesId, 0) != 0 ? 2 :
 			                                                                                                      1;
 			if (ChoiceCombo(T(a_s.label.c_str()), v, items, tips)) {
@@ -486,7 +486,7 @@ namespace Plugin
 				if (!gCSLight.empty()) {
 					ImGuiMCP::TextColored(kWarn, T("%s is loaded."), gCSLight.c_str());
 					MenuStyle::Tip(T(
-						"You don't need CS Light. If you keep it, untick its spell options or those lights glow twice."));
+						"You don't need CS Light; if you keep it, untick its Magic FX, Mysticism, Bound Weapons, Praedy Staves and Misc Effects options."));
 				}
 			};
 			std::string group;

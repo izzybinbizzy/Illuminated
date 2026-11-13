@@ -199,7 +199,7 @@ namespace Fade
 				"How much of the fade the light's reach follows too. 0%: only the brightness fades; 100%: the reach shrinks just as much.",
 				save);
 			Toggle("Dim the glow too", s.dimShader,
-				"The blade's glow fades with the charge too, and a self-cast spell's glow with your magicka.",
+				"The blade's glow fades with the charge too, and a self-cast spell's glow with your magicka while Spells is on.",
 				save);
 
 			GlowHeading(Icon::kMoon, "Nearly empty");
@@ -256,7 +256,7 @@ namespace Fade
 			{
 				static const char* const kWho[] = { TR_MARK("Player"), TR_MARK("Player and followers"), TR_MARK("Everyone") };
 				Choice("Whose", s.who, kWho, 3,
-					"Whose lights fade: yours, your followers' too, or every caster near you.",
+					"Whose lights fade: yours, your followers' too, or every caster near you (other people's weapons rarely lose charge).",
 					save);
 			}
 
