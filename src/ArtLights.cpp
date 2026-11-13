@@ -16,7 +16,7 @@
 // The flesh spells the same way: their configs light an effect SHADER on the caster's body (Oakflesh ... Dragonhide, LightMath.h
 // kFleshLooks), which has no light record slot either, and without Light Placer nothing lit them. Each flesh shader effect
 // gets its row's light on the body (the effect's own attach root, the third-person one - a light under the first-person
-// skeleton lights nothing on ENB), faded while its caster sneaks (SneakFade.cpp), and drawn in FleshFX's
+// skeleton lights nothing on ENB), and drawn in FleshFX's
 // hue where FleshFX's look wins (FleshLights.cpp has why). Only the flesh shaders are followed as effects; a drawn weapon's
 // enchantment SHADER (the blade's glow) is reached through the weapon instead (CollectWeapons, EnchantShaderLight).
 //
@@ -212,7 +212,7 @@ namespace Plugin
 		}
 
 		// a flesh spell's light on its caster's body, while a setting lights its row (RecordLightFor - the Flesh Spells switch,
-		// full strength, Dynamic Lighting); a sneaking caster's fades (SneakFade.cpp). True while a row lights it, so it is visited
+		// full strength, Dynamic Lighting). True while a row lights it, so it is visited
 		// again between walks - faded out or with its body not loaded too (the Stay pick or the 3D brings it back)
 		bool KeepFlesh(RE::ShaderReferenceEffect* a_effect, RE::ShadowSceneNode* a_scene)
 		{

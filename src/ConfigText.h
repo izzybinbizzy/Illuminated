@@ -112,7 +112,7 @@ namespace ConfigText
 	inline constexpr std::string_view kArtifactKeyword = "DaedricArtifact";
 
 	// Only GetGlobalValue items and the artifact item are kept. A run of OR items is one test, as the game reads it; a test that
-	// holds anything else (IsSneaking OR a setting) cannot be decided from the settings, so it is left out: it may be true.
+	// holds anything else (an actor test OR a setting) cannot be decided from the settings, so it is left out: it may be true.
 	[[nodiscard]] inline std::vector<std::vector<Clause>> ParseConditions(const std::vector<std::string>& a_conditions)
 	{
 		std::vector<std::vector<Clause>> out;

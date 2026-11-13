@@ -146,8 +146,7 @@ namespace Plugin
 			const std::vector<const char*> items{ T("Off"), T("Regular"), T("Cinematic") };
 			const std::vector<const char*> tips{ T("Steady lights, no pulse or flicker."),
 				T("Lights pulse as they always have: fire crackles, absorb spells beat, the rest breathe gently."),
-				T("Each kind of spell gets a shape of its own: fire flickers in uneven bursts, shock snaps, healing breathes slowly, and the "
-				  "rows along sprays and bolts follow it. With Light Placer it pulses like Regular for now.") };
+				T("Each kind of spell pulses its own way (fire flickers, shock snaps); with Light Placer it pulses like Regular.") };
 			int                            v = a_s.value.load() == 0 ? 0 : SettingValue(kPulseShapesId, 0) != 0 ? 2 :
 			                                                                                                      1;
 			if (ChoiceCombo(T(a_s.label.c_str()), v, items, tips)) {
@@ -392,7 +391,7 @@ namespace Plugin
 			// gone a second time - CLAUDE.md); every light keeps its own color
 			const Preset presets[] = {
 				{ T("Subtle"), T("Softer lights that stay close to the spell."), 75, 80, 1, -1, -1 },
-				{ T("Default"), T("The lights as the mod was made."), 100, 100, 1, 0, 1 },
+				{ T("Default"), T("My lights as I made them."), 100, 100, 1, 0, 1 },
 				{ T("Cinematic"), T("Brighter lights that reach further."), 150, 120, 1, -1, -1 },
 			};
 			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Presets"));
@@ -487,9 +486,7 @@ namespace Plugin
 				if (!gCSLight.empty()) {
 					ImGuiMCP::TextColored(kWarn, T("%s is loaded."), gCSLight.c_str());
 					MenuStyle::Tip(T(
-						"Illuminated does not need CS Light. Keeping it for its world lights? Untick its Magic FX, Mysticsm, "
-						"Bound Weapons, Praedy Staves, Spiders, Misc Effects and Dwarven Spiders options, or those lights glow "
-						"twice."));
+						"You don't need CS Light; if you keep it, untick its Magic FX, Mysticism, Bound Weapons, Praedy Staves and Misc Effects options."));
 				}
 			};
 			std::string group;

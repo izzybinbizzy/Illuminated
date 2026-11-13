@@ -12,7 +12,7 @@
 // afterwards +0.98 - so the flag alone is not enough, the light has to be MADE that way.
 //
 // So, Dynamic Wards' way (its DomeLights.cpp Make): the game's casting light is kept - flicker, Brightness, Reach,
-// sneaking, the light budget and the fading module all keep writing to it as before - but it is hidden, and a twin made like
+// the light budget and the fading module all keep writing to it as before - but it is hidden, and a twin made like
 // Dynamic Wards' hand light copies it every frame (color, strength, reach). The twin hangs beside the hand's magic node (on its
 // parent, at the magic node's place), not under it: the fading module scales every light under the magic node, and the twin
 // copies a light it already scaled.

@@ -123,18 +123,6 @@ namespace Plugin
 			}
 		}
 
-		// Without Light Placer the hand light is the game's own casting light, which no row's condition reaches, so a sneaking
-		// caster's is faded here, after every other pass wrote it this frame (SneakFade.cpp). The ground twin copies it
-		// (GroundLights.cpp - setting the game light's own land flag afterwards was measured not enough).
-		void ApplyRecordHand(RE::ActorMagicCaster* a_caster)
-		{
-			if (!a_caster || !RecordRoute()) {
-				return;
-			}
-			auto* bs = a_caster->light.get();
-			SneakDim(bs ? bs->light.get() : nullptr, a_caster->GetCasterAsActor());
-		}
-
 		// what a lit light of a config's copy needs, by the copy's editor ID. Written at data load and on the main thread.
 		struct Lit
 		{
@@ -328,7 +316,7 @@ namespace Plugin
 		// steady twin - the light of the same config hanging at the same place, the k-th of each kind there by Light Placer's own
 		// numbering (ConfigText.h) - are shown / hidden here the way Light Placer's next test will (SwapTwins); only what is drawn:
 		// Light Placer's own verdict (the ambient red's top byte) is never written. Light Placer rewrites a light only when its
-		// verdict changes, so a light shown here whose other conditions turned false first (she sneaked) would stay shown; after
+		// verdict changes, so a light shown here whose other conditions turned false first would stay shown; after
 		// kHandBack seconds of game time (and once more a second later) every light touched here is given Light Placer's own
 		// verdict back (HandBack) - a no-op where its test agreed. A place whose two kinds do not come in equal numbers, or a pair hidden for another reason, is left
 		// to Light Placer's test.
@@ -582,14 +570,9 @@ namespace Plugin
 		{
 			static void thunk(RE::PlayerCharacter* a_this, float a_delta)
 			{
-				using LightKit::Cost::Scope;
-				{
-					const Scope c{ 1, "sneak frame start" };
-					LightKit::Guarded("sneak fade", []() { SneakFrameStart(); });  // before the game and every pass write this frame's fades
-				}
 				func(a_this, a_delta);
 				LightKit::Guarded("player update", [a_delta]() {
-					// each pass times itself after its own early return (LightKit::Cost::Pass); only Ivy's sneak calls keep their meter here
+					// each pass times itself after its own early return (LightKit::Cost::Pass)
 					Frame();
 					TickSwapped(a_delta);  // the Dynamic Lighting swap's lights back to Light Placer's own verdict
 					if (RecordRoute()) {
@@ -600,14 +583,7 @@ namespace Plugin
 					if (!RecordRoute()) {
 						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
 					}
-					{
-						const SneakPause pause;  // the fading module reads the fades the others left, never our dimmed one
-						Fade::UpdateHands(a_delta);
-					}
-					{
-						const Scope c{ 12, "sneak frame end" };
-						SneakFrameEnd(a_delta);  // over every fade written above (SneakFade.cpp)
-					}
+					Fade::UpdateHands(a_delta);
 					PlaceHerShadow();    // with the shadow download: her two hands' lights at one point (HerShadow.cpp)
 					TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
 					LightKit::Cost::FrameEnd();
@@ -632,11 +608,7 @@ namespace Plugin
 				}
 				LightKit::Guarded("caster update", [a_this]() {
 					{
-						auto*                     actor = a_this->GetCasterAsActor();
-						std::optional<SneakPause> pause;
-						if (actor) {
-							pause.emplace(actor);  // only this caster's lights
-						}
+						auto* actor = a_this->GetCasterAsActor();
 						ScaleOwned(actor);
 						RecordFlicker(a_this);  // without Light Placer: the hand light's flicker (RecordLights.cpp), before the fading module scales it
 						ApplyHandBudget(a_this);
@@ -645,7 +617,6 @@ namespace Plugin
 					if (!RecordRoute()) {
 						TintWardHands(a_this);
 					}
-					ApplyRecordHand(a_this);  // last: the sneak fade over everything written above
 				});
 			}
 			static inline REL::Relocation<decltype(thunk)> func;
@@ -663,7 +634,7 @@ namespace Plugin
 			{
 				func(a_this);
 				// every effect in the loaded world comes through here. On the record route nothing rewrites a light in this call, so nothing
-				// to fade is the common case; on the Light Placer route it writes its lights here, and the sneak pause below dims them again
+				// to scale is the common case; on the Light Placer route it writes its lights here and they are scaled again below
 				if (RecordRoute() && !Fade::EffectsWanted()) {
 					return;
 				}
@@ -674,8 +645,6 @@ namespace Plugin
 					if (!owner) {
 						owner = OwnerOf(a_this->Get3D());
 					}
-					// an effect on nothing pauses her lights only: her first-person skeleton is the one that names no reference
-					const SneakPause pause{ owner ? owner : RE::PlayerCharacter::GetSingleton() };
 					ScaleOwned(owner);
 					if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
 						if (!RecordRoute() && FleshNoted()) {
@@ -960,7 +929,6 @@ namespace Plugin
 					return;
 				}
 				LightKit::Guarded("cell animations", [a_cell]() {
-					const SneakPause pause;  // dims again what Light Placer just wrote; nothing while nothing is dimmed
 					ScaleCell(a_cell);
 					if (Fade::ReapplyWanted()) {
 						Fade::ReapplyAll();  // this frame's fading numbers again for every hand's lights, without advancing any timer

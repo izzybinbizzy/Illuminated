@@ -285,28 +285,8 @@ namespace Plugin
 	[[nodiscard]] std::size_t GroundLightCount();
 	[[nodiscard]] std::size_t GroundLightsMade();
 	// HerShadow.cpp: with the Bottled Shaders shadow download, both her hands' lights at one point between her hands (one shadow)
-	void PlaceHerShadow();  // the player update, after every pass wrote its fades (main thread)
-	void DropHerShadow();   // a game loads, or a new one starts
-	// SneakFade.cpp: a sneaking caster's lights fade to Sneaking brightness over half a second and back when they stand. Our
-	// write is the last word on a dimmed light and never a base for another pass: SneakPause around a pass that writes fades
-	// gives it the numbers the others left
-	void SneakFrameStart();                                          // the player update, before the game's: every dimmed light back
-	void SneakFrameEnd(float a_delta);                               // the player update, last but the ground twins: the levels, the dimming
-	void SneakDim(RE::NiLight* a_light, const RE::Actor* a_caster);  // one light by its caster's level (any thread, outside a SneakPause)
-	void DropSneakFade();                                            // a game loads, or a new one starts
-	void FindShadowSigns();                                          // data load: the perks and abilities that need the dark
-	class SneakPause
-	{
-	public:
-		explicit SneakPause(const RE::TESObjectREFR* a_owner = nullptr);  // nullptr: every caster's lights
-		~SneakPause();
-		SneakPause(const SneakPause&) = delete;
-		SneakPause& operator=(const SneakPause&) = delete;
-
-	private:
-		RE::FormID owner_{ 0 };
-		bool       held_{ false };
-	};
+	void               PlaceHerShadow();                                        // the player update, after every pass wrote its fades (main thread)
+	void               DropHerShadow();                                         // a game loads, or a new one starts
 	[[nodiscard]] bool IsOurLightPlacerLight(const RE::NiPointLight& a_light);  // LightCopies.cpp: Light Placer's light of one of our copies
 	// automatic lights (his go-to pick): a light of ours in a_color, at the middle strength and reach of the tuned
 	// hand lights a_tuned (made once per color, at data load; follows the sliders)
