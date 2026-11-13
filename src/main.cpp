@@ -100,8 +100,7 @@ namespace
 		LightKit::FleshFx::Find();  // which flesh spells wear FleshFX's look: their lights take its hue (FleshLights.cpp)
 		NoteFecShaders(cov);        // before the passes forget the editor IDs
 		NoteSpellHazards();
-		FindShadowSigns();  // once here, never on the first frame of play
-		WatchActors3D();    // the fading hears of an actor's 3D
+		WatchActors3D();  // the fading hears of an actor's 3D
 		if (record) {
 			MakeRecordLights();    // before passes 1 and 2, which point the records at them
 			TintWardRecords();     // a recolored 360 Ward's color onto the ward hand's record lights
@@ -156,7 +155,6 @@ namespace
 		ForgetDrawn();
 		DropHerShadow();
 		DropStreamLights();
-		DropSneakFade();
 		ForgetStrayLights();
 		DropHandBudget();
 		DropFleshRoots();

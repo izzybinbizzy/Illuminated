@@ -357,7 +357,7 @@ namespace Plugin
 		if (rows == gArtHandRows.end()) {
 			return std::nullopt;
 		}
-		// only the pick decides: the route, Dynamic Lighting and sneaking twins of one pick share its color
+		// only the pick decides: the route and Dynamic Lighting twins of one pick share its color
 		const int pick = SettingValue(hand->setting, 0);
 		for (const auto& row : rows->second) {
 			if (!row.hasColor) {
