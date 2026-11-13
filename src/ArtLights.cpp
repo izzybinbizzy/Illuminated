@@ -436,12 +436,18 @@ namespace Plugin
 			for (const bool left : { false, true }) {
 				auto* form = a_actor->GetEquippedObject(left);
 				auto* weapon = form ? form->As<RE::TESObjectWEAP>() : nullptr;
-				if (!weapon) {
+				// a shield a spell puts in her left hand (Holy Templar's Sunlight Targe) is lit by its model's row as Light Placer lights it
+				auto* shield = !weapon && left && form ? form->As<RE::TESObjectARMO>() : nullptr;
+				if (!weapon && left && !shield) {
+					// the left hand's slot names no shield in every case: the worn shield's own (no inventory made for it)
+					shield = a_actor->GetWornArmor(RE::BGSBipedObjectForm::BipedObjectSlot::kShield, true);
+				}
+				if (!weapon && !shield) {
 					continue;
 				}
-				const auto& model = ModelKey(weapon, weapon->GetModel());
+				const auto& model = weapon ? ModelKey(weapon, weapon->GetModel()) : ModelKey(shield, shield->worldModels[0].GetModel());
 				auto*       record = model.empty() ? nullptr : RecordLightFor(model, artifact);
-				if (!record) {
+				if (!record && weapon) {
 					// the held instance's own (FadeCharge.cpp ReadHand: the WORN copy's - the entry can hold other copies of the
 					// same weapon, CodeRabbit's point on #13 - else the weapon record's). ReadHand counts a bound weapon's time
 					// and reads no enchantment, so a bound weapon on an ordinary model (Odin's) takes its record's own
@@ -454,7 +460,7 @@ namespace Plugin
 					continue;
 				}
 				// the weapon's third-person 3D; in first person the body node, as for art (ArtNode: the arms are not posed there)
-				auto*       part = Fade::WeaponPart(a_actor, false, left, weapon);
+				auto*       part = Fade::WeaponPart(a_actor, false, left, weapon ? static_cast<const RE::TESForm*>(weapon) : shield);
 				const auto* hand = part ? HandAbove(part) : nullptr;
 				gWeaponWaits = gWeaponWaits || !part;
 				if (part && !ArtUnder(part) && !ArtUnder(hand) && !gHandsOnBody.contains(hand)) {
