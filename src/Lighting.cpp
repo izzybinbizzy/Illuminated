@@ -8,8 +8,6 @@
 
 #include "Plugin.h"
 
-#include <Windows.h>
-
 #include "GameLighting.h"
 
 namespace Plugin
