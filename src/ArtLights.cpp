@@ -57,9 +57,17 @@ namespace Plugin
 			std::string model, key;
 		};
 		std::unordered_map<const RE::TESForm*, ModelKeyOf> gModelKey;
-		std::atomic<std::size_t>                           gMade{ 0 };       // the testing DLL's Diagnostics page reads these two
-		std::atomic<std::size_t>                           gKeptCount{ 0 };  // from the render thread
-		std::atomic<std::size_t>                           gLitCount{ 0 };
+		// a shield's models as the configs key them, once per form: its world model, then its addons' worn models (Mysticism's
+		// Bound Shield wears the Daedric shield in the world and its own model on the arm); the world model text rides along as above
+		struct ShieldKeysOf
+		{
+			std::string              model;
+			std::vector<std::string> keys;
+		};
+		std::unordered_map<const RE::TESForm*, ShieldKeysOf> gShieldKeys;
+		std::atomic<std::size_t>                             gMade{ 0 };       // the testing DLL's Diagnostics page reads these two
+		std::atomic<std::size_t>                             gKeptCount{ 0 };  // from the render thread
+		std::atomic<std::size_t>                             gLitCount{ 0 };
 		// the Performance cap on glows on people (his checklist 336): how many of gKept are lit now, the cap this frame
 		std::size_t gLit{ 0 };
 		std::size_t gCap{ (std::numeric_limits<std::size_t>::max)() };
@@ -80,6 +88,35 @@ namespace Plugin
 				it->second.key = NormalPath(it->second.model.c_str());
 			}
 			return it->second.key;
+		}
+
+		[[nodiscard]] const std::vector<std::string>& ShieldKeys(const RE::TESObjectARMO* a_shield)
+		{
+			const char*            world = a_shield->worldModels[RE::SEXES::kMale].GetModel();
+			const std::string_view model = world ? world : "";
+			auto [it, added] = gShieldKeys.try_emplace(a_shield);
+			if (added || it->second.model != model) {
+				it->second.model.assign(model);
+				auto& keys = it->second.keys;
+				keys.clear();
+				const auto add = [&](const char* a_path) {
+					if (!a_path || !*a_path) {
+						return;
+					}
+					if (auto key = NormalPath(a_path); !key.empty() && std::ranges::find(keys, key) == keys.end()) {
+						keys.push_back(std::move(key));
+					}
+				};
+				add(world);
+				for (const auto* addon : a_shield->armorAddons) {
+					if (addon) {
+						for (const auto& worn : addon->bipedModels) {
+							add(worn.GetModel());
+						}
+					}
+				}
+			}
+			return it->second.keys;
 		}
 
 		void Drop(Kept& a_kept, RE::ShadowSceneNode* a_scene)
@@ -445,8 +482,17 @@ namespace Plugin
 				if (!weapon && !shield) {
 					continue;
 				}
-				const auto& model = weapon ? ModelKey(weapon, weapon->GetModel()) : ModelKey(shield, shield->worldModels[0].GetModel());
-				auto*       record = model.empty() ? nullptr : RecordLightFor(model, artifact);
+				RE::TESObjectLIGH* record = nullptr;
+				if (weapon) {
+					const auto& model = ModelKey(weapon, weapon->GetModel());
+					record = model.empty() ? nullptr : RecordLightFor(model, artifact);
+				} else {
+					for (const auto& key : ShieldKeys(shield)) {
+						if ((record = RecordLightFor(key, artifact))) {
+							break;
+						}
+					}
+				}
 				if (!record && weapon) {
 					// the held instance's own (FadeCharge.cpp ReadHand: the WORN copy's - the entry can hold other copies of the
 					// same weapon, CodeRabbit's point on #13 - else the weapon record's). ReadHand counts a bound weapon's time
@@ -673,6 +719,7 @@ namespace Plugin
 		gLitCount = 0;
 		gLit = 0;
 		gModelKey.clear();  // keyed by form address: a form made in memory and freed could hand its address to another
+		gShieldKeys.clear();
 		ForgetArts();
 	}
 
