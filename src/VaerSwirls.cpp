@@ -108,8 +108,8 @@ namespace Plugin
 			{ "Skyrim.esm", 0x0F1AC2, "VAEReborn.esp", 0x000810, "VAEReborn.esp", 0x000829, "MQ203DragonDamageFFContact" },
 		};
 
-		// VAER's swirl art objects and the emissive each copy is made with, relative to VAER's own mesh: 4 for our brighter copy, 1
-		// where VAER's mesh is kept. Written at data load, read only after
+		// VAER's swirl art objects pointed at our brighter copy and its emissive relative to VAER's own mesh (4); a swirl with no copy
+		// of ours is left as VAER made it. Written at data load, read only after
 		std::unordered_map<const RE::BGSArtObject*, float> gSwirlArts;
 		constexpr std::string_view                         kSwirlSetting = "IlluminatedVAERSwirls";
 
@@ -179,7 +179,6 @@ namespace Plugin
 				std::error_code   ec;
 				if (!fs::exists(fs::path("Data") / "meshes" / ours, ec)) {
 					++absent;
-					gSwirlArts[art] = 1.0f;
 					continue;
 				}
 				art->SetModel(ours.c_str());
