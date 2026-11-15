@@ -284,6 +284,7 @@ namespace Plugin
 	void                      RenewGroundLights();  // a loading screen ended: every twin let go, the next visit hangs a new one
 	[[nodiscard]] std::size_t GroundLightCount();
 	[[nodiscard]] std::size_t GroundLightsMade();
+	[[nodiscard]] std::size_t GroundLightsLeftHidden();  // GroundLights.cpp: casting lights the game holds hidden on a caster whose hands are down
 	// HerShadow.cpp: with the Bottled Shaders shadow download, both her hands' lights at one point between her hands (one shadow)
 	void               PlaceHerShadow();                                        // the player update, after every pass wrote its fades (main thread)
 	void               DropHerShadow();                                         // a game loads, or a new one starts
@@ -309,7 +310,9 @@ namespace Plugin
 		// tests are kept once and shared by all of its models (never copied per model)
 		using Tests = std::vector<std::vector<std::vector<Clause>>>;  // one entry: each light's settings test
 		std::unordered_map<std::string, std::vector<std::shared_ptr<const Tests>>> modelTests;
-		[[nodiscard]] bool                                                         ModelLit(const std::string& a_model) const;
+		// forms a light's blackList takes out of its models (Light Placer's own exclusion): the record route leaves them too
+		std::set<RE::FormID> leftOut;
+		[[nodiscard]] bool   ModelLit(const std::string& a_model) const;
 	};
 
 	[[nodiscard]] const Coverage& ReadCoverage();

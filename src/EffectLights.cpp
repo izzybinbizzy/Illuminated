@@ -151,6 +151,11 @@ namespace Plugin
 			if (!form) {
 				continue;
 			}
+			// a light's blackList names it (Creatures' records on a shared model): left as Light Placer leaves it, its own light kept
+			if (a_cov.leftOut.contains(form->GetFormID())) {
+				SKSE::log::info("[FX-LEFT-OUT] {} {} | a light's blackList names it", a_kind, Label(form));
+				continue;
+			}
 			auto model = NormalPath(form->GetModel() ? form->GetModel() : "");
 			if (model.empty()) {
 				continue;

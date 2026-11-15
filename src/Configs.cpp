@@ -174,6 +174,13 @@ namespace Plugin
 							}
 						}
 						tests.push_back(ParseConditions(conds));
+						if (const auto* black = a_stream ? nullptr : light.Get("blackList"); black && black->kind == Json::Kind::kArray) {
+							for (const auto& item : black->items) {
+								if (const auto id = item.kind == Json::Kind::kString ? FormOfToken(item.text) : std::nullopt) {
+									a_cov.leftOut.insert(*id);
+								}
+							}
+						}
 						if (const auto* data = a_name.empty() ? nullptr : light.Get("data")) {
 							if (const auto* l = data->Get("light"); l && l->kind == Json::Kind::kString) {
 								gTwinRows[ConfigText::TwinKey(a_name + '|' + l->text)] |= ConfigText::DynamicRow(tests.back());

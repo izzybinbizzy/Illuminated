@@ -233,6 +233,14 @@ namespace Plugin
 			Follow(kept);
 		}
 
+		// the key a shader's config rows are kept under: its name's, or its id's where the configs claim it by id (a vanilla shader a
+		// mod renames, gen.RENAMED_BASE_FORMS - Configs.cpp keeps such rows under the id), as EffectLights.cpp asks for forms
+		[[nodiscard]] std::string RowKey(const RE::TESForm* a_form, std::string_view a_name)
+		{
+			auto key = a_name.empty() ? std::string() : FormKey(Lower(a_name));
+			return !key.empty() && LastCoverage().modelTests.contains(key) ? key : FormIdKey(a_form->GetFormID());
+		}
+
 		// the body shaders followed here and the key their config rows are kept under (Configs.cpp: "formid:" + the editor ID
 		// the configs claim): the five flesh shaders in this load order (LightKit::FleshFx::Resolved) and FEC's lit ones
 		// (FleshLights.cpp NoteFecShaders), both found at data load - built on the first frame
@@ -241,7 +249,7 @@ namespace Plugin
 			static const auto shaders = [] {
 				std::unordered_map<const RE::TESEffectShader*, std::string> out(FecShaders());
 				for (const auto& [shader, look] : LightKit::FleshFx::Resolved()) {
-					out.emplace(shader, FormKey(Lower(look->editorID)));
+					out.emplace(shader, RowKey(shader, look->editorID));
 				}
 				return out;
 			}();
@@ -567,9 +575,7 @@ namespace Plugin
 			if (!shader || gEnchShaderKey.contains(shader)) {
 				continue;
 			}
-			if (const auto id = EditorID(shader); !id.empty()) {
-				gEnchShaderKey.emplace(shader, FormKey(Lower(id)));
-			}
+			gEnchShaderKey.emplace(shader, RowKey(shader, EditorID(shader)));
 		}
 		SKSE::log::info("art lights: {} enchantment shader(s) noted for the drawn-weapon lights", gEnchShaderKey.size());
 	}

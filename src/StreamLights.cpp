@@ -12,7 +12,7 @@
 // measured 2026-10-13), else the spray markers (frost, shock), else the record's own; a beam with no light of its own wears
 // its row's light. A spray model pass 4 copied (the Spray Lights setting) is left to that setting alone - his answer
 // 2026-10-13: Streams off does not touch the sprays Spray Lights lights, two settings, each doing one thing.
-// `PC Runner\stream rule check.py` fails a build that hangs lights on these projectiles anywhere but beside BeamRow::Lay.
+// `PC Runner\stream rule check.py` fails a build that hangs lights on these projectiles anywhere but the shared StreamRows rows (BeamRow.h).
 //
 // A ward dome (Dynamic Wards absent) is the one projectile this pass still hangs a light on: its Load3D / Release3D hooks,
 // the live list and the main-thread queue below are for that. CREDIT: how that light is made and registered follows ReLight
@@ -21,9 +21,9 @@
 // non-shadow light needs, and handing the light to the shadow scene node. The scene is only ever touched on the main thread
 // (3D built or released on a loader thread is queued for the next frame - StreamLightsFrame).
 
-#include "BeamRow.h"
 #include "Fade.h"
 #include "Plugin.h"
+#include "StreamRows.h"
 
 // 🔁 HIS ANSWER 2026-10-20 (checklist 140): one light stretched along the beam - and "if you plain out cannot make part 1 of
 // 140 to happen then revert to this as a backup plan", a row of lights. One stretched light cannot be drawn inside our mods
@@ -56,6 +56,10 @@ namespace Plugin
 		constexpr float       kOwnShortestReach = 133.0f;
 		constexpr float       kOwnLowestCutoff = 0.01f;
 		constexpr std::size_t kMaxLivePerBase = 4;
+		// the creature bolts, cones and breaths Creatures 1.1 lights, by EditorID (lower case)
+		constexpr std::array<std::string_view, 8> kCreatureProjectiles{ "shockboltaimdwarvenspider", "dragonicespikevolleyprojectile",
+			"dragonicespikevolleyprojectile_aos", "dragonvoicealduinendtimesprojectile", "dragonfireprojectile02", "duncgalduinfireprojectile",
+			"dragonfrostprojectile01", "dragonfrostprojectile01_aos" };
 
 		// a ward dome's light: one, where the dome sits, under its own setting
 		struct Recipe
@@ -197,122 +201,33 @@ namespace Plugin
 			return r;
 		}
 
-		// a bolt's row (his checklist 140): the color, the fade and the reach its raised copy was given - the target the row
-		// matches under the beam's middle (BeamRow::Lay scales every light to it)
-		struct RowRecipe
-		{
-			RE::NiColor              color{ 1.0f, 1.0f, 1.0f };
-			float                    fade{ 1.0f };
-			float                    reach{ 300.0f };
-			bool                     beam{ true };          // a bolt (along its model) - else a flame spray or cone (along its aim)
-			bool                     spray{ false };        // a spray pass 4 raised: its row answers to the Spray Lights setting
-			const RE::TESObjectLIGH* colorFrom{ nullptr };  // pass 4's copy, recolored on every refresh: the row wears its color
-			bool                     cloud{ false };        // a cone's cloud: one light on its path, held where the cloud is after the cone ends (MoveClouds)
-		};
-		std::unordered_map<RE::FormID, RowRecipe> gRows;                // beam base form -> its row
-		constexpr std::size_t                     kMostRowLights = 64;  // every row light in the scene together
-		constexpr std::size_t                     kMostPerRow = 20;
-		// off Community Shaders the game lets one piece of ground take only a few lights, so a row of 15 lit only the ground near
-		// her hands; fewer, wider lights reach the whole stream (BeamRow::Lay makes each stronger to keep the row's light)
-		constexpr std::size_t kMostPerRowPlain = 5;
-		constexpr float       kRowPlain = 0.5f;     // every row off Community Shaders
-		constexpr float       kRowHeight = 100.0f;  // a beam's usual height over the ground it lights
-		constexpr const char* kRowName = "IlluminatedStreamRow";
-		// HIS LOOK 2026-10-20 ~19:00: "make vanilla brighter enb softer as suggested to align with cs" - the same row lifted the
-		// ground 3-33 per band on Community Shaders, 9-24 on Vanilla and 33-72 on ENB (run cs / vanilla / enb, 18:29-18:43)
-		[[nodiscard]] float RowStrengthFor(Lighting a_lighting)
-		{
-			switch (a_lighting) {
-			case Lighting::kVanilla:
-				return 1.1f;
-			case Lighting::kEnb:
-				return 0.5f;  // the whole stream lit, not washed out
-			default:
-				return 1.0f;
-			}
-		}
-		// Community Shaders draws a row light at 4x its fade, so twice the reach laid; drawn plain a row reaches only that
-		[[nodiscard]] float RowReachFor(Lighting a_lighting)
-		{
-			return a_lighting == Lighting::kShaders ? 1.0f : 2.0f;
-		}
-		std::size_t gRowLights = 0;      // row lights in the scene now (under gLiveLock)
-		bool        gSprayRows = false;  // pass 4's sprays wear a row: the Spray Lights setting holds and all lights are not off
+		// the rows along bolts, flame sprays and cones live in the shared StreamRows module (Tools\Shared Plugin Code\); this pass
+		// keeps their table - each projectile's row recipe, its raised copy and color - and hands it over (StreamRows::Claim)
+		std::unordered_map<RE::FormID, StreamRows::Recipe> gRows;               // beam base form -> its row
+		bool                                               gSprayRows = false;  // pass 4's sprays wear a row: the Spray Lights setting holds and all lights are not off
 
-		bool RowOn(const RowRecipe& a_rec)
+		bool RowOn(const StreamRows::Recipe& a_rec)
 		{
 			return !PerformanceMode() && (a_rec.spray ? gSprayRows : StreamLightsOn());  // Performance: no rows (his order 2026-10-20)
 		}
 
-		// One lit projectile, keyed by its 3D ROOT, not its reference ID: a projectile's reference is temporary and the game
-		// hands its ID to a new one, so an ID-keyed entry could be taken for the new projectile or dropped by the old one's
-		// late release. The root is held here, so its address is never another 3D's while it is listed (the re-score's
-		// Illuminated issue 3).
+		// One lit ward dome, keyed by its 3D ROOT, not its reference ID: a projectile's reference is temporary and the game hands its ID
+		// to a new one. The root is held here, so its address is never another 3D's while it is listed.
 		struct Live
 		{
 			RE::NiPointer<RE::NiAVObject>           root;
 			RE::FormID                              base{ 0 };
 			std::vector<RE::NiPointer<RE::BSLight>> lights;
-			RE::NiPointer<RE::TESObjectREFR>        beam;  // a bolt's row: its projectile, read every frame for its length
 		};
 		std::unordered_map<const RE::NiAVObject*, Live> gLive;
-		// the live count, by projectile BASE rather than by reference: a ward raised again and again makes a new reference
-		// each time, and it is the base that has to be capped
+		// the live count, by projectile BASE rather than by reference: a ward raised again and again makes a new reference each time,
+		// and it is the base that has to be capped
 		std::unordered_map<RE::FormID, std::size_t> gLiveCount;
 		std::mutex                                  gLiveLock;
-		// a projectile dropped under gLiveLock is let go only after it: its last reference running the game's release (our
-		// hooked Release3DRelatedData -> DropLights) inside the lock would take it again on the same thread (L12)
-		std::vector<RE::NiPointer<RE::TESObjectREFR>> gLetGo;
-		// what a loader thread built or released, waiting for the main thread (under gLiveLock). The reference and the 3D are
-		// held (refcounted) - never a handle made off the main thread (the fading module's rule; re-score issue 2), and a
-		// queued 3D's address is never another's when its turn comes (the cap's sweep may have let its entry go first)
+		// what a loader thread built or released, waiting for the main thread (under gLiveLock), held by refcount
 		std::vector<RE::NiPointer<RE::TESObjectREFR>> gToHang;
 		std::vector<RE::NiPointer<RE::NiAVObject>>    gToDrop;
 		std::uint32_t                                 gSweepClock = 0;  // frames since the last sweep (main thread)
-		// a projectile that flies while its row is switched off (Performance, Streams, Spray Lights, All lights off) or the light cap is
-		// full: its row is hung when that passes, or a held stream stays bare until the next cast (main thread, StreamLightsFrame)
-		std::vector<RE::NiPointer<RE::TESObjectREFR>> gParkedRows;
-		constexpr std::size_t                         kMostParked = 64;
-
-		void ParkRow(RE::TESObjectREFR* a_ref)
-		{
-			std::erase_if(gParkedRows, [](const auto& a_parked) {
-				const auto* root = a_parked ? a_parked->Get3D() : nullptr;
-				return !root || !root->parent;
-			});
-			if (a_ref && gParkedRows.size() < kMostParked) {
-				gParkedRows.emplace_back(a_ref);
-			}
-		}
-
-		// a cone's cloud (his checklist 235): its art leaves world-space particles along the path, so its one light hangs in the
-		// node the cone hangs in - which stays when the cone's 3D goes - and is moved there every frame (main thread)
-		struct Cloud
-		{
-			RE::NiPointer<RE::NiAVObject>    root;  // the cone's 3D, while it flies
-			RE::NiPointer<RE::TESObjectREFR> ref;
-			RE::NiPointer<RE::NiNode>        holder;  // the node the cone hung in, which holds the light
-			RE::NiPointer<RE::BSLight>       light;
-			RE::FormID                       base{ 0 };
-			RE::FormID                       spell{ 0 };  // its Lights by Item color, read after the cone is gone too
-			RE::NiPoint3                     launch;
-			RE::NiPoint3                     spot;
-			float                            sinceEnd{ -1.0f };  // seconds since the cone ended; below 0 while it flies
-		};
-		std::vector<Cloud>    gClouds;
-		constexpr std::size_t kMostClouds = 8;
-		// a cone whose cloud light could not hang yet (its 3D not in the world when it loads): tried every frame for a while,
-		// as RELight's Rows.cpp does
-		struct CloudWait
-		{
-			RE::NiPointer<RE::TESObjectREFR> ref;
-			RE::FormID                       base{ 0 };
-			std::uint32_t                    frames{ 0 };
-		};
-		std::vector<CloudWait>  gCloudWait;
-		constexpr std::uint32_t kCloudTries = 600;  // about ten seconds of frames: a cone's cast and its cloud's life
-		constexpr const char*   kCloudName = "IlluminatedStreamCloud";
-		constexpr float         kCloudReachShaders = 3.0f;  // a row's x1 left Ice Storm's cloud faint on Community Shaders
 
 		// every ward belongs to Dynamic Wards: when that mod is here, this pass does not light a ward
 		bool WardLightsOn()
@@ -353,20 +268,7 @@ namespace Plugin
 			if (const auto c = gLiveCount.find(it->second.base); c != gLiveCount.end() && c->second) {
 				--c->second;
 			}
-			if (it->second.beam) {
-				gRowLights -= (std::min)(gRowLights, it->second.lights.size());
-				// a row switched off while its projectile lives (a setting, Performance) leaves no light node behind on it - a row
-				// hung again later starts clean (the code review)
-				for (auto& bs : it->second.lights) {
-					if (auto* light = bs ? bs->light.get() : nullptr; light && light->parent) {
-						light->parent->DetachChild(light);
-					}
-				}
-			}
-			if (it->second.beam) {
-				gLetGo.push_back(std::move(it->second.beam));
-			}
-			gLive.erase(it);  // the last reference to the projectile's 3D may go here, on the main thread
+			gLive.erase(it);
 		}
 
 		// every live 3D a test picks, let go: all collected first, as Forget erases from gLive. gLiveLock is held by the caller.
@@ -404,230 +306,6 @@ namespace Plugin
 			}
 		}
 
-		// Community Shaders draws an inverse-square point light at four times its fade and writes back the reach that gives (run cs
-		// 2026-10-20 18:15: every row light read twice the reach laid, 389 for 197) - so the cutoff is set for that
-		constexpr float kDrawnTimes = 4.0f;
-
-		float IslRoom(float a_radius)
-		{
-			return a_radius * a_radius + kK * kLightSize * kLightSize * 0.5f;
-		}
-
-		// the strongest fade a row light of this reach can take on Community Shaders before its cutoff passes its top
-		float IslTop(float a_radius)
-		{
-			return LightKit::Isl::kHighestCutoff * IslRoom(a_radius) / (kDrawnTimes * kK);
-		}
-
-		// a light's strength, reach and color written whole - when it is made and again every frame a row moves (the ward's
-		// way below: the size in the radius' z, the attenuation, then Community Shaders' own words or a tenth for ambient)
-		void Dress(RE::NiPointLight* a_light, const RE::NiColor& a_color, float a_fade, float a_radius, bool a_isl)
-		{
-			const auto turn = LightKit::Turn();  // the light's fields have one writer at a time (LightKit.h); taken after gLiveLock
-			auto&      data = a_light->GetLightRuntimeData();
-			data.diffuse = a_color;
-			data.fade = a_fade;
-			data.radius = { a_radius, a_radius, kLightSize };
-			a_light->SetLightAttenuation(a_radius);
-			if (a_isl) {
-				data.fade = (std::min)(a_fade, IslTop(a_radius));  // past its top the reach would grow instead
-				LightKit::Isl::SetOwn(a_light);
-				LightKit::Isl::SetCutoff(a_light, kDrawnTimes * kK * data.fade / IslRoom(a_radius));
-			} else if (LightLimitFix()) {
-				LightKit::Isl::SetOwnLinear(a_light);
-			} else {
-				data.ambient = LightKit::Tenth(a_color);
-			}
-		}
-
-		// where a row starts and which way it runs: a bolt along its model's +Y from its root; a flame spray or cone along the
-		// projectile's own aim from where it stands (a spray's model points another way - RELight's measurement 2026-10-11:
-		// its forward is -X, sideways in third person)
-		struct Axis
-		{
-			RE::NiPoint3 start;
-			RE::NiPoint3 dir{ 0.0f, 1.0f, 0.0f };
-		};
-
-		Axis AxisOf(const RE::TESObjectREFR* a_ref, const RE::NiAVObject* a_root, bool a_beam)
-		{
-			if (a_beam) {
-				return { a_root->world.translate, a_root->world.rotate * RE::NiPoint3{ 0.0f, 1.0f, 0.0f } };
-			}
-			const float pitch = a_ref->GetAngleX(), yaw = a_ref->GetAngleZ();
-			return { a_ref->GetPosition(), { std::sin(yaw) * std::cos(pitch), std::cos(yaw) * std::cos(pitch), -std::sin(pitch) } };
-		}
-
-		// how far along the row's axis the drawn art reaches (its geometry's bounds, our row lights not counted); 0 when nothing
-		// is drawn. Main thread.
-		float DrawnLength(RE::NiAVObject* a_root, const Axis& a_axis)
-		{
-			float reach = 0.0f;
-			RE::BSVisit::TraverseScenegraphGeometries(a_root, [&](RE::BSGeometry* a_geometry) {
-				const auto& bound = a_geometry->worldBound;
-				if (bound.radius > 0.0f) {
-					reach = (std::max)(reach, (bound.center - a_axis.start).Dot(a_axis.dir) + bound.radius);
-				}
-				return RE::BSVisit::BSVisitControl::kContinue;
-			});
-			return std::isfinite(reach) ? reach : 0.0f;
-		}
-
-		// where a row runs right now and how long it is: a bolt that hit something runs straight from its root to that impact
-		// (the lightning is drawn to what it hit), one in the open along its model as far as its art is drawn; a flame spray or
-		// cone along its aim, never past its newest impact. Never past the range. Main thread.
-		struct Path
-		{
-			Axis  axis;
-			float length{ 0.0f };
-		};
-
-		Path PathOf(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_root, bool a_beam)
-		{
-			Path  path{ AxisOf(a_ref, a_root, a_beam) };
-			auto* proj = a_ref ? a_ref->As<RE::Projectile>() : nullptr;
-			if (!proj) {
-				return path;
-			}
-			auto&       rt = proj->GetProjectileRuntimeData();
-			const auto* base = proj->GetProjectileBase();
-			// a cone flies: what is left of its range runs from where it is now
-			path.length = base && base->IsCone() ? (std::max)(rt.range - rt.distanceMoved, 0.0f) : rt.range;
-			// only a bolt stops where its art is drawn: a spray's geometry reads far shorter than its flames (Flames 230 of 768)
-			if (a_beam) {
-				if (const float drawn = DrawnLength(a_root, path.axis); drawn > 1.0f && drawn < path.length) {
-					path.length = drawn;
-				}
-			}
-			for (const auto* impact : rt.impacts) {  // the newest impact comes first
-				if (impact) {
-					const auto  hit = impact->desiredTargetLoc - path.axis.start;
-					const float d = a_beam ? hit.Length() : hit.Dot(path.axis.dir);  // a spray along its aim: a passed impact is behind it
-					if (d > 1.0f && d < rt.range && (a_beam || d < path.length)) {
-						path.length = d;
-						if (a_beam) {
-							path.axis.dir = hit / d;
-						}
-					}
-					break;
-				}
-			}
-			if (!std::isfinite(path.length)) {
-				path.length = 0.0f;
-			}
-			return path;
-		}
-
-		// a concentration stream whose caster no longer casts it (a weapon equipped mid-cast leaves the spray behind): its row
-		// rests dark. A fire-and-forget bolt outlives its cast and is never cut. Main thread.
-		[[nodiscard]] bool CasterStopped(RE::TESObjectREFR* a_ref)
-		{
-			auto* proj = a_ref ? a_ref->As<RE::Projectile>() : nullptr;
-			if (!proj) {
-				return false;
-			}
-			auto& rt = proj->GetProjectileRuntimeData();
-			if (!rt.spell || rt.spell->GetCastingType() != RE::MagicSystem::CastingType::kConcentration) {
-				return false;
-			}
-			// only a hand's cast is judged: a scripted cast goes through the instant caster, which never holds the spell
-			if (rt.castingSource != RE::MagicSystem::CastingSource::kLeftHand && rt.castingSource != RE::MagicSystem::CastingSource::kRightHand) {
-				return false;
-			}
-			const auto shooter = rt.shooter.get();
-			auto*      actor = shooter ? shooter->As<RE::Actor>() : nullptr;
-			if (!actor) {
-				return false;
-			}
-			auto* caster = actor->GetMagicCaster(rt.castingSource);
-			return !caster || caster->state.get() == RE::MagicCaster::State::kNone || caster->currentSpell != rt.spell;
-		}
-
-		// every bolt's row spread over its length, strength and reach laid again for that length (BeamRow::Lay), once a frame.
-		// Main thread, gLiveLock held by the caller.
-		void MoveRows()
-		{
-			const bool  isl = InverseSquare();
-			const float rowBright = BrightnessNow() * StreamStrength(), bright = rowBright * RowStrengthFor(LightingFound()), reachPct = Percent("IlluminatedReach");
-			// a spray's own light is steady and Light Placer's hand lights are separate objects, so the row flickers by itself
-			// while the Flicker switch is on - in its spell's shape under Realistic
-			static const auto start = std::chrono::steady_clock::now();
-			const double      seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-			const bool        flickers = FlickerOn();
-			RE::NiUpdateData  update{};
-			for (auto& [root, live] : gLive) {
-				if (!live.beam || !live.root || live.lights.empty()) {
-					continue;
-				}
-				const auto rec = gRows.find(live.base);
-				if (rec == gRows.end()) {
-					continue;
-				}
-				const bool  beam = rec->second.beam;
-				const auto  path = PathOf(live.beam.get(), live.root.get(), beam);
-				const auto& axis = path.axis;
-				const float length = path.length;
-				if (length <= 1.0f || CasterStopped(live.beam.get())) {  // nothing drawn, or no one casting it: the row rests dark
-					for (auto& bs : live.lights) {
-						if (auto* light = bs ? netimmerse_cast<RE::NiPointLight*>(bs->light.get()) : nullptr) {
-							Dress(light, rec->second.color, 0.0f, 1.0f, isl);
-						}
-					}
-					continue;
-				}
-#ifdef FADE_DEBUG_PAGE
-				if (static std::uint32_t frames = 0; ++frames % 30 == 0 && frames <= 30 * 60) {
-					SKSE::log::info("[STREAM-ROW-LENGTH] {} | drawn art reaches {:.0f} | length used {:.0f} | start {:.0f} from its root | path . root +Y {:.2f} | start {:.0f},{:.0f},{:.0f} end {:.0f},{:.0f},{:.0f}",
-						beam ? "bolt" : "spray", DrawnLength(live.root.get(), axis), length, axis.start.GetDistance(live.root->world.translate),
-						axis.dir.Dot(live.root->world.rotate * RE::NiPoint3{ 0.0f, 1.0f, 0.0f }), axis.start.x, axis.start.y, axis.start.z,
-						axis.start.x + axis.dir.x * length, axis.start.y + axis.dir.y * length, axis.start.z + axis.dir.z * length);
-				}
-#endif
-				RE::NiColor color = rec->second.colorFrom ? ColorOf(rec->second.colorFrom) : rec->second.color;
-				auto*       fired = live.beam ? live.beam->As<RE::Projectile>() : nullptr;
-				auto*       spell = fired ? fired->GetProjectileRuntimeData().spell : nullptr;
-				if (spell) {
-					if (const auto own = Fade::Items::ChoiceColor(spell->GetFormID())) {
-						color = *own;  // the spell's Lights by Item color reaches its row too
-					}
-				}
-				// under Realistic the row pulses in its spell's shape, as the hand casting it does (BeamRow::Pulsing)
-				const auto                        kind = flickers && PulseRealistic() ? LightKit::PulseKindOfSpell(spell) : Pulse::Kind::kNone;
-				const auto                        seed = static_cast<std::uint32_t>(std::hash<const void*>{}(live.root.get()));
-				const auto                        toLocal = live.root->world.Invert();
-				static std::vector<BeamRow::Spot> row;  // main thread; its storage kept from row to row and frame to frame
-				BeamRow::Lay(row, length, static_cast<int>(live.lights.size()), rec->second.reach, kRowHeight);
-				const float scale = live.root->world.scale > 0.0f ? live.root->world.scale : 1.0f;
-				for (std::size_t i = 0; i < live.lights.size(); ++i) {
-					auto* bs = live.lights[i].get();
-					auto* light = bs ? netimmerse_cast<RE::NiPointLight*>(bs->light.get()) : nullptr;
-					if (!light) {
-						continue;
-					}
-					if (i >= row.size()) {  // a beam cut so short it needs fewer: the spare lights rest dark at the hand
-						Dress(light, color, 0.0f, 1.0f, isl);
-						light->local.translate = {};
-						continue;
-					}
-					const auto& s = row[i];
-					// the radius is the scene's own units - the root's scale moves a child light's place, never its radius
-					const float reach = s.reach * reachPct * RowReachFor(LightingFound());
-					// at full strength five lights wash a stream out white off Community Shaders
-					const float want = rec->second.fade * s.strength * bright * (isl ? 1.0f : kRowPlain);
-					// a dimmer Brightness lowers the cap too, so the sliders still reach a capped row
-					const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(rowBright, 1.0f) : 0.0f);
-					Dress(light, color, steady * (flickers ? BeamRow::Pulsing(kind, seconds, i, seed) : 1.0f), reach, isl);
-					light->local.translate = toLocal * (axis.start + axis.dir * (s.along * length));  // on the path, in the root's units
-					if (static std::size_t told = 0; told < 6) {
-						++told;
-						SKSE::log::info("[STREAM-ROW-LAID] {} light(s) over {:.0f} | reach {:.0f} | strength {:.2f} steady {:.2f} (set {:.2f}, top {:.2f}) | brightness {:.2f} | root scale {:.2f}",
-							row.size(), length, reach, want, steady, light->GetLightRuntimeData().fade, isl ? IslTop(reach) : 0.0f, bright, scale);
-					}
-					light->Update(update);
-				}
-			}
-		}
-
 		// a cloud's light follows its Streams row's settings (its patch's switch) and All lights off - not Performance nor Streams:
 		// it is the spell's one light, the one Light Placer hung on the cone before
 		bool CloudOn(RE::FormID a_base)
@@ -636,183 +314,8 @@ namespace Plugin
 			return !LightsOff() && c != gStreamColor.end() && StreamRowFor(c->second.model);
 		}
 
-		void DropCloud(Cloud& a_cloud, RE::ShadowSceneNode* a_scene)
-		{
-			if (!a_cloud.light) {
-				return;
-			}
-			LightKit::TakeOff(a_scene, a_cloud.light);
-			if (auto* light = a_cloud.light->light.get(); light && light->parent) {
-				light->parent->DetachChild(light);
-			}
-		}
-
-		// one light where a cone's cloud is, hung beside the cone and dark until MoveClouds places it; false: not now, try again
-		// (its 3D not in the world yet - a cone has no parent node when its 3D loads). Main thread.
-		[[nodiscard]] bool HangCloud(RE::TESObjectREFR* a_ref, RE::NiNode* a_root, RE::FormID a_base)
-		{
-			auto*      scene = LightKit::Scene();
-			auto*      holder = a_root->parent;
-			const bool listed = std::ranges::any_of(gClouds, [a_root](const Cloud& a_c) { return a_c.root.get() == a_root; });
-			if (listed) {
-				return true;
-			}
-			if (!scene || !holder || gClouds.size() >= kMostClouds || !CloudOn(a_base)) {
-				return false;
-			}
-			auto* light = LightKit::CloneLight();
-			if (!light) {
-				return true;
-			}
-			light->name = kCloudName;
-			Dress(light, { 1.0f, 1.0f, 1.0f }, 0.0f, 1.0f, InverseSquare());
-			light->local.translate = holder->world.Invert() * a_ref->GetPosition();
-			light->local.scale = 1.0f;
-			auto* bs = LightKit::Hang(holder, light, scene, 2.0f);
-			if (!bs) {
-				return false;
-			}
-			const auto* proj = a_ref->As<RE::Projectile>();
-			const auto* spell = proj ? proj->GetProjectileRuntimeData().spell : nullptr;
-			gClouds.push_back({ RE::NiPointer<RE::NiAVObject>(a_root), RE::NiPointer<RE::TESObjectREFR>(a_ref), RE::NiPointer<RE::NiNode>(holder),
-				RE::NiPointer<RE::BSLight>(bs), a_base, spell ? spell->GetFormID() : 0,
-				a_ref->GetPosition(), a_ref->GetPosition() });
-			if (static std::size_t told = 0; told < 6) {
-				++told;
-				SKSE::log::info("[STREAM-CLOUD] {} | one light where its cloud is, held {:.1f} s after the cone ends", Label(a_ref->GetBaseObject()),
-					BeamRow::kCloudLife);
-			}
-			return true;
-		}
-
-		// one cloud's light this frame: on its cone's path while the cone flies, then where it was, fading out over the cloud's
-		// life; false once it has faded, its switch is off or the node holding it left the world
-		[[nodiscard]] bool MoveCloud(Cloud& a_c, float a_delta)
-		{
-			if (a_c.root && a_c.root->parent && a_c.ref && a_c.ref->Get3D() == a_c.root.get()) {
-				a_c.spot = a_c.launch + (a_c.ref->GetPosition() - a_c.launch) * BeamRow::kCloudAlong;
-			} else if (a_c.sinceEnd < 0.0f) {
-				a_c.sinceEnd = 0.0f;
-				a_c.root.reset();  // the cone is let go: only where its cloud is stays
-				a_c.ref.reset();
-			} else {
-				a_c.sinceEnd += a_delta;
-			}
-			auto*       light = a_c.light ? netimmerse_cast<RE::NiPointLight*>(a_c.light->light.get()) : nullptr;
-			const auto  rec = gRows.find(a_c.base);
-			const float left = BeamRow::CloudFade(a_c.sinceEnd, BeamRow::kCloudLife);
-			if (!light || !a_c.holder || !a_c.holder->parent || rec == gRows.end() || left <= 0.0f || !CloudOn(a_c.base)) {
-				return false;
-			}
-			const bool isl = InverseSquare();
-			// one light, not a row: where the inverse-square cap holds, its reach (and with it that cap) is its own
-			const float cloudReach = isl ? kCloudReachShaders : RowReachFor(LightingFound());
-			const float reach = rec->second.reach * Percent("IlluminatedReach") * cloudReach;
-			const float rowBright = BrightnessNow() * StreamStrength();
-			const float want = rec->second.fade * rowBright * RowStrengthFor(LightingFound());
-			const float steady = BeamRow::Steady(want, isl ? IslTop(reach) * (std::min)(rowBright, 1.0f) : 0.0f);
-			RE::NiColor color = rec->second.color;
-			if (const auto own = a_c.spell ? Fade::Items::ChoiceColor(a_c.spell) : std::nullopt) {
-				color = *own;  // the spell's Lights by Item color
-			}
-			Dress(light, color, steady * left, reach, isl);
-			light->local.translate = a_c.holder->world.Invert() * a_c.spot;
-			RE::NiUpdateData update{};
-			light->Update(update);
-			return true;
-		}
-
-		void MoveClouds()
-		{
-			auto*       scene = LightKit::Scene();
-			const float delta = std::clamp(RE::GetSecondsSinceLastFrame(), 0.0f, 0.25f);
-			for (auto it = gClouds.begin(); it != gClouds.end();) {
-				if (MoveCloud(*it, delta)) {
-					++it;
-				} else {
-					DropCloud(*it, scene);
-					it = gClouds.erase(it);
-				}
-			}
-		}
-
-		// a bolt's row: as many small lights as its range needs (BeamRow::Lay), hung off its root, within the scene's budget.
-		// Main thread.
-		void HangRow(RE::TESObjectREFR* a_ref, RE::NiNode* a_root, RE::FormID a_base, const RowRecipe& a_rec)
-		{
-			auto* scene = LightKit::Scene();
-			auto* proj = a_ref->As<RE::Projectile>();
-			if (!scene || !proj) {
-				return;
-			}
-			if (a_rec.cloud) {
-				// one light where its cloud is, not a row along the cone; not hangable yet: tried every frame for a while
-				if (!HangCloud(a_ref, a_root, a_base) && gCloudWait.size() < kMostClouds * 4) {
-					gCloudWait.push_back({ RE::NiPointer<RE::TESObjectREFR>(a_ref), a_base });
-				}
-				return;
-			}
-			if (!RowOn(a_rec)) {
-				ParkRow(a_ref);
-				return;
-			}
-			std::size_t n = 0;
-			{
-				std::lock_guard l{ gLiveLock };
-				if (gLive.contains(a_root)) {
-					return;
-				}
-				if (gRowLights >= kMostRowLights) {
-					SweepGone(scene);
-				}
-				const auto most = InverseSquare() ? kMostPerRow : kMostPerRowPlain;
-				const auto want = BeamRow::Lay(proj->GetProjectileRuntimeData().range, static_cast<int>(most), a_rec.reach, kRowHeight);
-				n = (std::min)(want.size(), kMostRowLights - (std::min)(gRowLights, kMostRowLights));
-			}
-			if (!n) {
-				ParkRow(a_ref);  // the light cap is full: tried again when a row lets its lights go
-				return;
-			}
-			const bool                              isl = InverseSquare();
-			std::vector<RE::NiPointer<RE::BSLight>> made;
-			for (std::size_t i = 0; i < n; ++i) {
-				auto* light = LightKit::CloneLight();  // ReLight's master-and-clone (LightKit.h)
-				if (!light) {
-					break;
-				}
-				light->name = kRowName;
-				Dress(light, a_rec.color, 0.0f, 1.0f, isl);  // dark until MoveRows lays it out this frame
-				light->local.translate = {};
-				light->local.scale = 1.0f;
-				if (auto* bs = LightKit::Hang(a_root, light, scene, 2.0f)) {
-					made.emplace_back(bs);
-				}
-			}
-			static std::size_t told = 0;
-			if (told < 8 && !made.empty()) {
-				++told;
-				SKSE::log::info("[STREAM-ROW] {} | {} light(s) along {:.0f} | reach target {:.0f} | fade {:.2f}", Label(a_ref->GetBaseObject()),
-					made.size(), proj->GetProjectileRuntimeData().range, a_rec.reach, a_rec.fade);
-			}
-			if (made.empty()) {
-				ParkRow(a_ref);
-				return;
-			}
-			std::lock_guard l{ gLiveLock };
-			gRowLights += made.size();
-			gLive.emplace(a_root, Live{ RE::NiPointer<RE::NiAVObject>(a_root), a_base, std::move(made), RE::NiPointer<RE::TESObjectREFR>(a_ref) });
-			++gLiveCount[a_base];
-			MoveRows();  // laid out at once, not a frame late
-		}
-
 		void HangLights(RE::TESObjectREFR* a_ref, RE::NiAVObject* a_object)
 		{
-			if (auto* base = a_ref ? a_ref->GetBaseObject() : nullptr; base && a_object && a_object->AsNode()) {
-				if (const auto row = gRows.find(base->GetFormID()); row != gRows.end()) {
-					HangRow(a_ref, a_object->AsNode(), base->GetFormID(), row->second);
-					return;
-				}
-			}
 			++gCalls;
 			if (!a_ref || !a_object) {
 				Told("no reference or no 3D", a_ref);
@@ -1020,7 +523,7 @@ namespace Plugin
 		gStreamColor.clear();
 		gOwnTint.clear();
 		const auto  sc = ReadSprayChoice();
-		std::size_t cones = 0, beams = 0, flames = 0, kept = 0, skipped = 0;
+		std::size_t cones = 0, beams = 0, flames = 0, kept = 0, skipped = 0, creatures = 0;
 		for (auto* proj : LightKit::FormsOf<RE::BGSProjectile>()) {
 			if (!proj) {
 				continue;
@@ -1040,6 +543,12 @@ namespace Plugin
 				++skipped;
 				continue;
 			}
+			// every creature light is Illuminated - Creature Lighting NG's: these creature projectiles' raised light and row are
+			// Creatures'; the player spells on the same models stay here
+			if (std::ranges::find(kCreatureProjectiles, low) != kCreatureProjectiles.end()) {
+				++creatures;
+				continue;
+			}
 			const float range = proj->data.range;
 			// a flame spray's range is the reach of the cone, so the shortest-stream floor does not apply
 			if (!flame && range < kShortestStream) {
@@ -1047,7 +556,7 @@ namespace Plugin
 				continue;
 			}
 			// HIS RULE (CLAUDE.md, "RELIGHT'S METHOD"): the projectile keeps its OWN light record; its length is lit by a row of
-			// small lights (HangRow, his checklist 140 fallback). One with neither a light of its own nor a row light is left as it is.
+			// small lights (StreamRows.cpp, his checklist 140 fallback). One with neither a light of its own nor a row light is left as it is.
 			// a beam whose rows the build moved out of Light Placer (lagen move_beams): the data's color for it, and its light when
 			// the projectile has none of its own (taken again on every settings refresh - ApplyStreamLights)
 			// a cone the data lights as a cloud (a Streams row marked "cloud", lagen): its row's light on every route, held where
@@ -1070,7 +579,7 @@ namespace Plugin
 				// (BeamRow.h) under that setting, matched to its ORIGINAL light, and the original light itself (SprayLights.cpp)
 				const auto* original = SprayOriginal(proj);
 				const auto* tint = SprayCopyOf(proj);
-				const auto [fade, reach] = StartOf(original);  // before the sliders: MoveRows puts them on
+				const auto [fade, reach] = StartOf(original);  // before the sliders: the row module puts them on
 				gRows[proj->GetFormID()] = { ColorOf(tint ? tint : original), fade, reach, false, true, tint };
 				++kept;
 				continue;
@@ -1091,7 +600,7 @@ namespace Plugin
 			// steps and walls, his "reach the entire universe"
 			// (and since his 2026-10-20 "Do the flame sprays and cones in Illuminated first", a flame spray and a cone the same way,
 			// along their aim)
-			const auto [baseFade, baseReach] = StartOf(base);  // before the sliders: MoveRows puts them on
+			const auto [baseFade, baseReach] = StartOf(base);  // before the sliders: the row module puts them on
 			gRows[proj->GetFormID()] = { ColorOf(copy), baseFade, baseReach, beam, false, nullptr, cloud };
 			// the sliders reach it like every copy (LightCopies.cpp ApplyLightStrength): the cutoff too, so Reach moves an inverse-square
 			// stream's reach (it is Community Shaders' only lever)
@@ -1131,23 +640,29 @@ namespace Plugin
 		}
 		SKSE::log::info(
 			"stream lights: {} flame spray(s), {} spray(s) and {} bolt(s) carry their own light, raised; {} spray(s) keep pass "
-			"4's stretched copy (the Spray Lights setting's, not this one's); {} left alone; the setting is {}",
-			flames, cones, beams, kept, skipped, StreamLightsOn() ? "on" : "off");
+			"4's stretched copy (the Spray Lights setting's, not this one's); {} left alone; {} creature projectile(s) left to Creatures; "
+			"the setting is {}",
+			flames, cones, beams, kept, skipped, creatures, StreamLightsOn() ? "on" : "off");
 		ApplyLightStrength(false);  // every copy at the sliders' values from the start, pass 4's and these
 		WardLights();
 		Load3D<RE::BarrierProjectile>::Install();  // a ward dome's light (Dynamic Wards absent)
 		Release3D<RE::BarrierProjectile>::Install();
-		Load3D<RE::BeamProjectile>::Install();  // a bolt's row of lights (his checklist 140, BeamRow.h)
-		Release3D<RE::BeamProjectile>::Install();
-		Load3D<RE::FlameProjectile>::Install();  // a flame spray's and a cone's row, along their aim (2026-10-20)
-		Release3D<RE::FlameProjectile>::Install();
-		Load3D<RE::ConeProjectile>::Install();
-		Release3D<RE::ConeProjectile>::Install();
-		const auto beamRows = std::ranges::count_if(gRows, [](const auto& a_r) { return a_r.second.beam; });
-		SKSE::log::info(
-			"stream lights: {} bolt(s) and {} spray(s) / cone(s) wear a row of lights along their real length (at most {} "
-			"per row, {} in the scene)",
-			beamRows, gRows.size() - static_cast<std::size_t>(beamRows), kMostPerRow, kMostRowLights);
+		// the rows along bolts, flame sprays and cones: the shared module, with Illuminated's switches, sliders and colors
+		StreamRows::Host host{};
+		host.rowName = "IlluminatedStreamRow";
+		host.cloudName = "IlluminatedStreamCloud";
+		host.rowOn = [](const StreamRows::Recipe& a_rec) { return RowOn(a_rec); };
+		host.cloudOn = [](RE::FormID a_base) { return CloudOn(a_base); };
+		host.brightness = []() { return BrightnessNow() * StreamStrength(); };
+		host.reach = []() { return Percent("IlluminatedReach"); };
+		host.flicker = []() { return FlickerOn(); };
+		host.shaped = []() { return PulseRealistic(); };
+		host.spellColor = [](RE::FormID a_spell) -> std::optional<RE::NiColor> { return Fade::Items::ChoiceColor(a_spell); };
+		host.lighting = []() { return static_cast<int>(LightingFound()); };
+		host.inverseSquare = []() { return InverseSquare(); };
+		host.lightLimitFix = []() { return LightLimitFix(); };
+		StreamRows::Install(host);
+		StreamRows::Claim(gRows);
 		ApplyStreamLights(true);
 		ApplySprayColors();  // pass 4's sprays put back on their own light from the start - their rows light the length
 	}
@@ -1155,6 +670,7 @@ namespace Plugin
 	// once a frame, on the main thread - what the loader threads left to do
 	void DropStreamLights()
 	{
+		StreamRows::DropAll();
 		auto* scene = LightKit::Scene();
 		// every projectile this drops is let go after the lock: declared before it, so it goes last (L12)
 		std::vector<RE::NiPointer<RE::TESObjectREFR>> letGo;
@@ -1163,69 +679,18 @@ namespace Plugin
 		letGo.insert(letGo.end(), std::make_move_iterator(gToHang.begin()), std::make_move_iterator(gToHang.end()));
 		gToHang.clear();
 		gToDrop.clear();
-		for (auto& cloud : gClouds) {
-			DropCloud(cloud, scene);
-			letGo.push_back(std::move(cloud.ref));
-		}
-		gClouds.clear();
-		for (auto& wait : gCloudWait) {
-			letGo.push_back(std::move(wait.ref));
-		}
-		gCloudWait.clear();
-		letGo.insert(letGo.end(), std::make_move_iterator(gParkedRows.begin()), std::make_move_iterator(gParkedRows.end()));
-		gParkedRows.clear();
-		letGo.insert(letGo.end(), std::make_move_iterator(gLetGo.begin()), std::make_move_iterator(gLetGo.end()));
-		gLetGo.clear();
-		gRowLights = 0;
 	}
 
 	bool StreamLightsAwake()
 	{
-		return gStreamsAwake.load(std::memory_order_relaxed);
+		return gStreamsAwake.load(std::memory_order_relaxed) || StreamRows::Awake();
 	}
 
 	void StreamLightsFrame()
 	{
+		StreamRows::Frame();  // the rows along bolts, flame sprays and cones (asleep with nothing of theirs alive)
 		if (!gStreamsAwake.load(std::memory_order_relaxed)) {
 			return;
-		}
-		{
-			// what the last frame dropped under gLiveLock, let go here with the lock free (L12)
-			std::vector<RE::NiPointer<RE::TESObjectREFR>> letGo;
-			{
-				std::lock_guard l{ gLiveLock };
-				letGo.swap(gLetGo);
-			}
-		}
-		// a row its switch or the light cap held back: tried again while its projectile flies, let go when that ends
-		if (!gParkedRows.empty()) {
-			bool room = false;
-			{
-				std::lock_guard l{ gLiveLock };
-				room = gRowLights < kMostRowLights;
-			}
-			auto parked = std::move(gParkedRows);
-			gParkedRows.clear();
-			for (const auto& ref : parked) {
-				auto*      root = ref ? ref->Get3D() : nullptr;
-				auto*      base = ref ? ref->GetBaseObject() : nullptr;
-				const auto rec = base ? gRows.find(base->GetFormID()) : gRows.end();
-				if (!root || !root->parent || !root->AsNode() || rec == gRows.end()) {
-					continue;
-				}
-				if (room) {
-					HangRow(ref.get(), root->AsNode(), base->GetFormID(), rec->second);  // parks it again while its row stays off
-				} else {
-					gParkedRows.push_back(ref);
-				}
-			}
-		}
-		std::erase_if(gCloudWait, [](CloudWait& a_w) {
-			auto* root = a_w.ref ? a_w.ref->Get3D() : nullptr;
-			return !root || !root->AsNode() || HangCloud(a_w.ref.get(), root->AsNode(), a_w.base) || ++a_w.frames >= kCloudTries;
-		});
-		if (!gClouds.empty()) {
-			MoveClouds();  // a cone's cloud light: on its path, then where the cloud is, fading out
 		}
 		std::vector<RE::NiPointer<RE::TESObjectREFR>> hang;
 		{
@@ -1235,11 +700,8 @@ namespace Plugin
 				gSweepClock = 0;
 				SweepGone(LightKit::Scene());
 			}
-			if (gRowLights) {
-				MoveRows();  // his checklist 140: every bolt's row follows its real length this frame
-			}
 			if (gToHang.empty() && gToDrop.empty()) {
-				if (gLive.empty() && gLetGo.empty() && gParkedRows.empty() && gCloudWait.empty() && gClouds.empty()) {
+				if (gLive.empty()) {
 					gStreamsAwake.store(false, std::memory_order_relaxed);
 				}
 				return;
@@ -1252,8 +714,7 @@ namespace Plugin
 			hang.swap(gToHang);
 		}
 		for (const auto& ref : hang) {
-			// a 3D released before this frame is gone (or another one now): HangLights lights whatever the reference holds
-			// now, and only when that 3D is in the world
+			// a 3D released before this frame is gone (or another one now): lit only when the 3D it holds now is in the world
 			if (auto* root = ref ? ref->Get3D() : nullptr; root && root->parent) {
 				HangLights(ref.get(), root);
 			}
@@ -1304,6 +765,7 @@ namespace Plugin
 					row->second.fade = fade;
 					row->second.reach = reach;
 				}
+				StreamRows::Recolor(formID, row->second);
 			}
 		}
 		if (reborrowed) {
@@ -1344,27 +806,16 @@ namespace Plugin
 				want && !PerformanceMode() ? "their own light and a row" : "their own light");
 		}
 		gSprayRows = sc.on && !LightsOff();
-		{
-			// a row goes with its switch (Streams, or Spray Lights for pass 4's sprays) and All lights off, at once (his
-			// 2026-10-20 report: All lights off left sprays lit)
-			auto*           scene = LightKit::Scene();
-			std::lock_guard l{ gLiveLock };
-			ForgetIf(scene, [](const Live& a_live) {
-				const auto rec = gRows.find(a_live.base);
-				const bool off = a_live.beam && (rec == gRows.end() || !RowOn(rec->second));
-				if (off && rec != gRows.end()) {
-					ParkRow(a_live.beam.get());
-				}
-				return off;
-			});
-		}
+		// a row goes with its switch (Streams, or Spray Lights for pass 4's sprays) and All lights off, at once (his 2026-10-20
+		// report: All lights off left sprays lit)
+		StreamRows::Refresh();
 		if (!WardLightsOn()) {
 			// a ward's light switched off (or Dynamic Wards there) comes off the scene node now, with every map that counts it:
 			// a light only forgotten stays registered and keeps shining where its ward was, and a count left behind keeps the
 			// cap full so the pass never lights anything again
 			auto*           scene = LightKit::Scene();
 			std::lock_guard l{ gLiveLock };
-			ForgetIf(scene, [](const Live& a_live) { return !a_live.beam; });  // a ward's: the rows answer to their own switches above
+			ForgetIf(scene, [](const Live&) { return true; });  // every live entry here is a ward's
 		}
 	}
 }
