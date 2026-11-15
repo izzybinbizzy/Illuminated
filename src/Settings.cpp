@@ -11,6 +11,7 @@
 
 #include "Fade.h"
 #include "Plugin.h"
+#include "StrangeRunes.h"
 
 namespace Plugin
 {
@@ -39,6 +40,10 @@ namespace Plugin
 		RE::TESGlobal*        gPraedy = nullptr;
 		std::atomic<bool>     gPraedyOn{ false };
 		const std::string     kPraedyClause = LightKit::Lower(kPraedyGlobal);  // a clause's global is stored lower case
+		// Strange Runes' switch (lagen.py strange_runes_switch): 1 = its runes light the casting hands and our hand rows wait on 0.
+		// Read as 0 while Strange Runes is not loaded, so no row waits on a mod that is not there
+		constexpr std::string_view kStrangeRunes = "IlluminatedStrangeRunesLight";
+		const std::string          kStrangeClause = LightKit::Lower(kStrangeRunes);
 		// his Performance switch: "a toggle to turn off lights completely for the entire mod" - Light Placer then
 		// draws none of ours (the route global held at 0) and every pass treats every config as unlit (Coverage::ModelLit)
 		constexpr std::string_view kLightsOff = "IlluminatedLightsOff";
@@ -327,6 +332,9 @@ namespace Plugin
 			if (a_c.global == kPraedyClause) {
 				return (gPraedyOn.load() ? 1 : 0) == a_c.value;
 			}
+			if (a_c.global == kStrangeClause && !StrangeRunes::Loaded()) {
+				return 0 == a_c.value;
+			}
 			if (a_c.global == ConfigText::kArtifactClause) {
 				return (a_artifact ? 1 : 0) == a_c.value;
 			}
@@ -396,6 +404,7 @@ namespace Plugin
 			SKSE::log::warn("[SETTING-FAILED] {} | could not make its global; with Praedy's Staves loaded its re-modelled staves may light twice",
 				kPraedyGlobal);
 		}
+		SKSE::log::info("Strange Runes: {} hand rune light(s) found", StrangeRunes::Find());
 		// the load order is fixed after data load: the menu (render thread) reads this instead of the data handler
 		gAvailable.assign(gSettings.size(), 1);
 		for (std::size_t i = 0; i < gSettings.size(); ++i) {
@@ -430,6 +439,12 @@ namespace Plugin
 		if (gPraedy) {
 			gPraedy->value = gPraedyOn.load() ? 1.0f : 0.0f;
 		}
+		const int strange = StrangeRunes::Loaded() ? SettingValue(kStrangeRunes, 0) : 0;
+		if (const auto it = gIndex.find(kStrangeClause); it != gIndex.end() && gSettings[it->second].global) {
+			gSettings[it->second].global->value = static_cast<float>(strange);
+		}
+		// the runes' own light: back with the switch on, or with every light of ours off
+		StrangeRunes::Apply(strange != 0 || LightsOff());
 	}
 
 	bool SetLightPlacerRoute(bool a_lightPlacerDraws)

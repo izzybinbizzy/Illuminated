@@ -108,6 +108,53 @@ namespace Plugin
 			{ "Skyrim.esm", 0x0F1AC2, "VAEReborn.esp", 0x000810, "VAEReborn.esp", 0x000829, "MQ203DragonDamageFFContact" },
 		};
 
+		// VAER's swirl art objects and the emissive each copy is made with, relative to VAER's own mesh: 4 for our brighter copy, 1
+		// where VAER's mesh is kept. Written at data load, read only after
+		std::unordered_map<const RE::BGSArtObject*, float> gSwirlArts;
+		constexpr std::string_view                         kSwirlSetting = "IlluminatedVAERSwirls";
+
+		// a swirl's copy gets materials of its own with the emissive at the Swirls slider (percent of VAER's own); the cached model
+		// and the other copies are never written. On the thread that makes the copy; only that thread holds it yet
+		void ScaleSwirl(RE::NiAVObject* a_root, float a_base)
+		{
+			const float factor = static_cast<float>(SettingValue(kSwirlSetting, 400)) / (100.0f * a_base);
+			if (std::abs(factor - 1.0f) < 0.001f) {
+				return;
+			}
+			RE::BSVisit::TraverseScenegraphGeometries(a_root, [factor](RE::BSGeometry* a_geometry) {
+				auto* raw = a_geometry ? a_geometry->GetGeometryRuntimeData().shaderProperty.get() : nullptr;
+				auto* prop = raw ? netimmerse_cast<RE::BSEffectShaderProperty*>(raw) : nullptr;
+				auto* mat = prop ? static_cast<RE::BSEffectShaderMaterial*>(prop->GetMaterial()) : nullptr;
+				auto* fresh = mat ? static_cast<RE::BSEffectShaderMaterial*>(mat->Create()) : nullptr;
+				if (fresh) {
+					fresh->CopyMembers(mat);
+					fresh->baseColorScale = mat->baseColorScale * factor;
+					prop->SetMaterial(fresh, true);
+					if (prop->GetMaterial() != fresh) {
+						fresh->~BSEffectShaderMaterial();
+						RE::free(fresh);
+					}
+				}
+				return RE::BSVisit::BSVisitControl::kContinue;
+			});
+		}
+
+		// every art object's model is copied through this call; only VAER's swirls are touched, after one lookup
+		struct SwirlCopy3D
+		{
+			static RE::NiAVObject* thunk(RE::BGSArtObject* a_self, RE::TESObjectREFR* a_ref, std::uintptr_t a_arg)
+			{
+				auto* copy = func(a_self, a_ref, a_arg);
+				if (copy) {
+					if (const auto it = gSwirlArts.find(a_self); it != gSwirlArts.end()) {
+						LightKit::Guarded("VAER swirl copy", [copy, base = it->second]() { ScaleSwirl(copy, base); });
+					}
+				}
+				return copy;
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+		};
+
 		void BrighterStrands()
 		{
 			std::size_t pointed = 0, absent = 0;
@@ -132,12 +179,14 @@ namespace Plugin
 				std::error_code   ec;
 				if (!fs::exists(fs::path("Data") / "meshes" / ours, ec)) {
 					++absent;
+					gSwirlArts[art] = 1.0f;
 					continue;
 				}
 				art->SetModel(ours.c_str());
 				const char* back = art->GetModel();
 				if (back && Lower(back) == Lower(ours)) {
 					++pointed;
+					gSwirlArts[art] = 4.0f;
 				} else {
 					SKSE::log::warn("[VAER] {:08X} did not take {}", art->GetFormID(), ours);
 				}
@@ -280,6 +329,11 @@ namespace Plugin
 			return;
 		}
 		BrighterStrands();
+		if (!gSwirlArts.empty()) {
+			REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_BGSArtObject[0] };
+			SwirlCopy3D::func = vtbl.write_vfunc(0x40, SwirlCopy3D::thunk);  // BGSArtObject::Clone3D
+			SKSE::log::info("VAER: {} swirl art object(s) follow the Swirls slider ({}%)", gSwirlArts.size(), SettingValue(kSwirlSetting, 400));
+		}
 		VaerOwnBack();
 		if (PluginLoaded("Thaumaturgy.esp")) {
 			ThaumaturgyCopies();

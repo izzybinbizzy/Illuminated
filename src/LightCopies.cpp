@@ -633,9 +633,10 @@ namespace Plugin
 			static void thunk(T* a_this)
 			{
 				func(a_this);
-				// every effect in the loaded world comes through here. On the record route nothing rewrites a light in this call, so nothing
-				// to scale is the common case; on the Light Placer route it writes its lights here and they are scaled again below
-				if (RecordRoute() && !Fade::EffectsWanted()) {
+				// every effect in the loaded world comes through here, so the common case returns at once: nothing a slider moved, nothing
+				// the fading module wants and no flesh spell noted (Scaling is false on the record route, where nothing rewrites a light here)
+				constexpr bool shader = std::is_same_v<T, RE::ShaderReferenceEffect>;
+				if (!Scaling() && !Fade::EffectsWanted() && !(shader && !RecordRoute() && FleshNoted())) {
 					return;
 				}
 				LightKit::Guarded("effect update", [a_this]() {
@@ -646,7 +647,7 @@ namespace Plugin
 						owner = OwnerOf(a_this->Get3D());
 					}
 					ScaleOwned(owner);
-					if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
+					if constexpr (shader) {
 						if (!RecordRoute() && FleshNoted()) {
 							const auto      turn = LightKit::Turn();  // before gFlickerLock (LightKit.h's order)
 							std::lock_guard l{ gFlickerLock };        // the slider pass writes the same fade
@@ -924,8 +925,9 @@ namespace Plugin
 			static void thunk(RE::TESObjectCELL* a_cell)
 			{
 				func(a_cell);
-				// every loaded cell comes through here. On the record route nothing rewrites a light in this call, as in the effect update
-				if (RecordRoute() && !Fade::ReapplyWanted()) {
+				// every loaded cell comes through here: nothing a slider moved and nothing to reapply is the common case (Scaling is false on
+				// the record route, where nothing rewrites a light in this call)
+				if (!Scaling() && !Fade::ReapplyWanted()) {
 					return;
 				}
 				LightKit::Guarded("cell animations", [a_cell]() {
