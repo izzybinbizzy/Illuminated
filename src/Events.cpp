@@ -184,10 +184,15 @@ namespace Plugin
 		}
 	}
 
-	// a save that did not load leaves the old game: what kPreLoadGame let go is made again, as after a loading screen (main thread)
+	// a save that did not load leaves the old game: what kPreLoadGame let go is made again, as after a loading screen, and every
+	// pass that waits for the game's next event (the hands, the drawn weapons, a running flesh spell's lights) looks now (main thread)
 	void RenewAfterFailedLoad()
 	{
 		AfterLoadingScreen();
+		DropFleshRoots();
+		NoteArtLook();
+		NoteWeaponLook();
+		Fade::WakeHands();
 	}
 
 	void WatchActors3D()

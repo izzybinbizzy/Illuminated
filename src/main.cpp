@@ -139,6 +139,8 @@ namespace
 			TintWardRecords();     // a recolored 360 Ward's color onto the ward hand's record lights
 			NoteEnchantShaders();  // a drawn weapon's enchantment shader -> its rows (ArtLights.cpp), before the editor IDs go
 			WatchDraws();          // the actors with drawn hands, for the drawn-weapon lights and the ground twins (Events.cpp)
+		} else {
+			WatchWeaponGlows();  // a glowing weapon's Light Placer light at the weapon's middle (HerShadow.cpp)
 		}
 		if (cov.files == 0) {
 			SKSE::log::warn(

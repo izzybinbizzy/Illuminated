@@ -1101,6 +1101,10 @@ namespace Plugin
 			gKindScale[k] = kindScale;
 			scaled = scaled || kindScale != 1.0f;
 		}
+		// a ground element's own strength (the Advanced Settings file's [Ground Effects]) scales Light Placer's flickering ground lights too
+		for (const auto& strength : GroundElement::gTune.strength) {
+			scaled = scaled || strength.load(std::memory_order_relaxed) != 1.0f;
+		}
 		gScaled = scaled;
 		const bool off = LightsOff();
 		// the look is put back only when "all lights off" turns: written on every strength step it undid HoldFlicker's steady

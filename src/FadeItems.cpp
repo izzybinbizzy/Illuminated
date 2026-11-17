@@ -47,7 +47,11 @@
 #include "Translation.h"
 #include "MenuStyle.h"
 
+#include <algorithm>
+#include <array>
 #include <sstream>
+#include <string_view>
+#include <utility>
 
 namespace Fade::Items
 {
@@ -363,6 +367,27 @@ namespace Fade::Items
 			});
 		}
 
+		[[nodiscard]] bool SameMod(const RE::TESFile* a_spell, const RE::TESFile* a_shield)
+		{
+			if (!a_spell || !a_shield) {
+				return false;
+			}
+			if (a_spell == a_shield) {
+				return true;
+			}
+			constexpr std::array<std::string_view, 5> kGame{ "Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm" };
+			const std::string_view                    shield = a_shield->GetFilename();
+			if (std::ranges::any_of(kGame, [shield](std::string_view a_name) { return _strnicmp(a_name.data(), shield.data(), a_name.size()) == 0 && a_name.size() == shield.size(); })) {
+				return false;
+			}
+			for (std::uint32_t i = 0; a_spell->masterPtrs && i < a_spell->masterCount; ++i) {
+				if (a_spell->masterPtrs[i] == a_shield) {
+					return true;
+				}
+			}
+			return false;
+		}
+
 		void VisitActor(RE::Actor* a_actor)
 		{
 			if (!a_actor || !a_actor->Is3DLoaded()) {
@@ -497,16 +522,20 @@ namespace Fade::Items
 			gCatalog.push_back({ spell->GetFormID(), key, name, Lower(name), kind.school >= 0 ? kSchools[kind.school] : "Other spells", true, false });
 		}
 		gShieldSpell.clear();
-		std::unordered_map<std::string, RE::FormID> spellByName;
+		std::unordered_map<std::string, std::pair<RE::FormID, const RE::TESFile*>> spellByName;
 		for (const auto& item : gCatalog) {
 			if (item.spell) {
-				spellByName.emplace(item.lower, item.id);
+				const auto* form = RE::TESForm::LookupByID(item.id);
+				spellByName.emplace(item.lower, std::pair{ item.id, form ? form->GetFile(0) : nullptr });
 			}
 		}
 		for (auto* armor : dh->GetFormArray<RE::TESObjectARMO>()) {
 			const char* name = armor && armor->HasPartOf(RE::BGSBipedObjectForm::BipedObjectSlot::kShield) ? armor->GetFullName() : nullptr;
-			if (const auto it = name && *name ? spellByName.find(Lower(name)) : spellByName.end(); it != spellByName.end()) {
-				gShieldSpell.emplace(armor->GetFormID(), it->second);
+			const auto  it = name && *name ? spellByName.find(Lower(name)) : spellByName.end();
+			// the shield and its spell come from one mod (its plugin, or a master of it that is not the game's own): another mod's or the
+			// game's shield that only shares the spell's name is not that spell's
+			if (it != spellByName.end() && SameMod(it->second.second, armor->GetFile(0))) {
+				gShieldSpell.emplace(armor->GetFormID(), it->second.first);
 			}
 		}
 		for (auto* weapon : dh->GetFormArray<RE::TESObjectWEAP>()) {
