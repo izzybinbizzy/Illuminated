@@ -50,8 +50,10 @@
 //   SKSEMenuFramework.h, DevBenchAPI.*  those mods' own files; DevBenchGlue.h, MenuStyle.h, Translation.h are
 //                      shared word for word with our other plugins
 
+#include "BeamRow.h"
 #include "Fade.h"
 #include "FloorLightFix.h"
+#include "GroundElement.h"
 #include "Plugin.h"
 #include "RuntimeGuard.h"
 #include "ShieldWardWatch.h"
@@ -72,17 +74,48 @@ namespace
 	{
 		const auto loadStarted = std::chrono::steady_clock::now();
 		// the advanced settings file's own values (his rule) - read with the fading module's, in Fade::OnDataLoaded
-		Fade::Tuning::Register("Lights", "NearbyDistance", 2800.0f, 300.0f, 30000.0f, "Hand lights for - Everyone nearby: how far from you, in game units", gNearby);
-		Fade::Tuning::Register("Vanilla and ENB", "GroundLights", 1.0f, 0.0f, 1.0f, "1: a hand light lights the ground too (its twin, made with land lighting on); 0: off", gGroundLightsOn);
-		if (REL::Module::IsVR()) {
-			// his answer 2026-10-16 ("make it optional for vr users only"): in VR the ground light hangs at the body's hand, as it
-			// always did; this VR-only value hangs it at the VR hand instead. Only the VR build's file carries the line
-			Fade::Tuning::Register("Vanilla and ENB", "GroundLightAtVRHand", 0.0f, 0.0f, 1.0f,
-				"VR only - 1: a hand's ground light hangs at your VR hand; 0: at the body's hand (the default)", gGroundLightVRHand);
-		}
-		Fade::Tuning::Register("Vanilla and ENB", "ArtLights", 1.0f, 0.0f, 1.0f, "1: bound weapons and lit art and weapons get their light on Vanilla and ENB (and without Light Placer); 0: off", gArtLightsOn);
-		Fade::Tuning::Register("Vanilla and ENB", "VanillaColorStrength", 1.4f, 0.5f, 3.0f, "Vanilla only - how strong a spell light's color is: 1 as made, above 1 deeper, below paler", gVanillaSaturation);
-		Fade::Tuning::Register("Vanilla and ENB", "VanillaBrightness", 1.35f, 0.5f, 3.0f, "Vanilla only - every light this strong before the Brightness slider: 1 as made", gVanillaStrength);
+		Fade::Tuning::Register("General", "NearbyDistance", 2800.0f, 300.0f, 30000.0f,
+			"How far from you other casters' hand lights are lit when Hand lights for is set to Everyone nearby, in game units.", gNearby);
+		Fade::Tuning::Register("Vanilla and ENB", "GroundLights", 1.0f, 0.0f, 1.0f, "1 lets a hand light light the ground around it too; 0 turns that off.", gGroundLightsOn);
+		// read on every game so the one shipped file can carry it; only Skyrim VR uses it (his VR-only choice)
+		Fade::Tuning::Register("Vanilla and ENB", "GroundLightAtVRHand", 0.0f, 0.0f, 1.0f,
+			"Skyrim VR only: 1 hangs a hand's ground light at your VR hand, 0 at your body's hand.", gGroundLightVRHand);
+		Fade::Tuning::Register("Vanilla and ENB", "ArtLights", 1.0f, 0.0f, 1.0f,
+			"1 gives bound weapons, glowing spell art and enchanted weapons their light without Light Placer; 0 turns that off.", gArtLightsOn);
+		Fade::Tuning::Register("Vanilla and ENB", "VanillaColorStrength", 1.4f, 0.5f, 3.0f,
+			"Vanilla only: how strong a light's color is; 1 is as made, higher is deeper, lower is paler.", gVanillaSaturation);
+		Fade::Tuning::Register("Vanilla and ENB", "VanillaBrightness", 1.35f, 0.5f, 3.0f,
+			"Vanilla only: how bright every light is before the Brightness slider; 1 is as made.", gVanillaStrength);
+		// the rows along streams, sprays and bolts (BeamRow.h, the same in both mods)
+		Fade::Tuning::Register("Streams and Rows", "RowSpacing", 70.0f, 20.0f, 400.0f,
+			"The most space between two lights in a stream's row, in game units; smaller gives more lights, closer together.", BeamRow::gTune.spacing);
+		Fade::Tuning::Register("Streams and Rows", "RowLightsWithoutShaders", 5.0f, 1.0f, 20.0f,
+			"How many lights a stream's row may have without Community Shaders; more can leave the ground lit only near your hands.", BeamRow::gTune.plainLights);
+		Fade::Tuning::Register("Streams and Rows", "RowStrengthVanilla", 1.1f, 0.1f, 3.0f,
+			"How bright a stream's row is on Vanilla, compared with Community Shaders.", BeamRow::gTune.vanilla);
+		Fade::Tuning::Register("Streams and Rows", "RowStrengthENB", 0.5f, 0.1f, 3.0f,
+			"How bright a stream's row is on ENB, compared with Community Shaders.", BeamRow::gTune.enb);
+		Fade::Tuning::Register("Streams and Rows", "CloudReachShaders", 3.0f, 1.0f, 6.0f,
+			"How far the light of a lingering spell cloud (Ice Storm) reaches on Community Shaders, times its row's reach.", BeamRow::gTune.cloudReachShaders);
+		// spells left on the ground (GroundElement.h, the same in both mods): one reach, then a strength and a reach per element
+		Fade::Tuning::Register("Ground Effects", "GroundReach", 1.0f, 0.25f, 3.0f,
+			"How far the light of every spell left on the ground reaches, compared with now; on top of the Reach slider.", GroundElement::gTune.reach);
+		Fade::Tuning::Register("Ground Effects", "FireStrength", 1.0f, 0.0f, 3.0f,
+			"How bright fire left on the ground is (walls of fire, burning ground), on top of the Ground effects strength; 0 puts it out.", GroundElement::gTune.strength[1]);
+		Fade::Tuning::Register("Ground Effects", "FireReach", 1.0f, 0.25f, 3.0f,
+			"How far fire left on the ground reaches, on top of GroundReach.", GroundElement::gTune.elementReach[1]);
+		Fade::Tuning::Register("Ground Effects", "FrostStrength", 1.0f, 0.0f, 3.0f,
+			"How bright frost left on the ground is (walls of frost, ice storms), on top of the Ground effects strength; 0 puts it out.", GroundElement::gTune.strength[2]);
+		Fade::Tuning::Register("Ground Effects", "FrostReach", 1.0f, 0.25f, 3.0f,
+			"How far frost left on the ground reaches, on top of GroundReach.", GroundElement::gTune.elementReach[2]);
+		Fade::Tuning::Register("Ground Effects", "ShockStrength", 1.0f, 0.0f, 3.0f,
+			"How bright lightning left on the ground is (walls of storms, lightning storms), on top of the Ground effects strength; 0 puts it out.", GroundElement::gTune.strength[3]);
+		Fade::Tuning::Register("Ground Effects", "ShockReach", 1.0f, 0.25f, 3.0f,
+			"How far lightning left on the ground reaches, on top of GroundReach.", GroundElement::gTune.elementReach[3]);
+		Fade::Tuning::Register("Ground Effects", "OtherStrength", 1.0f, 0.0f, 3.0f,
+			"How bright every other spell left on the ground is (poison, wind and the rest), on top of the Ground effects strength; 0 puts it out.", GroundElement::gTune.strength[0]);
+		Fade::Tuning::Register("Ground Effects", "OtherReach", 1.0f, 0.25f, 3.0f,
+			"How far every other spell left on the ground reaches, on top of GroundReach.", GroundElement::gTune.elementReach[0]);
 		LoadSettings();  // first: Light Placer reads the settings' globals in its conditions
 		ReadLighting();  // before pass 0: on ENB and Vanilla its lights are made plain
 		RegisterMenu();
@@ -150,6 +183,7 @@ namespace
 	void ForgetOldGame()
 	{
 		KeepCopiesOutOfPortals();  // every mod's data load has run by now (a portal-strict patcher among them)
+		TakeEnbShaderLights();     // and ENB Lights For Effect Shaders' too
 		DropArtLights();
 		DropGroundLights();
 		ForgetDrawn();
@@ -165,12 +199,7 @@ namespace
 	{
 		switch (a_msg->type) {
 		case SKSE::MessagingInterface::kPostLoad:
-			Fade::OnPluginLoad();                        // the one editor-ID recorder (weapons, enchantments, magic effects), before the plugins load
-			Fade::RecordEditorIDs<RE::BGSProjectile>();  // and what the passes read besides
-			Fade::RecordEditorIDs<RE::BGSExplosion>();
-			Fade::RecordEditorIDs<RE::BGSHazard>();
-			Fade::RecordEditorIDs<RE::TESObjectLIGH>();
-			Fade::RecordEditorIDs<RE::TESEffectShader>();
+			Fade::OnPluginLoad();  // every editor ID comes from powerofthree's Tweaks (required): the log says whether it keeps them
 			OfferToDevBench();
 			Fade::OnPostLoad();
 			break;
@@ -184,6 +213,11 @@ namespace
 			break;
 		case SKSE::MessagingInterface::kPostLoadGame:
 		case SKSE::MessagingInterface::kNewGame:
+			// a save that did not load (SKSE passes its success as the data) leaves the old game: what kPreLoadGame let go comes back
+			if (a_msg->type == SKSE::MessagingInterface::kPostLoadGame && !a_msg->data) {
+				SKSE::log::warn("the save did not load: this game's lights are made again");
+				RenewAfterFailedLoad();
+			}
 			// a save holds the plugin's globals as they were when it was made; the settings file is the truth
 			ApplyGlobals();
 			if (a_msg->type == SKSE::MessagingInterface::kNewGame) {
@@ -206,9 +240,9 @@ namespace
 
 SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
-	// 14 bytes per 5-byte call site: the charge meter's two and the three Light Placer update wraps; `trampoline check.py` counts them.
+	// 14 bytes per 5-byte call site: the three Light Placer update wraps; `trampoline check.py` counts them.
 	// VR writes none of them, so it asks for none
-	SKSE::Init(a_skse, { .trampoline = !REL::Module::IsVR(), .trampolineSize = 5 * 14 + FloorLightFix::kTrampolineBytes });
+	SKSE::Init(a_skse, { .trampoline = !REL::Module::IsVR(), .trampolineSize = 3 * 14 + FloorLightFix::kTrampolineBytes });
 	// the wrong game: loaded but idle - a false here makes SKSE add its own "exit game?" box over the guard's
 	if (!RuntimeGuard::RightGame("Illuminated", "Illuminated - Spell Lighting NG", "Illuminated - VR")) {
 		return true;
@@ -218,7 +252,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	// registered: a Light Placer module already here registered first, so at data load it reads its configs before our
 	// lights exist and drops every row that names one (Light Placer has no preload; SKSE's scan loads only as resources)
 	gLightPlacerFirst = REX::W32::GetModuleHandleA("po3_LightPlacer.dll") != nullptr;
-	// the editor-ID recorders are installed at SKSE's post-load (OnMessage), still before the game reads its plugins
+	// SKSE's post-load (OnMessage) logs whether powerofthree's Tweaks keeps the editor IDs, before the game reads its plugins
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
 	SKSE::log::info("Illuminated {} loaded on Skyrim {} ({}); waiting for the game's data", SKSE::GetPluginVersion().string("."), REL::Module::get().version().string("."),
 		REL::Module::IsVR() ? "VR build" : "SE / AE build");

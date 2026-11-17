@@ -10,6 +10,7 @@
 // settings (*.txt, written by lagen.py).
 
 #include "Fade.h"
+#include "EnbShaderLights.h"
 #include "Plugin.h"
 #include "StrangeRunes.h"
 
@@ -44,15 +45,28 @@ namespace Plugin
 		// Read as 0 while Strange Runes is not loaded, so no row waits on a mod that is not there
 		constexpr std::string_view kStrangeRunes = "IlluminatedStrangeRunesLight";
 		const std::string          kStrangeClause = LightKit::Lower(kStrangeRunes);
+		// powerofthree's ENB Lights For Effect Shaders' switch (lagen.py enbl_shaders_switch): 1 = its lights glow on FEC's bodies and
+		// our rows there wait on 0 (EnbShaderLights.h gives its light back). Read as 0 while that DLL is not loaded
+		constexpr std::string_view        kEnbShaderLights = "IlluminatedENBShaderLights";
+		const std::string                 kEnbShaderClause = LightKit::Lower(kEnbShaderLights);
+		std::vector<RE::TESEffectShader*> gEnbOurs;  // our shaders it lit when the first game loaded (main thread)
+
+		// asked after every SKSE plugin has loaded, so the answer never changes
+		[[nodiscard]] bool EnbShadersHere()
+		{
+			static const bool here = EnbShaderLights::Installed();
+			return here;
+		}
 		// his Performance switch: "a toggle to turn off lights completely for the entire mod" - Light Placer then
 		// draws none of ours (the route global held at 0) and every pass treats every config as unlit (Coverage::ModelLit)
 		constexpr std::string_view kLightsOff = "IlluminatedLightsOff";
 		constexpr std::string_view kQuality = "IlluminatedQuality";  // 0 Quality, 1 Performance (his order 2026-10-20)
-		// the four strengths beside the main sliders (lagen.STRENGTH_IDS), 25-200 %
+		// the strengths beside the main sliders (lagen.STRENGTH_IDS), 25-200 %
 		constexpr std::string_view kExplosionStrength = "IlluminatedExplosionStrength";
 		constexpr std::string_view kStreamStrength = "IlluminatedStreamStrength";
 		constexpr std::string_view kGlowStrength = "IlluminatedBodyGlowStrength";
 		constexpr std::string_view kEnchantedStrength = "IlluminatedEnchantedStrength";
+		constexpr std::string_view kGroundStrength = "IlluminatedGroundStrength";
 
 		// a light copy's kind= line (lagen.row_kind): none named is Brightness alone
 		[[nodiscard]] LightKind KindOf(std::string_view a_text)
@@ -62,6 +76,9 @@ namespace Plugin
 			}
 			if (a_text == "glow") {
 				return LightKind::kGlow;
+			}
+			if (a_text == "ground" || a_text.starts_with("ground-")) {
+				return LightKind::kGround;
 			}
 			return a_text == "enchanted" ? LightKind::kEnchanted : LightKind::kOther;
 		}
@@ -150,6 +167,7 @@ namespace Plugin
 					}
 					c.flicker = block["flicker"] == "1";
 					c.kind = KindOf(block["kind"]);
+					c.element = GroundElement::OfKind(block["kind"]);
 					if (!c.id.empty() && !c.base.empty() && gLightIds.insert(Lower(c.id)).second) {
 						gLights.push_back(std::move(c));
 					}
@@ -190,6 +208,10 @@ namespace Plugin
 
 		bool Loaded(std::string_view a_plugin)
 		{
+			// a setting may need an SKSE plugin with no plugin file of its own (ENB Lights For Effect Shaders): named by its DLL
+			if (a_plugin.size() > 4 && LightKit::SameText(a_plugin.substr(a_plugin.size() - 4), ".dll")) {
+				return REX::W32::GetModuleHandleA(std::string(a_plugin).c_str()) != nullptr;
+			}
 			auto* dh = RE::TESDataHandler::GetSingleton();
 			return dh && (dh->LookupLoadedModByName(a_plugin) || dh->LookupLoadedLightModByName(a_plugin));
 		}
@@ -335,6 +357,9 @@ namespace Plugin
 			if (a_c.global == kStrangeClause && !StrangeRunes::Loaded()) {
 				return 0 == a_c.value;
 			}
+			if (a_c.global == kEnbShaderClause && !EnbShadersHere()) {
+				return 0 == a_c.value;
+			}
 			if (a_c.global == ConfigText::kArtifactClause) {
 				return (a_artifact ? 1 : 0) == a_c.value;
 			}
@@ -445,6 +470,41 @@ namespace Plugin
 		}
 		// the runes' own light: back with the switch on, or with every light of ours off
 		StrangeRunes::Apply(strange != 0 || LightsOff());
+		const int enbShaders = EnbShadersHere() ? SettingValue(kEnbShaderLights, 0) : 0;
+		if (const auto it = gIndex.find(kEnbShaderClause); it != gIndex.end() && gSettings[it->second].global) {
+			gSettings[it->second].global->value = static_cast<float>(enbShaders);
+		}
+		// its lights on our shaders: back with its switch on, or with every light of ours off
+		for (auto* shader : gEnbOurs) {
+			if (enbShaders != 0 || LightsOff()) {
+				EnbShaderLights::GiveBack(shader);
+			} else {
+				EnbShaderLights::TakeOff(shader);
+			}
+		}
+	}
+
+	void TakeEnbShaderLights()
+	{
+		static bool done = false;
+		if (done || !EnbShadersHere()) {
+			return;
+		}
+		done = true;
+		const auto add = [](const RE::TESEffectShader* a_shader) {
+			auto* shader = a_shader ? RE::TESForm::LookupByID<RE::TESEffectShader>(a_shader->GetFormID()) : nullptr;
+			if (shader && EnbShaderLights::Lit(shader) && std::ranges::find(gEnbOurs, shader) == gEnbOurs.end()) {
+				gEnbOurs.push_back(shader);
+			}
+		};
+		for (const auto& entry : FecShaders()) {
+			add(entry.first);
+		}
+		for (const auto& entry : LightKit::FleshFx::Resolved()) {
+			add(entry.first);
+		}
+		ApplyGlobals();
+		SKSE::log::info("ENB Lights For Effect Shaders lights {} shader(s) Illuminated lights too: ours is the default there", gEnbOurs.size());
 	}
 
 	bool SetLightPlacerRoute(bool a_lightPlacerDraws)
@@ -613,6 +673,9 @@ namespace Plugin
 			break;
 		case LightKind::kEnchanted:
 			id = kEnchantedStrength;
+			break;
+		case LightKind::kGround:
+			id = kGroundStrength;
 			break;
 		default:
 			return 1.0f;

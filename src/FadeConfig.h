@@ -17,7 +17,9 @@ namespace Fade::Mod
 	inline constexpr const char* kRulesDirText = "Data\\SKSE\\Plugins\\Illuminated\\Fading";                           // the same, as a player reads it
 	inline constexpr const char* kItemsPath = "Data/SKSE/Plugins/Illuminated/Lights by Item.ini";                      // FadeItems.cpp (his order)
 	inline constexpr const char* kAdvancedPath = "Data/SKSE/Plugins/Illuminated/Illuminated - Advanced Settings.ini";  // FadeTuning.cpp (his rule)
-	inline constexpr const char* kHudArtDir = "Data/SKSE/Plugins/Illuminated/HUD/";                                    // FadeMenu.cpp's soul gem sheets
+	// the player's own lines, in no download: they win over the file and an update never replaces them
+	inline constexpr const char* kAdvancedCustomPath = "Data/SKSE/Plugins/Illuminated/Illuminated - Advanced Settings - Custom.ini";
+	inline constexpr const char* kHudArtDir = "Data/SKSE/Plugins/Illuminated/HUD/";  // FadeMenu.cpp's soul gem sheets
 	// the mod's files under an old name, read while the new one is not there yet (SettingsText::ReadFrom) - none: Illuminated
 	// has never renamed its settings files
 	inline constexpr const char* kOldSettingsPath = "";

@@ -71,6 +71,31 @@ namespace Plugin
 			}
 		};
 
+		// A draw of any kind passes the actor's slot 0xA6 (DrawWeaponMagicHands, plugin coding 7a), and a spell's draw sends no SKSE draw event:
+		// an NPC who draws only spells is noted here. She is always on the list. Any thread: only noted. Not on VR, whose slot is not read here
+		struct MagicHands
+		{
+			static void thunk(RE::Character* a_this, bool a_draw)
+			{
+				func(a_this, a_draw);
+				if (!a_draw) {
+					return;
+				}
+				LightKit::Guarded("hands drawn", [a_this]() {
+					NoteWeaponLook();
+					std::lock_guard lock(gDrawLock);
+					gDrawQueue.push_back(a_this->GetFormID());
+					gDrawWork.store(true, std::memory_order_relaxed);
+				});
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+			static void                                    Install()
+			{
+				REL::Relocation<std::uintptr_t> vtbl{ RE::Character::VTABLE[0] };
+				func = vtbl.write_vfunc(0xA6, thunk);
+			}
+		};
+
 		// a_hadBody: the body this call let go was there - a load clears thousands of empty slots, which leave nothing behind
 		void Note3D(RE::Actor* a_actor, bool a_in, bool a_hadBody = false)
 		{
@@ -149,6 +174,20 @@ namespace Plugin
 			const auto* state = a_actor ? a_actor->AsActorState() : nullptr;
 			return state && state->IsWeaponDrawn();
 		}
+
+		// a draw is noted as it starts (slot 0xA6, the draw event's begin): the hands are on their way out, not drawn yet
+		[[nodiscard]] bool HandsComing(const RE::Actor* a_actor)
+		{
+			const auto* state = a_actor ? a_actor->AsActorState() : nullptr;
+			const auto  weapon = state ? state->GetWeaponState() : RE::WEAPON_STATE::kSheathed;
+			return weapon == RE::WEAPON_STATE::kWantToDraw || weapon == RE::WEAPON_STATE::kDrawing;
+		}
+	}
+
+	// a save that did not load leaves the old game: what kPreLoadGame let go is made again, as after a loading screen (main thread)
+	void RenewAfterFailedLoad()
+	{
+		AfterLoadingScreen();
 	}
 
 	void WatchActors3D()
@@ -178,8 +217,11 @@ namespace Plugin
 		if (auto* updates = SKSE::GetNiNodeUpdateEventSource()) {
 			updates->AddEventSink(&changes);
 		}
+		if (!REL::Module::IsVR()) {
+			MagicHands::Install();
+		}
 		gDrawsWatched.store(true, std::memory_order_relaxed);
-		SKSE::log::info("events: weapon draws {}", actions ? "watched" : "NOT watched");
+		SKSE::log::info("events: weapon draws {}, spell draws {}", actions ? "watched" : "NOT watched", REL::Module::IsVR() ? "NOT watched (VR)" : "watched");
 	}
 
 	void RefreshDrawn()
@@ -226,8 +268,8 @@ namespace Plugin
 		std::erase_if(gDrawnIds, [&](RE::FormID a_id) {
 			auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_id);
 			// put away, gone or not an actor: looked at again when it draws or its body loads with the hands out (Note3D). She needs no
-			// place here: she is always on the list
-			if (!HandsDrawn(actor) || actor == player) {
+			// place here: she is always on the list. Hands still coming out stay listed until they are drawn
+			if (actor == player || (!HandsDrawn(actor) && !HandsComing(actor))) {
 				gNo3D.erase(a_id);
 				return true;
 			}
@@ -242,7 +284,7 @@ namespace Plugin
 			gNo3D.erase(a_id);
 			// a far actor stays listed and is looked at from the moment it comes near, as the passes always did
 			const auto* process = actor->GetActorRuntimeData().currentProcess;
-			if (actor != player && process && process->InHighProcess()) {
+			if (process && process->InHighProcess() && HandsDrawn(actor)) {
 				gDrawn.push_back(actor);
 			}
 			return false;

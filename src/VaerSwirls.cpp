@@ -123,7 +123,14 @@ namespace Plugin
 			}
 			RE::BSVisit::TraverseScenegraphGeometries(a_root, [factor](RE::BSGeometry* a_geometry) {
 				auto* raw = a_geometry ? a_geometry->GetGeometryRuntimeData().shaderProperty.get() : nullptr;
-				auto* prop = raw ? netimmerse_cast<RE::BSEffectShaderProperty*>(raw) : nullptr;
+				// a property the cached model or another copy still holds is left alone: a new material on it would compound with every copy
+				if (raw && raw->GetRefCount() != 1) {
+					static std::atomic<bool> said{ false };
+					if (!said.exchange(true)) {
+						SKSE::log::info("VAER: a swirl copy shares its shader property ({} holders); it keeps VAE Reborn's emissive", raw->GetRefCount());
+					}
+				}
+				auto* prop = raw && raw->GetRefCount() == 1 ? netimmerse_cast<RE::BSEffectShaderProperty*>(raw) : nullptr;
 				auto* mat = prop ? static_cast<RE::BSEffectShaderMaterial*>(prop->GetMaterial()) : nullptr;
 				auto* fresh = mat ? static_cast<RE::BSEffectShaderMaterial*>(mat->Create()) : nullptr;
 				if (fresh) {
@@ -176,8 +183,8 @@ namespace Plugin
 					continue;
 				}
 				const std::string ours = std::string(kOurMeshes) + model.substr(kVaerMeshes.size());
-				std::error_code   ec;
-				if (!fs::exists(fs::path("Data") / "meshes" / ours, ec)) {
+				// through the game's own loader, so a copy packed into an archive counts too
+				if (RE::BSResourceNiBinaryStream stream{ "meshes\\" + ours }; !stream.good()) {
 					++absent;
 					continue;
 				}

@@ -2,9 +2,9 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Editor IDs: the game throws most of them away while it loads, so they are recorded as each form arrives - by the
-// fading module's recorder (FadeEditorIDs.cpp), the one hook on that vtable slot; main.cpp asks it for every form type
-// the passes read. This file is the passes' way in, and the log's label.
+// Editor IDs: the game throws most of them away while it loads; powerofthree's Tweaks (required) keeps them, asked through
+// the fading module (FadeEditorIDs.cpp), which also names our own in-memory copies. This file is the passes' way in, and the
+// log's label.
 
 #include "Fade.h"
 #include "Plugin.h"
