@@ -293,6 +293,10 @@ namespace Plugin
 	[[nodiscard]] std::size_t GroundLightsLeftHidden();  // GroundLights.cpp: casting lights the game holds hidden on a caster whose hands are down
 	// HerShadow.cpp: with the Bottled Shaders shadow download, both her hands' lights at one point between her hands (one shadow)
 	void               PlaceHerShadow();                                        // the player update, after every pass wrote its fades (main thread)
+	void               WatchBurningBanners();                                   // data load: Burn'em Banners on Vanilla - a burning banner's fire light (BurningBanners.cpp)
+	void               TickBurningBanners();                                    // the player update: the banners the game said started or stopped burning (main thread)
+	void               RetuneBurningBanners();                                  // a slider moved: the burning banners' lights under the new values (main thread)
+	void               DropBurningBanners();                                    // a load or a loading screen: every banner light let go (main thread)
 	void               DropHerShadow();                                         // a game loads, or a new one starts
 	[[nodiscard]] bool IsOurLightPlacerLight(const RE::NiPointLight& a_light);  // LightCopies.cpp: Light Placer's light of one of our copies
 	// automatic lights (his go-to pick): a light of ours in a_color, at the middle strength and reach of the tuned

@@ -587,8 +587,9 @@ namespace Plugin
 						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
 					}
 					Fade::UpdateHands(a_delta);
-					PlaceHerShadow();    // with the shadow download: her two hands' lights at one point (HerShadow.cpp)
-					TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
+					PlaceHerShadow();      // with the shadow download: her two hands' lights at one point (HerShadow.cpp)
+					TickGroundLights();    // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
+					TickBurningBanners();  // a banner the game said started or stopped burning (BurningBanners.cpp)
 					LightKit::Cost::FrameEnd();
 				});
 			}
@@ -1142,6 +1143,7 @@ namespace Plugin
 			}
 			++set;
 		}
+		RetuneBurningBanners();  // the burning banners' fire lights under the same sliders (BurningBanners.cpp)
 		if (!a_quiet) {
 			SKSE::log::info("light strength: brightness {}% = {:.2f} with the lighting's own strength, reach {}%, strengths: explosions {:.2f} glows {:.2f} enchanted {:.2f} ground {:.2f} streams {:.2f}, hand lights for {}, on {} light copies", brightness,
 				BrightnessNow(), reach, KindStrength(LightKind::kExplosion), KindStrength(LightKind::kGlow), KindStrength(LightKind::kEnchanted), KindStrength(LightKind::kGround),

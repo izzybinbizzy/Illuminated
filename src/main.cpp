@@ -142,6 +142,7 @@ namespace
 		} else {
 			WatchWeaponGlows();  // a glowing weapon's Light Placer light at the weapon's middle (HerShadow.cpp)
 		}
+		WatchBurningBanners();  // Burn'em Banners: a burning banner's fire light where that mod gives none (Vanilla)
 		if (cov.files == 0) {
 			SKSE::log::warn(
 				"no Illuminated configs were found under Data\\LightPlacer: passes 1 to 4 skipped (pass 0, VAER, the wards and "
@@ -188,6 +189,7 @@ namespace
 		TakeEnbShaderLights();     // and ENB Lights For Effect Shaders' too
 		DropArtLights();
 		DropGroundLights();
+		DropBurningBanners();
 		ForgetDrawn();
 		DropHerShadow();
 		DropStreamLights();
