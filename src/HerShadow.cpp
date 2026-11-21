@@ -127,15 +127,27 @@ namespace Plugin
 			}
 		};
 
-		// the weapon's own mesh under its hand node: the biggest triangle shape, never the swirls' particles around it
+		// the weapon's own mesh under its hand node: the biggest visible triangle shape at its drawn size, never the swirls'
+		// particles or a hidden shape (a blood overlay, a swirl's emitter source scaled four times)
 		[[nodiscard]] const RE::BSGeometry* WeaponModel(RE::NiAVObject* a_hand)
 		{
 			const RE::BSGeometry* model = nullptr;
-			RE::BSVisit::TraverseScenegraphGeometries(a_hand, [&model](RE::BSGeometry* a_geometry) {
+			float                 biggest = 0.0f;
+			RE::BSVisit::TraverseScenegraphGeometries(a_hand, [a_hand, &model, &biggest](RE::BSGeometry* a_geometry) {
 				const auto type = a_geometry->GetType().get();
-				const bool shape = type == RE::BSGeometry::Type::kTriShape || type == RE::BSGeometry::Type::kDynamicTriShape;
-				if (shape && (!model || a_geometry->modelBound.radius > model->modelBound.radius)) {
+				if (type != RE::BSGeometry::Type::kTriShape && type != RE::BSGeometry::Type::kDynamicTriShape) {
+					return RE::BSVisit::BSVisitControl::kContinue;
+				}
+				float radius = a_geometry->modelBound.radius;
+				for (const RE::NiAVObject* object = a_geometry; object && object != a_hand; object = object->parent) {
+					if (object->GetAppCulled()) {
+						return RE::BSVisit::BSVisitControl::kContinue;
+					}
+					radius *= object->local.scale;
+				}
+				if (radius > biggest) {
 					model = a_geometry;
+					biggest = radius;
 				}
 				return RE::BSVisit::BSVisitControl::kContinue;
 			});

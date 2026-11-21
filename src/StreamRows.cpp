@@ -692,17 +692,23 @@ namespace StreamRows
 		// a row goes with its switch at once; it is hung again when the switch comes back while its projectile still flies: every row a
 		// switch held back is tried once on the next frame
 		gParked.Wake(Ended);
+		// parked after the lock: parking lets ended projectiles go, and a last reference let go under gLiveLock runs the game's release
+		// (our hooked Release3DRelatedData), which takes the lock again on this thread
+		std::vector<RE::NiPointer<RE::TESObjectREFR>> heldBack;
 		{
 			auto*           scene = LightKit::Scene();
 			std::lock_guard l{ gLiveLock };
-			ForgetIf(scene, [](const Live& a_live) {
+			ForgetIf(scene, [&heldBack](const Live& a_live) {
 				const auto rec = gRows.find(a_live.base);
 				const bool off = rec == gRows.end() || !RowOn(rec->second);
 				if (off && rec != gRows.end()) {
-					ParkRow(a_live.beam.get(), RowPark::Why::kHeldBack);
+					heldBack.push_back(a_live.beam);
 				}
 				return off;
 			});
+		}
+		for (const auto& ref : heldBack) {
+			ParkRow(ref.get(), RowPark::Why::kHeldBack);
 		}
 		gAwake.store(true, std::memory_order_relaxed);
 	}
@@ -722,6 +728,8 @@ namespace StreamRows
 				letGo.swap(gLetGo);
 			}
 		}
+		// a projectile parked by its switch that has ended is let go on the next awake frame, not held until the switches move (the lock is free)
+		gParked.Prune(Ended);
 		// a row the light cap held back (or one a switch change woke): tried again while its projectile flies, let go when that ends
 		if (gParked.KeepsAwake()) {
 			bool room = false;
