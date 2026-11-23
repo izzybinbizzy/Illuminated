@@ -24,6 +24,7 @@ namespace StreamRows
 		Host                                   gHost{};
 		std::unordered_map<RE::FormID, Recipe> gRows;                // projectile base -> its row (main thread after Claim)
 		constexpr std::size_t                  kMostRowLights = 64;  // every row light in the scene together
+		constexpr int                          kMakeRetries = 30;    // back-to-back frames a failed make is retried before waiting for a release
 		constexpr std::size_t                  kMostPerRow = 20;
 		constexpr float                        kRowPlain = 0.5f;     // every row off Community Shaders
 		constexpr float                        kRowHeight = 100.0f;  // a beam's usual height over the ground it lights
@@ -94,7 +95,10 @@ namespace StreamRows
 		std::atomic<bool> gSwitchesMoved{ false };
 		// a row with room under the cap got fewer lights than it had room for (no scene yet, the game refused one, no length yet): tried
 		// again next frame, as no other row's release may ever come to free room for it
-		std::atomic<bool>                               gMakeFailed{ false };
+		std::atomic<bool> gMakeFailed{ false };
+		// main thread: failed makes retried back to back; past kMakeRetries the rows wait for a release or a switch change (a light the game
+		// keeps refusing is never retried every frame for the projectile's whole flight - CodeRabbit on Creatures #9)
+		int                                             gMakeRetryRun{ 0 };
 		std::unordered_map<const RE::NiAVObject*, Live> gLive;
 		std::mutex                                      gLiveLock;
 		// a projectile dropped under gLiveLock is let go only after it: its last reference running the game's release (our hooked
@@ -855,7 +859,11 @@ namespace StreamRows
 		// read once for both retries below, so neither consumes it before the other has looked; a release later in this frame sets it again
 		const bool roomFreed = gRoomFreed.exchange(false, std::memory_order_relaxed);
 		const bool switchesMoved = gSwitchesMoved.exchange(false, std::memory_order_relaxed);
-		const bool makeFailed = gMakeFailed.exchange(false, std::memory_order_relaxed);
+		const bool madeShort = gMakeFailed.exchange(false, std::memory_order_relaxed);
+		if (roomFreed || switchesMoved || !madeShort) {
+			gMakeRetryRun = 0;
+		}
+		const bool makeFailed = madeShort && ++gMakeRetryRun <= kMakeRetries;
 		// a row hung short: topped up once a row has let its lights go, or next frame when lights it had room for were not made
 		if (gShort && (roomFreed || makeFailed)) {
 			bool room = false;
