@@ -168,8 +168,15 @@ namespace Plugin
 
 		// the hand lights a record of ours dressed, by caster (under the turn): when a setting points the spell away from ours, the
 		// lit hand takes what it wears now at once instead of keeping our look until the spell is readied again
-		std::unordered_map<const RE::ActorMagicCaster*, const RE::NiLight*> gDressed;
-		std::atomic<std::size_t>                                            gDressedCount{ 0 };
+		struct Dressed
+		{
+			const RE::NiLight* light{ nullptr };
+			double             seen{ 0.0 };  // FlickerClock when its caster's update last dressed it
+		};
+		std::unordered_map<const RE::ActorMagicCaster*, Dressed> gDressed;
+		std::atomic<std::size_t>                                 gDressedCount{ 0 };
+		// a dressed hand is noted every update of its caster, so one not noted for this long is gone: only those are let go
+		constexpr double kDressedGone = 5.0;
 
 		// the record's reach on a lit hand (the game set it once, when the spell was readied)
 		void TakeRadius(RE::NiLight& a_light, float a_radius)
@@ -189,10 +196,11 @@ namespace Plugin
 
 		void NoteDressed(const RE::ActorMagicCaster& a_caster, const RE::NiLight& a_light)  // under the turn
 		{
+			const double now = FlickerClock();
 			if (gDressed.size() > 256) {
-				gDressed.clear();
+				std::erase_if(gDressed, [now](const auto& a_entry) { return now - a_entry.second.seen > kDressedGone; });
 			}
-			gDressed[&a_caster] = &a_light;
+			gDressed[&a_caster] = { &a_light, now };
 			gDressedCount.store(gDressed.size(), std::memory_order_relaxed);
 		}
 
@@ -204,7 +212,7 @@ namespace Plugin
 			}
 			const auto turn = LightKit::Turn();
 			const auto it = gDressed.find(&a_caster);
-			if (it == gDressed.end() || it->second != &a_light) {
+			if (it == gDressed.end() || it->second.light != &a_light) {
 				return;
 			}
 			gDressed.erase(it);

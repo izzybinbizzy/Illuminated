@@ -256,9 +256,10 @@ namespace Plugin
 	void DropArtLights();  // a game loads, or a new one starts
 	// an art started somewhere, or the settings changed (any thread): TickArtLights walks every effect again
 	void NoteArtLook();
-	void NoteWeaponLook() noexcept;  // any thread: something changed what a drawn weapon wants (ArtLights.cpp)
-	void WatchWeaponGlows();         // data load, Light Placer route: a weapon's draw or equip places its glow's light (HerShadow.cpp)
-	void RenewAfterFailedLoad();     // a save that did not load: the lights kPreLoadGame let go made again (Events.cpp)
+	void NoteWeaponLook() noexcept;        // any thread: something changed what a drawn weapon wants (ArtLights.cpp)
+	void WatchWeaponGlows();               // data load, Light Placer route: a weapon's draw or equip places its glow's light (HerShadow.cpp)
+	void NoteWeaponGlow(RE::FormID a_id);  // any thread: this actor's weapon lights are placed at the weapon's middle again (HerShadow.cpp)
+	void RenewAfterFailedLoad();           // a save that did not load: the lights kPreLoadGame let go made again (Events.cpp)
 	// Events.cpp: SKSE's weapon draw events - the actors with drawn hands, for the record route's per-actor passes
 	void                                         WatchDraws();                                   // data load, record route
 	void                                         WatchActors3D();                                // data load: each actor's 3D, in and out, and the loading screen

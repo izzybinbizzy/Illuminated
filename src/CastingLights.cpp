@@ -148,7 +148,8 @@ namespace Plugin
 		const bool record = RecordRoute();
 		const bool autoOn = SettingValue(kAutoSetting, 1) != 0 && !LightsOff();
 		const bool yield = record && YieldToENBLight();
-		const bool runes = record && StrangeRunesHands();
+		// all lights off gives the runes their own light back (Settings.cpp), so the casting light comes back with it too
+		const bool runes = record && StrangeRunesHands() && !LightsOff();
 		for (auto& t : gCastingTargets) {
 			if (record) {
 				ApplyRecordRoute(t, autoOn, yield, runes, a_log, n);

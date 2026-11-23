@@ -720,9 +720,15 @@ namespace Plugin
 
 		[[nodiscard]] Family ExplosionFamily(const RE::BGSExplosion* a_expl)
 		{
-			// a record our rows blacklist is Creatures' (its death bursts): its light is never tinted by our art pick
-			if (LastCoverage().leftOut.contains(a_expl->GetFormID())) {
-				return Family::kNone;
+			// a record our rows blacklist is Creatures' (its death bursts): its light is never tinted by our art pick - unless a row on its
+			// own model still lights it (only what every row on the model leaves out stays out, as EffectLights.cpp reads it)
+			const auto& cov = LastCoverage();
+			const auto  id = a_expl->GetFormID();
+			if (cov.leftOut.contains(id)) {
+				const auto it = cov.blackByModel.find(NormalPath(a_expl->GetModel() ? a_expl->GetModel() : ""));
+				if (it == cov.blackByModel.end() || it->second.contains(id)) {
+					return Family::kNone;
+				}
 			}
 			return SpellExplosion(a_expl) ? ArtFamily(a_expl, a_expl->GetModel()) : Family::kNone;
 		}

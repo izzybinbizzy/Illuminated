@@ -691,7 +691,12 @@ namespace Plugin
 				}
 			}
 			for (const auto& w : gWeaponWants) {
+				const auto made = gMade.load(std::memory_order_relaxed);
 				Keep(w.part.get(), w.node.get(), w.record, scene, w.hers);
+				// a light made anew (its model rebuilt) hangs at the part's origin: the glow watch puts it at the weapon's middle again
+				if (w.actor && gMade.load(std::memory_order_relaxed) != made) {
+					NoteWeaponGlow(w.actor->GetFormID());
+				}
 				if (w.firstPerson) {
 					gOnBody.push_back({ w.part.get(), w.actor, w.left });
 				}

@@ -123,12 +123,7 @@ namespace Plugin
 			}
 
 		private:
-			static void Note(RE::FormID a_id)
-			{
-				const std::lock_guard lock(gGlowLock);
-				gGlowQueue.push_back(a_id);
-				gGlowQueued.store(true, std::memory_order_relaxed);
-			}
+			static void Note(RE::FormID a_id) { NoteWeaponGlow(a_id); }
 		};
 
 		// the weapon's own mesh under its hand node: the biggest visible triangle shape at its drawn size, never the swirls'
@@ -247,6 +242,13 @@ namespace Plugin
 		if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
 			events->AddEventSink<RE::TESEquipEvent>(&sinks);
 		}
+	}
+
+	void NoteWeaponGlow(RE::FormID a_id)
+	{
+		const std::lock_guard lock(gGlowLock);
+		gGlowQueue.push_back(a_id);
+		gGlowQueued.store(true, std::memory_order_relaxed);
 	}
 
 	void PlaceHerShadow()

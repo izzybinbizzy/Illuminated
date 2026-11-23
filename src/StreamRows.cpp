@@ -87,7 +87,9 @@ namespace StreamRows
 			RE::NiPointer<RE::TESObjectREFR>        beam;       // its projectile, read every frame for its length
 			std::size_t                             want{ 0 };  // the lights its range asked for: fewer while the cap was full
 		};
-		bool                                            gShort = false;  // main thread: a live row has fewer lights than it asked for (TopUpRows)
+		bool gShort = false;  // main thread: a live row has fewer lights than it asked for (TopUpRows)
+		// a row let its lights go since the last top-up: a short row is topped up only then, not looked at every frame
+		std::atomic<bool>                               gRoomFreed{ false };
 		std::unordered_map<const RE::NiAVObject*, Live> gLive;
 		std::mutex                                      gLiveLock;
 		// a projectile dropped under gLiveLock is let go only after it: its last reference running the game's release (our hooked
@@ -152,6 +154,9 @@ namespace StreamRows
 				LightKit::TakeOff(a_scene, bs);
 			}
 			gRowLights -= (std::min)(gRowLights, it->second.lights.size());
+			if (!it->second.lights.empty()) {
+				gRoomFreed.store(true, std::memory_order_relaxed);
+			}
 			// a row switched off while its projectile lives leaves no light node behind on it - a row hung again later starts clean
 			for (auto& bs : it->second.lights) {
 				if (auto* light = bs ? bs->light.get() : nullptr; light && light->parent) {
@@ -830,8 +835,8 @@ namespace StreamRows
 			std::lock_guard l{ gLiveLock };
 			SweepGone(LightKit::Scene());  // a row whose projectile was released off the main thread
 		}
-		// a row hung short while the cap was full: topped up once a row has let its lights go
-		if (gShort) {
+		// a row hung short while the cap was full: topped up once a row has let its lights go (never every frame)
+		if (gShort && gRoomFreed.exchange(false, std::memory_order_relaxed)) {
 			bool room = false;
 			{
 				std::lock_guard l{ gLiveLock };
@@ -926,6 +931,7 @@ namespace StreamRows
 		letGo.insert(letGo.end(), std::make_move_iterator(gLetGo.begin()), std::make_move_iterator(gLetGo.end()));
 		gLetGo.clear();
 		gRowLights = 0;
+		gRoomFreed.store(true, std::memory_order_relaxed);  // the next awake frame clears a stale gShort
 	}
 
 	bool Claims(RE::FormID a_base) { return gRows.contains(a_base); }
