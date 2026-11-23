@@ -62,9 +62,9 @@ namespace RowParkChecks
 		a_check(retried.size() == 1 && retried[0] == &rows[0], "the woken row is handed back for its row to hang", __LINE__);
 		a_check(parked.Size() == 0 && !parked.KeepsAwake(), "a hung row leaves the park", __LINE__);
 
-		// a row the light cap held back is tried each frame (other rows are lit and keep the pass awake then anyway)
+		// a row the light cap held back stays in the retries until the host's signal (room freed, a switch moved, a failed make) takes it
 		parked.Park(&rows[1], Why::kCap, ended);
-		a_check(parked.KeepsAwake(), "a capped row is tried again next frame", __LINE__);
+		a_check(parked.KeepsAwake(), "a capped row waits in the retries", __LINE__);
 		parked.Park(&rows[2], Why::kHeldBack, ended);
 		const auto capped = parked.TakeRetries();
 		a_check(capped.size() == 1 && capped[0] == &rows[1], "only the capped row is retried, not the switched-off one", __LINE__);

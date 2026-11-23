@@ -92,8 +92,8 @@ namespace StreamRows
 		std::atomic<bool> gRoomFreed{ false };
 		// the switches moved (Refresh): the rows a switch held back are tried once on the next frame, whether or not room was freed
 		std::atomic<bool> gSwitchesMoved{ false };
-		// a row with room under the cap got no light made (no scene yet, the game refused one): tried again next frame, as no other row's
-		// release may ever come to free room for it
+		// a row with room under the cap got no light (no scene yet, the game refused one, no length yet): tried again next frame, as no
+		// other row's release may ever come to free room for it
 		std::atomic<bool>                               gMakeFailed{ false };
 		std::unordered_map<const RE::NiAVObject*, Live> gLive;
 		std::mutex                                      gLiveLock;
@@ -565,6 +565,10 @@ namespace StreamRows
 			}
 			if (!n) {
 				ParkRow(a_ref, RowPark::Why::kCap);  // the light cap is full: tried again when a row lets its lights go
+				if (!wanted) {
+					// no length to light yet, not the cap: no release would ever free room for it
+					gMakeFailed.store(true, std::memory_order_relaxed);
+				}
 				return;
 			}
 			const bool                              isl = InverseSquare();
