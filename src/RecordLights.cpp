@@ -38,6 +38,9 @@
 
 #include "Plugin.h"
 
+#include <atomic>
+#include <unordered_map>
+
 namespace Plugin
 {
 	namespace
@@ -122,6 +125,8 @@ namespace Plugin
 		{
 			const RE::TESObjectLIGH* record{ nullptr };
 			bool                     matched{ false };  // the live light still wears its color
+			const RE::TESObjectLIGH* wears{ nullptr };  // the light the spell's costliest effect wears now, ours or not
+			bool                     known{ false };    // the hand's spell was found
 		};
 
 		// the light record a caster's hand light was made from: one of the hand's spell's effects' lights, matched by color.
@@ -152,13 +157,67 @@ namespace Plugin
 				const auto* record = base ? base->data.light : nullptr;
 				if (record && gAllOurs.contains(record) && same(diffuse.red, record->data.color.red) &&
 					same(diffuse.green, record->data.color.green) && same(diffuse.blue, record->data.color.blue)) {
-					return { record, true };
+					return { record, true, record, true };
 				}
 			}
 			const auto* top = spell->GetCostliestEffectItem();
 			const auto* topBase = top ? top->baseEffect : nullptr;
 			const auto* now = topBase ? topBase->data.light : nullptr;
-			return { now && gAllOurs.contains(now) ? now : nullptr, false };
+			return { now && gAllOurs.contains(now) ? now : nullptr, false, now, true };
+		}
+
+		// the hand lights a record of ours dressed, by caster (under the turn): when a setting points the spell away from ours, the
+		// lit hand takes what it wears now at once instead of keeping our look until the spell is readied again
+		std::unordered_map<const RE::ActorMagicCaster*, const RE::NiLight*> gDressed;
+		std::atomic<std::size_t>                                            gDressedCount{ 0 };
+
+		// the record's reach on a lit hand (the game set it once, when the spell was readied)
+		void TakeRadius(RE::NiLight& a_light, float a_radius)
+		{
+			auto& data = a_light.GetLightRuntimeData();
+			if (a_radius <= 0.0f || data.radius.x == a_radius) {
+				return;
+			}
+			data.radius = RE::NiPoint3{ a_radius, a_radius, data.radius.z };  // z is the light's size: the game's, kept
+			if (auto* point = InverseSquare() ? nullptr : netimmerse_cast<RE::NiPointLight*>(&a_light)) {
+				// the drawn reach too; the call writes the two words that are the ambient color off Community Shaders
+				const auto ambient = LightKit::Isl::Read(point);
+				point->SetLightAttenuation(a_radius);
+				LightKit::Isl::Write(point, ambient);
+			}
+		}
+
+		void NoteDressed(const RE::ActorMagicCaster& a_caster, const RE::NiLight& a_light)  // under the turn
+		{
+			if (gDressed.size() > 256) {
+				gDressed.clear();
+			}
+			gDressed[&a_caster] = &a_light;
+			gDressedCount.store(gDressed.size(), std::memory_order_relaxed);
+		}
+
+		// a hand we dressed whose spell no longer wears a light of ours: its own light's look, or dark when it wears none
+		void LetGoOfHand(const RE::ActorMagicCaster& a_caster, RE::NiLight& a_light, const RE::TESObjectLIGH* a_wears)
+		{
+			if (gDressedCount.load(std::memory_order_relaxed) == 0) {
+				return;
+			}
+			const auto turn = LightKit::Turn();
+			const auto it = gDressed.find(&a_caster);
+			if (it == gDressed.end() || it->second != &a_light) {
+				return;
+			}
+			gDressed.erase(it);
+			gDressedCount.store(gDressed.size(), std::memory_order_relaxed);
+			auto& data = a_light.GetLightRuntimeData();
+			if (!a_wears) {
+				data.fade = 0.0f;
+				return;
+			}
+			const auto& c = a_wears->data.color;
+			data.diffuse = { c.red / 255.0f, c.green / 255.0f, c.blue / 255.0f };
+			TakeRadius(a_light, static_cast<float>(a_wears->data.radius));
+			data.fade = a_wears->fade;
 		}
 
 		[[nodiscard]] float Strength(const LightCopy& a_copy)
@@ -509,10 +568,14 @@ namespace Plugin
 		const auto  hand = RecordOf(*a_caster, *light);
 		const auto* record = hand.record;
 		if (!record) {
+			if (hand.known) {
+				LetGoOfHand(*a_caster, *light, hand.wears);
+			}
 			return;
 		}
 		const auto turn = LightKit::Turn();
-		auto&      data = light->GetLightRuntimeData();
+		NoteDressed(*a_caster, *light);
+		auto& data = light->GetLightRuntimeData();
 		if (!hand.matched) {
 			// a setting pointed the effect at another light since this one was lit: the hand takes its look now (his report
 			// "configs for spell art don't change until unequip/re equip, needs to be live")
@@ -522,16 +585,7 @@ namespace Plugin
 		// HIS REPORT on Vanilla, "reach still doesn't work": the game set the radius once, when the spell
 		// was readied, and Reach only changed the record - so a lit hand takes its record's radius too (GroundLights.cpp's
 		// twin copies it and re-attenuates when it moves)
-		const float radius = static_cast<float>(record->data.radius);
-		if (radius > 0.0f && data.radius.x != radius) {
-			data.radius = RE::NiPoint3{ radius, radius, data.radius.z };  // z is the light's size: the game's, kept
-			if (auto* point = InverseSquare() ? nullptr : netimmerse_cast<RE::NiPointLight*>(light)) {
-				// the drawn reach too, ground twin or not; the call writes the two words that are the ambient color off Community Shaders
-				const auto ambient = LightKit::Isl::Read(point);
-				point->SetLightAttenuation(radius);
-				LightKit::Isl::Write(point, ambient);
-			}
-		}
+		TakeRadius(*light, static_cast<float>(record->data.radius));
 		// a steady one takes its record's fade too, so Brightness reaches a hand already lit (run 9,
 		// the game set it once, when the spell was readied, and it never moved after); a flicker plays its keys
 		// under Realistic a spell with a kind takes its shape in place of the flicker's keys, around the same mean fade (as RELight)

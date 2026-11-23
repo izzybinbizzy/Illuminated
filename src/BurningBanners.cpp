@@ -303,7 +303,7 @@ namespace Plugin
 			light->local.scale = 1.0f;
 			Dress(light);
 			if (auto* bs = LightKit::Hang(node, light, LightKit::Scene(), 1.0f, false)) {
-				auto& lit = gLit.emplace(a_id, Lit{ RE::NiPointer<RE::NiPointLight>(light), RE::NiPointer<RE::BSLight>(bs) }).first->second;
+				auto& lit = gLit.emplace(a_id, Lit{ RE::NiPointer<RE::NiPointLight>(light), RE::NiPointer<RE::BSLight>(bs), nullptr, nullptr }).first->second;
 				PlayBurn(lit, light->GetLightRuntimeData().fade);
 				TheirShape(a_id, false);
 			}

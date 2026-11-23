@@ -51,8 +51,10 @@ namespace Plugin
 		const std::string          kStrangeClause = LightKit::Lower(kStrangeRunes);
 		// powerofthree's ENB Lights For Effect Shaders' switch (lagen.py enbl_shaders_switch): 1 = its lights glow on FEC's bodies and
 		// our rows there wait on 0 (EnbShaderLights.h gives its light back). Read as 0 while that DLL is not loaded
-		constexpr std::string_view        kEnbShaderLights = "IlluminatedENBShaderLights";
-		const std::string                 kEnbShaderClause = LightKit::Lower(kEnbShaderLights);
+		constexpr std::string_view kEnbShaderLights = "IlluminatedENBShaderLights";
+		const std::string          kEnbShaderClause = LightKit::Lower(kEnbShaderLights);
+		// the ward hand rows' switch: every ward is Dynamic Wards' when it loads, so this global reads 0 then
+		const std::string                 kWardsClause = LightKit::Lower("IlluminatedWards");
 		std::vector<RE::TESEffectShader*> gEnbOurs;  // our shaders it lit when the first game loaded (main thread)
 
 		// asked after every SKSE plugin has loaded, so the answer never changes
@@ -382,6 +384,9 @@ namespace Plugin
 			if (a_c.global == kEnbShaderClause && !EnbShadersHere()) {
 				return 0 == a_c.value;
 			}
+			if (a_c.global == kWardsClause && DynamicWardsLoaded()) {
+				return 0 == a_c.value;
+			}
 			if (a_c.global == ConfigText::kArtifactClause) {
 				return (a_artifact ? 1 : 0) == a_c.value;
 			}
@@ -495,6 +500,12 @@ namespace Plugin
 		const int enbShaders = EnbShadersHere() ? SettingValue(kEnbShaderLights, 0) : 0;
 		if (const auto it = gIndex.find(kEnbShaderClause); it != gIndex.end() && gSettings[it->second].global) {
 			gSettings[it->second].global->value = static_cast<float>(enbShaders);
+		}
+		// every ward is Dynamic Wards' when it loads: the ward hand rows wait on this global, so it reads 0 there
+		if (DynamicWardsLoaded()) {
+			if (const auto it = gIndex.find(kWardsClause); it != gIndex.end() && gSettings[it->second].global) {
+				gSettings[it->second].global->value = 0.0f;
+			}
 		}
 		// its lights on our shaders: back with its switch on, or with every light of ours off
 		for (auto* shader : gEnbOurs) {

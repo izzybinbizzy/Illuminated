@@ -880,7 +880,24 @@ namespace Plugin
 		{
 			static bool thunk(RE::Explosion* a_this)
 			{
+#ifdef FADE_DEBUG_PAGE
+				const auto* base = a_this ? a_this->GetBaseObject() : nullptr;
+				const bool  watched = base && base->GetFormID() == 0x00060DAF;
+				const auto  tell = [a_this](const char* a_when) {
+					auto* light = a_this->GetExplosionRuntimeData().light.get();
+					SKSE::log::info("[BURST-60DAF] {} | light {} | fade {:.2f} | culled {} | parent {}", a_when, light != nullptr,
+						light ? light->GetLightRuntimeData().fade : -1.0f, light ? light->GetAppCulled() : false, light && light->parent);
+				};
+				if (watched) {
+					tell("before");
+				}
+#endif
 				const bool result = func(a_this);
+#ifdef FADE_DEBUG_PAGE
+				if (watched) {
+					tell("after");
+				}
+#endif
 				LightKit::Guarded("explosion update", [a_this]() {
 					LiftExplosionLight(a_this);
 					ScaleUnder(a_this);
