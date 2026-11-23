@@ -280,7 +280,15 @@ namespace Plugin
 			float             now{ 0.0f };
 			float             ratio{ 1.0f };
 		};
-		using KindRatios = std::array<float, kLightKinds>;  // each kind's scale now over before, by LightKind
+		// each kind's scale now over before, by LightKind and ground element (a ground light also takes its element's strength)
+		using KindRatios = std::array<std::array<float, GroundElement::kElements>, kLightKinds>;
+
+		// what a steady light of this kind and element is scaled by now, as ApplyLightStrength writes its copy's fade
+		[[nodiscard]] float ScaleOf(std::size_t a_kind, std::size_t a_element)
+		{
+			const float kind = gKindScale[a_kind].load(std::memory_order_relaxed);
+			return static_cast<LightKind>(a_kind) == LightKind::kGround ? kind * GroundElement::gTune.strength[a_element].load(std::memory_order_relaxed) : kind;
+		}
 
 		// the main thread's look at the scene's lights: new flickering lights are listed; on the frame a slider changed
 		// (each kind by its a_ratio) every lit light takes its copy's cutoff and a steady light's fade moves with it - those
@@ -301,7 +309,7 @@ namespace Plugin
 				if (!lit->flicker) {
 					// a light both lit and queued is scaled once (only on the frame a slider moved - a short list)
 					if (a_changed && std::ranges::find(a_moved, light, &Moved::light) == a_moved.end()) {
-						const float ratio = a_ratio[static_cast<std::size_t>(lit->kind)];
+						const float ratio = a_ratio[static_cast<std::size_t>(lit->kind)][static_cast<std::size_t>(lit->element)];
 						data.fade *= ratio;
 						a_moved.push_back({ light, data.fade, ratio });
 					}
@@ -470,7 +478,9 @@ namespace Plugin
 			const bool                 changed = gRefresh.exchange(false);
 			KindRatios                 before{};
 			for (std::size_t k = 0; k < before.size(); ++k) {
-				before[k] = gKindScale[k].load(std::memory_order_relaxed);
+				for (std::size_t e = 0; e < before[k].size(); ++e) {
+					before[k][e] = ScaleOf(k, e);
+				}
 			}
 			if (changed) {
 				RefreshLights();
@@ -485,7 +495,9 @@ namespace Plugin
 			const auto& lights = scene->GetRuntimeData();
 			KindRatios  ratio{};
 			for (std::size_t k = 0; k < ratio.size(); ++k) {
-				ratio[k] = before[k] > 0.0f ? gKindScale[k].load(std::memory_order_relaxed) / before[k] : 1.0f;
+				for (std::size_t e = 0; e < ratio[k].size(); ++e) {
+					ratio[k][e] = before[k][e] > 0.0f ? ScaleOf(k, e) / before[k][e] : 1.0f;
+				}
 			}
 			std::vector<Moved> moved;
 			// copied under the game's queue lock BEFORE the turn: inside a turn nothing waits on a game lock (LightKit.h)

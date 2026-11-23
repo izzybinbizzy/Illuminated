@@ -95,10 +95,18 @@ namespace Plugin
 		// Light Placer may attach a weapon glow's light some frames after the draw or equip that started its shader
 		constexpr int kGlowLooks = 60;
 
-		std::mutex                              gGlowLock;
-		std::vector<RE::FormID>                 gGlowQueue;  // actors whose weapon changed, noted by the sinks
-		std::atomic<bool>                       gGlowQueued{ false };
-		std::vector<std::pair<RE::FormID, int>> gGlowWatch;  // main thread: each noted actor and the looks it has left
+		std::mutex              gGlowLock;
+		std::vector<RE::FormID> gGlowQueue;  // actors whose weapon changed, noted by the sinks
+		std::atomic<bool>       gGlowQueued{ false };
+		// main thread: each noted actor, the looks it has left, and which of its four places (two views x WEAPON / SHIELD) were placed
+		struct GlowWatch
+		{
+			RE::FormID   id{ 0 };
+			int          looks{ kGlowLooks };
+			std::uint8_t placed{ 0 };
+		};
+		constexpr std::uint8_t kAllPlaces = 0b1111;
+		std::vector<GlowWatch> gGlowWatch;
 
 		// a weapon drawn or equipped: only its actor's id is noted here (any thread); the player update places the light
 		class GlowSinks final :
@@ -195,17 +203,17 @@ namespace Plugin
 			return placed;
 		}
 
-		// each actor whose weapon changed, both of his models, for a few frames or until its light is placed; armed by the game's
-		// draw and equip events, ending itself
+		// each actor whose weapon changed, both of his models, for a few frames or until every place has its light; a place already
+		// placed never ends the look for a light another place gets later. Armed by the game's draw and equip events, ending itself
 		void PlaceWeaponGlows()
 		{
 			if (gGlowQueued.exchange(false, std::memory_order_relaxed)) {
 				const std::lock_guard lock(gGlowLock);
 				for (const auto id : gGlowQueue) {
-					if (const auto it = std::ranges::find(gGlowWatch, id, &std::pair<RE::FormID, int>::first); it != gGlowWatch.end()) {
-						it->second = kGlowLooks;
+					if (const auto it = std::ranges::find(gGlowWatch, id, &GlowWatch::id); it != gGlowWatch.end()) {
+						*it = GlowWatch{ .id = id, .looks = kGlowLooks, .placed = 0 };
 					} else {
-						gGlowWatch.emplace_back(id, kGlowLooks);
+						gGlowWatch.push_back(GlowWatch{ .id = id, .looks = kGlowLooks, .placed = 0 });
 					}
 				}
 				gGlowQueue.clear();
@@ -213,22 +221,24 @@ namespace Plugin
 			if (gGlowWatch.empty()) {
 				return;
 			}
-			std::erase_if(gGlowWatch, [](std::pair<RE::FormID, int>& a_watch) {
-				auto*       actor = RE::TESForm::LookupByID<RE::Actor>(a_watch.first);
+			std::erase_if(gGlowWatch, [](GlowWatch& a_watch) {
+				auto*       actor = RE::TESForm::LookupByID<RE::Actor>(a_watch.id);
 				const auto* state = actor ? actor->AsActorState() : nullptr;
 				// a weapon put away hangs no glow on its hand nodes; its next draw notes it again
 				if (!state || state->GetWeaponState() == RE::WEAPON_STATE::kSheathed) {
 					return true;
 				}
-				bool placed = false;
+				std::uint8_t place = 1;
 				for (const bool first : { false, true }) {
 					auto* root = actor && actor->Is3DLoaded() ? actor->Get3D(first) : nullptr;
-					if (root) {
-						placed = PlaceGlowsUnder(root->GetObjectByName("WEAPON")) || placed;
-						placed = PlaceGlowsUnder(root->GetObjectByName("SHIELD")) || placed;
+					for (const char* node : { "WEAPON", "SHIELD" }) {
+						if (root && (a_watch.placed & place) == 0 && PlaceGlowsUnder(root->GetObjectByName(node))) {
+							a_watch.placed |= place;
+						}
+						place = static_cast<std::uint8_t>(place << 1);
 					}
 				}
-				return placed || --a_watch.second <= 0;
+				return a_watch.placed == kAllPlaces || --a_watch.looks <= 0;
 			});
 		}
 	}
