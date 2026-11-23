@@ -88,8 +88,13 @@ namespace StreamRows
 			std::size_t                             want{ 0 };  // the lights its range asked for: fewer while the cap was full
 		};
 		bool gShort = false;  // main thread: a live row has fewer lights than it asked for (TopUpRows)
-		// a row let its lights go since the last top-up: a short row is topped up only then, not looked at every frame
-		std::atomic<bool>                               gRoomFreed{ false };
+		// a row let its lights go since the last awake frame: a short row is topped up, and a cap-parked projectile tried again, only then
+		std::atomic<bool> gRoomFreed{ false };
+		// the switches moved (Refresh): the rows a switch held back are tried once on the next frame, whether or not room was freed
+		std::atomic<bool> gSwitchesMoved{ false };
+		// a row with room under the cap got no light made (no scene yet, the game refused one): tried again next frame, as no other row's
+		// release may ever come to free room for it
+		std::atomic<bool>                               gMakeFailed{ false };
 		std::unordered_map<const RE::NiAVObject*, Live> gLive;
 		std::mutex                                      gLiveLock;
 		// a projectile dropped under gLiveLock is let go only after it: its last reference running the game's release (our hooked
@@ -585,6 +590,7 @@ namespace StreamRows
 			}
 			if (made.empty()) {
 				ParkRow(a_ref, RowPark::Why::kCap);
+				gMakeFailed.store(true, std::memory_order_relaxed);
 				return;
 			}
 			std::lock_guard l{ gLiveLock };
@@ -810,6 +816,7 @@ namespace StreamRows
 		for (const auto& ref : heldBack) {
 			ParkRow(ref.get(), RowPark::Why::kHeldBack);
 		}
+		gSwitchesMoved.store(true, std::memory_order_relaxed);
 		gAwake.store(true, std::memory_order_relaxed);
 	}
 
@@ -835,8 +842,12 @@ namespace StreamRows
 			std::lock_guard l{ gLiveLock };
 			SweepGone(LightKit::Scene());  // a row whose projectile was released off the main thread
 		}
+		// read once for both retries below, so neither consumes it before the other has looked; a release later in this frame sets it again
+		const bool roomFreed = gRoomFreed.exchange(false, std::memory_order_relaxed);
+		const bool switchesMoved = gSwitchesMoved.exchange(false, std::memory_order_relaxed);
+		const bool makeFailed = gMakeFailed.exchange(false, std::memory_order_relaxed);
 		// a row hung short while the cap was full: topped up once a row has let its lights go (never every frame)
-		if (gShort && gRoomFreed.exchange(false, std::memory_order_relaxed)) {
+		if (gShort && roomFreed) {
 			bool room = false;
 			{
 				std::lock_guard l{ gLiveLock };
@@ -846,8 +857,9 @@ namespace StreamRows
 				TopUpRows();
 			}
 		}
-		// a row the light cap held back (or one a switch change woke): tried again while its projectile flies, let go when that ends
-		if (gParked.KeepsAwake()) {
+		// a row the light cap held back: tried again only once a row has let its lights go, a switch change woke it or its lights could
+		// not be made - never every frame while the cap stays full; let go when its projectile ends
+		if (gParked.KeepsAwake() && (roomFreed || switchesMoved || makeFailed)) {
 			bool room = false;
 			{
 				std::lock_guard l{ gLiveLock };
