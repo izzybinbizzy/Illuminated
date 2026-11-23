@@ -547,8 +547,10 @@ namespace Plugin
 			bool               dark{ false };
 		};
 		static std::unordered_map<const RE::ActorMagicCaster*, Birth> births;  // under the turn
+		// only the lit verdicts are let go when the list is full: a dark one is the state itself, and judged again from our own
+		// write of 0 it would read the same, while a lit one judged again reads the light as it stands
 		if (births.size() > 512) {
-			births.clear();
+			std::erase_if(births, [](const auto& a_entry) { return !a_entry.second.dark; });
 		}
 		auto&       birth = births[a_caster];
 		const auto* holder = a_caster->light.get();

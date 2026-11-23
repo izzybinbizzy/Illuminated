@@ -15,6 +15,7 @@
 // A spell with none of them keeps what it has: no color is guessed.
 
 #include "CreatureSpells.h"
+#include "NatureKind.h"
 #include "Plugin.h"
 
 namespace Plugin
@@ -72,6 +73,8 @@ namespace Plugin
 					}
 					light->data.radius = 1;  // never 0: no attenuation divides by zero
 					light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() & ~LightKit::kRecordInverseSquare);
+					// a light that lights nothing takes none of the scene's few shadow slots
+					light->data.flags.reset(RE::TES_LIGHT_FLAGS::kSpotShadow, RE::TES_LIGHT_FLAGS::kHemiShadow, RE::TES_LIGHT_FLAGS::kOmniShadow);
 					light->fade = kFollowFade;
 				}
 				it->second = light;
@@ -93,9 +96,18 @@ namespace Plugin
 		// without Light Placer: the record light its art's rows give it now (an automatic light while that setting is on), or
 		// its own when no row lights the art; ENB Light's spells keep its light while Illuminated steps aside for it. With the Strange
 		// Runes switch on no casting light at all, as RELight: its own light is our pass-0 copy, and the rune is the hand's one light
+		// a casting art of a nature kind whose switch is off (NatureKind.h, the same five as the rows' and RELight's)
+		[[nodiscard]] bool NatureOff(std::string_view a_model)
+		{
+			const int i = NatureKind::IndexOf(NatureKind::KindOf(a_model));
+			return i >= 0 && SettingValue(std::string("Illuminated") + std::string(NatureKind::kSettingKeys[static_cast<std::size_t>(i)]), 1) == 0;
+		}
+
 		void ApplyRecordRoute(CastingTarget& a_t, bool a_autoOn, bool a_yield, bool a_runes, bool a_log, CastingCounts& a_n)
 		{
-			RE::TESObjectLIGH* lit = a_t.autoLight ? (a_autoOn ? a_t.autoLight : nullptr) : RecordLightFor(a_t.model);
+			// an automatic light follows the nature switches too: the rows' conditions reach every other light here
+			const bool         autoOn = a_autoOn && !(a_t.autoLight && NatureOff(a_t.model));
+			RE::TESObjectLIGH* lit = a_t.autoLight ? (autoOn ? a_t.autoLight : nullptr) : RecordLightFor(a_t.model);
 			auto* const        record = (a_t.enbLight && a_yield) || a_runes ? nullptr : lit;
 			auto* const        want = record ? record : (a_runes ? nullptr : a_t.own);
 			if (a_t.effect->data.light != want) {
@@ -294,7 +306,9 @@ namespace Plugin
 				++bloated;
 				continue;
 			}
-			gCastingTargets.push_back({ effect, effect->data.light, model, nullptr, RecordRoute() ? nullptr : FollowLight(effect->data.light) });
+			// an effect with no casting light of its own gets no follow light either: there is nothing for another mod to dim
+			auto* follow = RecordRoute() || !effect->data.light ? nullptr : FollowLight(effect->data.light);
+			gCastingTargets.push_back({ effect, effect->data.light, model, nullptr, follow });
 		}
 		SKSE::log::info(
 			"casting lights: {} lit effects seen; {} followed ({} of them Light spells), {} had none of their own, skipped: {} "
