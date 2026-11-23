@@ -97,8 +97,10 @@ namespace StreamRows
 		// again next frame, as no other row's release may ever come to free room for it
 		std::atomic<bool> gMakeFailed{ false };
 		// main thread: failed makes retried back to back; past kMakeRetries the rows wait for a release or a switch change (a light the game
-		// keeps refusing is never retried every frame for the projectile's whole flight - CodeRabbit on Creatures #9)
+		// keeps refusing is never retried every frame for the projectile's whole flight); a frame that hung fresh projectiles starts a new
+		// run, so a new row whose first make failed always gets its retries
 		int                                             gMakeRetryRun{ 0 };
+		bool                                            gHungFresh{ false };
 		std::unordered_map<const RE::NiAVObject*, Live> gLive;
 		std::mutex                                      gLiveLock;
 		// a projectile dropped under gLiveLock is let go only after it: its last reference running the game's release (our hooked
@@ -860,9 +862,10 @@ namespace StreamRows
 		const bool roomFreed = gRoomFreed.exchange(false, std::memory_order_relaxed);
 		const bool switchesMoved = gSwitchesMoved.exchange(false, std::memory_order_relaxed);
 		const bool madeShort = gMakeFailed.exchange(false, std::memory_order_relaxed);
-		if (roomFreed || switchesMoved || !madeShort) {
+		if (roomFreed || switchesMoved || !madeShort || gHungFresh) {
 			gMakeRetryRun = 0;
 		}
+		gHungFresh = false;
 		const bool makeFailed = madeShort && ++gMakeRetryRun <= kMakeRetries;
 		// a row hung short: topped up once a row has let its lights go, or next frame when lights it had room for were not made
 		if (gShort && (roomFreed || makeFailed)) {
@@ -929,6 +932,7 @@ namespace StreamRows
 			gToDrop.clear();
 			hang.swap(gToHang);
 		}
+		gHungFresh = !hang.empty();
 		for (const auto& ref : hang) {
 			// a 3D released before this frame is gone (or another one now): lit only when the 3D it holds now is in the world
 			if (auto* root = ref ? ref->Get3D() : nullptr; root && root->parent) {
