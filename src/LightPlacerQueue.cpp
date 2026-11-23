@@ -71,21 +71,24 @@ namespace Plugin
 			if (!a_light->parent) {
 				return true;
 			}
-			if (!a_light->GetAppCulled()) {
-				return false;
-			}
 			bool                  referenced = false;
 			const RE::NiAVObject* top = a_light;
 			for (const RE::NiAVObject* node = a_light; node; node = node->parent) {
 				referenced = referenced || node->GetUserData() != nullptr;
 				top = node;
 			}
-			if (!referenced) {
-				return true;
-			}
 			auto*      player = RE::PlayerCharacter::GetSingleton();
 			const bool hers = player && (top == player->Get3D(false) || top == player->Get3D(true));
-			return top != RE::Main::WorldRootNode() && !hers;
+			const bool inWorld = top == RE::Main::WorldRootNode() || hers;
+			// a body disabled or deleted with its hands up: its tree is cut from the world with no reference, yet Light Placer keeps its
+			// casting lights listed and lit where they last stood
+			if (!referenced && !inWorld) {
+				return true;
+			}
+			if (!a_light->GetAppCulled()) {
+				return false;
+			}
+			return !referenced || !inWorld;
 		}
 
 		void PutOutStrayLights(RE::ShadowSceneNode* a_scene)
