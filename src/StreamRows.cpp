@@ -729,6 +729,7 @@ namespace StreamRows
 					const auto* base = a_this->GetBaseObject();
 					if (base && gRows.contains(base->GetFormID())) {
 						LightKit::Guarded("stream row (3D load)", [&]() { HangFor(a_this, object); });
+						gHungFresh = true;
 						gAwake.store(true, std::memory_order_relaxed);  // after the work: the pass goes to sleep only under gLiveLock
 					}
 					return object;
@@ -868,7 +869,7 @@ namespace StreamRows
 		gHungFresh = false;
 		const bool makeFailed = madeShort && ++gMakeRetryRun <= kMakeRetries;
 		// a row hung short: topped up once a row has let its lights go, or next frame when lights it had room for were not made
-		if (gShort && (roomFreed || makeFailed)) {
+		if (gShort && (roomFreed || switchesMoved || makeFailed)) {
 			bool room = false;
 			{
 				std::lock_guard l{ gLiveLock };
@@ -932,7 +933,7 @@ namespace StreamRows
 			gToDrop.clear();
 			hang.swap(gToHang);
 		}
-		gHungFresh = !hang.empty();
+		gHungFresh = gHungFresh || !hang.empty();
 		for (const auto& ref : hang) {
 			// a 3D released before this frame is gone (or another one now): lit only when the 3D it holds now is in the world
 			if (auto* root = ref ? ref->Get3D() : nullptr; root && root->parent) {
