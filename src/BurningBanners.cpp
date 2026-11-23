@@ -167,6 +167,8 @@ namespace Plugin
 		std::atomic<bool>                        gAnyNoted{ false };
 		std::unordered_map<RE::FormID, Lit>      gLit;      // main thread
 		std::unordered_set<RE::FormID>           gBurning;  // main thread: every banner burning now, ours lit or not
+		std::unordered_map<RE::FormID, int>      gRetries;  // main thread: frames left to try a burning banner the scene refused
+		constexpr int                            kRetryFrames = 120;
 
 		[[nodiscard]] bool OurBanner(const RE::TESObjectREFR* a_ref)
 		{
@@ -341,6 +343,7 @@ namespace Plugin
 		for (const auto& [id, burning] : noted) {
 			// each new stage may swap the banner's model: its light is hung again on the 3D it has now
 			PutOut(id);
+			gRetries.erase(id);
 			if (burning) {
 				gBurning.insert(id);
 				if (OursLight()) {
@@ -349,6 +352,22 @@ namespace Plugin
 			} else {
 				gBurning.erase(id);
 			}
+		}
+		// a burning banner the scene could not take a light for yet (its 3D not in, the cap reached) is tried again for a few
+		// frames, then left to its next stage or a settings change; the window ends itself
+		bool again = false;
+		for (const auto id : gBurning) {
+			if (!OursLight() || gLit.contains(id)) {
+				continue;
+			}
+			if (auto& left = gRetries.try_emplace(id, kRetryFrames).first->second; left > 0) {
+				--left;
+				Light(id);
+				again = again || !gLit.contains(id);
+			}
+		}
+		if (again) {
+			gAnyNoted.store(true, std::memory_order_relaxed);
 		}
 	}
 
@@ -377,6 +396,7 @@ namespace Plugin
 			PutOut(gLit.begin()->first);
 		}
 		gBurning.clear();
+		gRetries.clear();
 		const std::lock_guard l(gNotedLock);
 		gNoted.clear();
 	}

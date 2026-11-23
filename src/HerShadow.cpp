@@ -182,7 +182,8 @@ namespace Plugin
 			bool       placed = false;
 			RE::BSVisit::TraverseScenegraphLights(a_hand, [&centre, &placed](RE::NiPointLight* a_light) {
 				const char* name = a_light->name.c_str();
-				if (!a_light->parent || !name || !StrayLights::IsOurs(name)) {
+				// Light Placer's lights of our rows, and the record route's own weapon light (ArtLights.cpp, hung at the part's origin)
+				if (!a_light->parent || !name || (!StrayLights::IsOurs(name) && std::string_view(name) != "IlluminatedArtLight")) {
 					return RE::BSVisit::BSVisitControl::kContinue;
 				}
 				RE::NiAVObject* moved = a_light;
@@ -250,7 +251,8 @@ namespace Plugin
 
 	void PlaceHerShadow()
 	{
-		// every lighting: Light Placer's weapon rows and the record route's weapon lights both hang inside WEAPON / SHIELD (his 654)
+		// every lighting: Light Placer's weapon rows and the record route's weapon lights both hang inside WEAPON / SHIELD, and the
+		// draw / equip sinks (WatchWeaponGlows) note the actors on both routes
 		PlaceWeaponGlows();
 		if (!ShadowDownload() || RecordRoute() || REL::Module::IsVR()) {
 			return;

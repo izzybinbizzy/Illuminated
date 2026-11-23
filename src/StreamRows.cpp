@@ -655,8 +655,11 @@ namespace StreamRows
 				}
 				original(a_this);
 				// noted after the game's release, so the next frame's prune already reads this projectile as ended
+				// under gLiveLock with the wake, as the pass decides to sleep: a release can never land between that decision and the flag
 				if (ours) {
+					std::lock_guard l{ gLiveLock };
 					gReleased.store(true, std::memory_order_relaxed);
+					gAwake.store(true, std::memory_order_relaxed);
 				}
 			}
 
@@ -780,7 +783,8 @@ namespace StreamRows
 				MoveRows();  // every row follows its real length this frame
 			}
 			if (gToHang.empty() && gToDrop.empty()) {
-				if (gLive.empty() && gLetGo.empty() && !gParked.KeepsAwake() && gCloudWait.empty() && gClouds.empty()) {
+				if (gLive.empty() && gLetGo.empty() && !gParked.KeepsAwake() && gCloudWait.empty() && gClouds.empty() &&
+					!gReleased.load(std::memory_order_relaxed)) {
 					gAwake.store(false, std::memory_order_relaxed);
 				}
 				return;
