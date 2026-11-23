@@ -11,6 +11,7 @@
 #include "Plugin.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -47,9 +48,117 @@ namespace Plugin
 
 		struct Lit
 		{
-			RE::NiPointer<RE::NiPointLight> light;
-			RE::NiPointer<RE::BSLight>      bs;
+			RE::NiPointer<RE::NiPointLight>        light;
+			RE::NiPointer<RE::BSLight>             bs;
+			RE::NiPointer<RE::NiInterpController>  dimmer;
+			RE::NiPointer<RE::NiFloatInterpolator> keys;
 		};
+
+		// Burn'em Banners' own light's fade over a burn (its Light Placer file's fadeController), as shares of our dressed fade: the game's
+		// dimmer plays it on our light, so the light rises, holds and dies with the fire and no code of ours runs meanwhile
+		constexpr std::array<std::pair<float, float>, 5> kBurn{ { { 0.0f, 0.0f }, { 4.0f, 0.1f }, { 6.0f, 1.0f }, { 20.0f, 1.0f }, { 25.0f, 0.0f } } };
+
+		// the game's dimmer controller and its keys (not in our pin of CommonLib; the same ids as Creatures' CreatureLights.cpp)
+		[[nodiscard]] bool DimmerReady()
+		{
+#ifdef ENABLE_SKYRIM_VR
+			static const bool ready = REL::IDDB::get().IsVRAddressLibraryAtLeastVersion("0.295.0");
+			return ready;
+#else
+			return true;
+#endif
+		}
+
+		[[nodiscard]] RE::NiInterpController* NewDimmer()
+		{
+			using F = RE::NiInterpController* (*)();
+			static REL::Relocation<F> make{ RELOCATION_ID(72049, 73695) };
+			return make();
+		}
+
+		[[nodiscard]] RE::NiFloatInterpolator* NewInterpolator()
+		{
+			using F = RE::NiFloatInterpolator* (*)();
+			static REL::Relocation<F> make{ RELOCATION_ID(71088, 72686) };
+			return make();
+		}
+
+		[[nodiscard]] RE::NiFloatData* NewFloatData()
+		{
+			using F = RE::NiFloatData* (*)();
+			static REL::Relocation<F> make{ RELOCATION_ID(71069, 72667) };
+			return make();
+		}
+
+		[[nodiscard]] RE::NiFloatKey* NewLinearKeys(std::uint32_t a_count)
+		{
+			using F = RE::NiFloatKey* (*)(std::uint32_t);
+			static REL::Relocation<F> make{ RELOCATION_ID(72540, 74222) };
+			return make(a_count);
+		}
+
+		void ReplaceKeys(RE::NiFloatData* a_data, RE::NiFloatKey* a_keys, std::uint32_t a_count)
+		{
+			using F = void (*)(RE::NiFloatData*, RE::NiFloatKey*, std::uint32_t, RE::NiAnimationKey::KeyType);
+			static REL::Relocation<F> replace{ RELOCATION_ID(71071, 72669) };
+			replace(a_data, a_keys, a_count, RE::NiAnimationKey::KeyType::kLink);
+		}
+
+		// the burn's keys at a_fade: the values written over the keys already playing when there are some (a slider moved mid-burn, the
+		// burn goes on where it is), else new keys
+		void BurnKeys(Lit& a_lit, float a_fade)
+		{
+			if (auto* data = a_lit.keys ? a_lit.keys->floatData.get() : nullptr; data && data->keys && data->numKeys == kBurn.size()) {
+				for (std::uint32_t i = 0; i < data->numKeys; ++i) {
+					if (auto* key = data->keys->GetKeyAt(i, data->keySize)) {
+						key->SetValue(kBurn[i].second * a_fade);
+					}
+				}
+				return;
+			}
+			RE::NiPointer<RE::NiFloatInterpolator> interpolator(NewInterpolator());
+			const RE::NiPointer<RE::NiFloatData>   data(NewFloatData());
+			auto*                                  keys = interpolator && data ? NewLinearKeys(static_cast<std::uint32_t>(kBurn.size())) : nullptr;
+			if (!keys) {
+				return;
+			}
+			for (std::uint32_t i = 0; i < kBurn.size(); ++i) {
+				keys[i].SetTime(kBurn[i].first);
+				keys[i].SetValue(kBurn[i].second * a_fade);
+			}
+			ReplaceKeys(data.get(), keys, static_cast<std::uint32_t>(kBurn.size()));
+			interpolator->floatData = data;
+			a_lit.keys = interpolator;
+		}
+
+		// the burn played once on the light from its start (clamped: the last key, 0, holds until the banner goes)
+		void PlayBurn(Lit& a_lit, float a_fade)
+		{
+			if (!DimmerReady() || !a_lit.light) {
+				return;
+			}
+			BurnKeys(a_lit, a_fade);
+			if (!a_lit.keys) {
+				return;
+			}
+			a_lit.dimmer.reset(NewDimmer());
+			if (!a_lit.dimmer) {
+				return;
+			}
+			using Flag = RE::NiAVObject::Flag;
+			using Time = RE::NiTimeController::Flag;
+			a_lit.light->GetFlags().set(Flag::kSelectiveUpdate, Flag::kSelectiveUpdateController);
+			a_lit.dimmer->SetTarget(a_lit.light.get());
+			a_lit.keys->lastIndex = 0;
+			a_lit.dimmer->SetInterpolator(a_lit.keys.get(), 0);
+			a_lit.dimmer->flags.reset(Time::kCycleType_Mask);
+			a_lit.dimmer->flags.set(Time::kAnimType_AppInit, Time::kComputeScaledTime, Time::kCycleType_Clamp);
+			a_lit.dimmer->frequency = 1.0f;
+			a_lit.dimmer->phase = 0.0f;
+			a_lit.dimmer->loKeyTime = 0.0f;
+			a_lit.dimmer->hiKeyTime = kBurn.back().first;
+			a_lit.dimmer->Start(0.0f);
+		}
 
 		std::atomic<bool>                        gOn{ false };  // decided once at data load
 		RE::NiColor                              gColor{ 1.0f, 0.6f, 0.3f };
@@ -84,9 +193,20 @@ namespace Plugin
 
 		class Sinks final :
 			public RE::BSTEventSink<RE::TESDestructionStageChangedEvent>,
-			public RE::BSTEventSink<RE::TESCellAttachDetachEvent>
+			public RE::BSTEventSink<RE::TESCellAttachDetachEvent>,
+			public RE::BSTEventSink<RE::TESObjectLoadedEvent>
 		{
 		public:
+			RE::BSEventNotifyControl ProcessEvent(const RE::TESObjectLoadedEvent* a_event, RE::BSTEventSource<RE::TESObjectLoadedEvent>*) override
+			{
+				// its script disables a banner once its fire is out; a banner carries that script, so the game names its unload here
+				LightKit::Guarded("banner unload", [a_event]() {
+					if (a_event && !a_event->loaded && OurBanner(RE::TESForm::LookupByID<RE::TESObjectREFR>(a_event->formID))) {
+						Note(a_event->formID, false);
+					}
+				});
+				return RE::BSEventNotifyControl::kContinue;
+			}
 			RE::BSEventNotifyControl ProcessEvent(const RE::TESDestructionStageChangedEvent* a_event, RE::BSTEventSource<RE::TESDestructionStageChangedEvent>*) override
 			{
 				LightKit::Guarded("banner burning", [a_event]() {
@@ -181,7 +301,8 @@ namespace Plugin
 			light->local.scale = 1.0f;
 			Dress(light);
 			if (auto* bs = LightKit::Hang(node, light, LightKit::Scene(), 1.0f, false)) {
-				gLit.emplace(a_id, Lit{ RE::NiPointer<RE::NiPointLight>(light), RE::NiPointer<RE::BSLight>(bs) });
+				auto& lit = gLit.emplace(a_id, Lit{ RE::NiPointer<RE::NiPointLight>(light), RE::NiPointer<RE::BSLight>(bs) }).first->second;
+				PlayBurn(lit, light->GetLightRuntimeData().fade);
 				TheirShape(a_id, false);
 			}
 		}
@@ -201,6 +322,7 @@ namespace Plugin
 		if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
 			events->AddEventSink<RE::TESDestructionStageChangedEvent>(&sinks);
 			events->AddEventSink<RE::TESCellAttachDetachEvent>(&sinks);
+			events->AddEventSink<RE::TESObjectLoadedEvent>(&sinks);
 			gOn.store(true, std::memory_order_relaxed);
 			SKSE::log::info("Burn'em Banners: a burning banner wears Illuminated's fire light in place of its own, unless \"Burn'em Banners lights its banners\" is on");
 		}
@@ -244,6 +366,7 @@ namespace Plugin
 		for (auto& [id, lit] : gLit) {
 			if (lit.light) {
 				Dress(lit.light.get());
+				BurnKeys(lit, lit.light->GetLightRuntimeData().fade);
 			}
 		}
 	}
