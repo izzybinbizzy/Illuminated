@@ -1,9 +1,11 @@
-// BurningBanners.cpp - Burn'em Banners (GhdOne, Nexus 118694) makes Skyrim's banners burn. It lights a burning banner itself with
-// Community Shaders and Light Placer (a row on the model's ENBLight01 node) and on ENB (an ENB light on that node); on Vanilla it gives
-// none, so there Illuminated hangs a fire light on that node while the banner burns. The game says when a banner starts and stops
-// burning (its destruction stage) and when it leaves the loaded world, so nothing here looks round each frame. The light is the
-// burning-ground fire's: its hazard light's color (Skyrim.esm 0x3E075), fade 1.0 and reach 500 (gen.py's GROUND_FIRE values), drawn
-// plain, under Brightness, Reach, Ground effects and [Ground Effects] fire.
+// BurningBanners.cpp - Burn'em Banners (GhdOne, Nexus 118694) makes Skyrim's banners burn and lights a burning banner itself: a
+// Light Placer row on the model's ENBLight01 node (Community Shaders) and the ENB light shape under that node (ENBLight02; ENB, and
+// Community Shaders' particle lights). Our lights are the default (rule file 6 1.3, his 647 "add it and don't worry about
+// permission"): a burning banner wears Illuminated's fire light on every lighting and its own light is put out - the ENB shape
+// culled here, its Light Placer row waiting on our switch (lagen's copy of its file) - and "Burn'em Banners lights its banners"
+// gives its light back. The game says when a banner starts and stops burning (its destruction stage) and when it leaves the loaded
+// world, so nothing here looks round each frame. The light is the burning-ground fire's: its hazard light's color (Skyrim.esm
+// 0x3E075), fade 1.0 and reach 500 (gen.py's GROUND_FIRE values), under Brightness, Reach, Ground effects and [Ground Effects] fire.
 
 #include "GroundElement.h"
 #include "Plugin.h"
@@ -14,6 +16,7 @@
 #include <mutex>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -35,6 +38,7 @@ namespace Plugin
 	namespace
 	{
 		constexpr const char*      kName = "IlluminatedBannerFire";
+		constexpr const char*      kTheirShape = "ENBLight02";  // its ENB light shape, under ENBLight01 in every banner model
 		constexpr std::string_view kPlugin = "BurnEmBanners.esp";
 		constexpr std::string_view kModels = "burnembanners\\";  // every model of its banners lives under this folder
 		constexpr RE::FormID       kFireHazard = 0x3E075;        // Skyrim.esm's burning-ground fire, whose light gives the color
@@ -52,7 +56,8 @@ namespace Plugin
 		std::mutex                               gNotedLock;
 		std::vector<std::pair<RE::FormID, bool>> gNoted;  // a banner and whether it burns now (gNotedLock)
 		std::atomic<bool>                        gAnyNoted{ false };
-		std::unordered_map<RE::FormID, Lit>      gLit;  // main thread
+		std::unordered_map<RE::FormID, Lit>      gLit;      // main thread
+		std::unordered_set<RE::FormID>           gBurning;  // main thread: every banner burning now, ours lit or not
 
 		[[nodiscard]] bool OurBanner(const RE::TESObjectREFR* a_ref)
 		{
@@ -103,17 +108,42 @@ namespace Plugin
 			}
 		};
 
-		// this light's numbers under the sliders now (main thread)
+		// this light's numbers under the sliders now (main thread): drawn inverse square where a shader draws it (ArtLights.cpp's way),
+		// else plain, its Light Limit Fix words written whole
 		void Dress(RE::NiPointLight* a_light)
 		{
 			const float strength = LightsOff() ? 0.0f : BrightnessNow() * KindStrength(LightKind::kGround) * GroundElement::StrengthOf(GroundElement::Element::kFire);
 			const float reach = kReach * static_cast<float>(SettingValue("IlluminatedReach", 100)) / 100.0f * GroundElement::ReachOf(GroundElement::Element::kFire);
-			const auto  plain = LightKit::PlainAt(kFade, 0.0f, reach);
 			auto&       data = a_light->GetLightRuntimeData();
-			a_light->SetLightAttenuation(plain.radius);
 			data.diffuse = gColor;
-			data.ambient = LightKit::Tenth(gColor);
+			if (InverseSquare()) {
+				a_light->SetLightAttenuation(reach);
+				data.fade = kFade * strength;
+				// after SetLightAttenuation, which writes the same two words
+				LightKit::Isl::SetOwn(a_light);
+				LightKit::Isl::SetCutoff(a_light, LightKit::CutoffFor((std::max)(data.fade, 0.001f), reach), 0.01f, 1.0f);
+				return;
+			}
+			const auto plain = LightKit::PlainAt(kFade, 0.0f, reach);
+			a_light->SetLightAttenuation(plain.radius);
 			data.fade = plain.fade * strength;
+			if (LightLimitFix()) {
+				LightKit::Isl::SetOwnLinear(a_light);
+			} else {
+				data.ambient = LightKit::Tenth(gColor);
+			}
+		}
+
+		[[nodiscard]] bool OursLight() { return !BurnEmBannersLightsItself(); }
+
+		// its own ENB light shape on that banner: culled while ours lights it, shown again when ours goes
+		void TheirShape(RE::FormID a_id, bool a_show)
+		{
+			auto* ref = RE::TESForm::LookupByID<RE::TESObjectREFR>(a_id);
+			auto* root = ref && ref->Is3DLoaded() ? ref->Get3D() : nullptr;
+			if (auto* shape = root ? root->GetObjectByName(kTheirShape) : nullptr) {
+				shape->SetAppCulled(!a_show);
+			}
 		}
 
 		void PutOut(RE::FormID a_id)
@@ -126,11 +156,12 @@ namespace Plugin
 				}
 				gLit.erase(it);
 			}
+			TheirShape(a_id, true);
 		}
 
 		void Light(RE::FormID a_id)
 		{
-			if (gLit.size() >= kMost) {
+			if (gLit.contains(a_id) || gLit.size() >= kMost) {
 				return;
 			}
 			auto* ref = RE::TESForm::LookupByID<RE::TESObjectREFR>(a_id);
@@ -138,7 +169,7 @@ namespace Plugin
 			if (!root) {
 				return;
 			}
-			// its own light's node, where Burn'em Banners hangs its light on the other lightings; else the banner's root
+			// its own light's node, where Burn'em Banners hangs its light; else the banner's root
 			auto* at = root->GetObjectByName("ENBLight01");
 			auto* node = at && at->AsNode() ? at->AsNode() : (at && at->parent ? at->parent : root->AsNode());
 			auto* light = node ? LightKit::CloneLight() : nullptr;
@@ -151,6 +182,7 @@ namespace Plugin
 			Dress(light);
 			if (auto* bs = LightKit::Hang(node, light, LightKit::Scene(), 1.0f, false)) {
 				gLit.emplace(a_id, Lit{ RE::NiPointer<RE::NiPointLight>(light), RE::NiPointer<RE::BSLight>(bs) });
+				TheirShape(a_id, false);
 			}
 		}
 	}
@@ -159,11 +191,6 @@ namespace Plugin
 	{
 		auto* dh = RE::TESDataHandler::GetSingleton();
 		if (!dh || !dh->LookupModByName(kPlugin)) {
-			return;
-		}
-		// its own light runs with Light Placer and on ENB: there nothing of ours is added, so no banner is lit twice
-		if (!RecordRoute() || LightingFound() != Lighting::kVanilla) {
-			SKSE::log::info("Burn'em Banners: its own light runs on this setup, so Illuminated adds none to burning banners");
 			return;
 		}
 		if (const auto* hazard = dh->LookupForm<RE::BGSHazard>(kFireHazard, "Skyrim.esm"); hazard && hazard->data.light) {
@@ -175,7 +202,7 @@ namespace Plugin
 			events->AddEventSink<RE::TESDestructionStageChangedEvent>(&sinks);
 			events->AddEventSink<RE::TESCellAttachDetachEvent>(&sinks);
 			gOn.store(true, std::memory_order_relaxed);
-			SKSE::log::info("Burn'em Banners: a burning banner gets a fire light on Vanilla");
+			SKSE::log::info("Burn'em Banners: a burning banner wears Illuminated's fire light in place of its own, unless \"Burn'em Banners lights its banners\" is on");
 		}
 	}
 
@@ -193,13 +220,27 @@ namespace Plugin
 			// each new stage may swap the banner's model: its light is hung again on the 3D it has now
 			PutOut(id);
 			if (burning) {
-				Light(id);
+				gBurning.insert(id);
+				if (OursLight()) {
+					Light(id);
+				}
+			} else {
+				gBurning.erase(id);
 			}
 		}
 	}
 
 	void RetuneBurningBanners()
 	{
+		if (!OursLight()) {
+			while (!gLit.empty()) {
+				PutOut(gLit.begin()->first);
+			}
+			return;
+		}
+		for (const auto id : gBurning) {
+			Light(id);
+		}
 		for (auto& [id, lit] : gLit) {
 			if (lit.light) {
 				Dress(lit.light.get());
@@ -212,6 +253,7 @@ namespace Plugin
 		while (!gLit.empty()) {
 			PutOut(gLit.begin()->first);
 		}
+		gBurning.clear();
 		const std::lock_guard l(gNotedLock);
 		gNoted.clear();
 	}

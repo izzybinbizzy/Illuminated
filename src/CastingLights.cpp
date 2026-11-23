@@ -14,6 +14,7 @@
 // effect shaders, read once at load), else the color most of the tuned spells of its resistance group wear (every group).
 // A spell with none of them keeps what it has: no color is guessed.
 
+#include "CreatureSpells.h"
 #include "Plugin.h"
 
 namespace Plugin
@@ -50,8 +51,33 @@ namespace Plugin
 			RE::TESObjectLIGH* own{ nullptr };  // the light the effect had before this plugin touched it (after pass 0)
 			std::string        model;
 			RE::TESObjectLIGH* autoLight{ nullptr };  // no config lights its art: the automatic light it gets while the setting is on
+			RE::TESObjectLIGH* follow{ nullptr };     // with Light Placer: the casting light it keeps while its art is lit (FollowLight)
 			bool               enbLight{ false };     // ENB Light changed the effect or its casting art: it steps aside on ENB
 		};
+
+		// With Light Placer a lit art's hand lights are Light Placer's, and the effect's own casting light used to come off. It keeps one
+		// of ours instead, that lights nothing: a mod that dims the game's casting light (Baked Goods) then finds a light to dim, and
+		// the fading module gives the hand's lights the same share (FadeLights.cpp CasterShare). One per effect light, made at data load
+		constexpr float kFollowFade = 0.01f;  // so small it is never the hand's brightest light (the bars' color reads that one)
+
+		RE::TESObjectLIGH* FollowLight(const RE::TESObjectLIGH* a_own)
+		{
+			static std::unordered_map<const RE::TESObjectLIGH*, RE::TESObjectLIGH*> made;
+			auto [it, added] = made.try_emplace(a_own, nullptr);
+			if (added) {
+				auto* light = LightKit::NewForm<RE::TESObjectLIGH>();
+				if (light) {
+					if (a_own) {
+						light->data = a_own->data;
+					}
+					light->data.radius = 1;  // never 0: no attenuation divides by zero
+					light->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(light->data.flags.underlying() & ~LightKit::kRecordInverseSquare);
+					light->fade = kFollowFade;
+				}
+				it->second = light;
+			}
+			return it->second;
+		}
 		constexpr std::string_view kAutoSetting = "IlluminatedAutoLights";
 		std::vector<CastingTarget> gCastingTargets;
 		const Coverage*            gCastingCoverage = nullptr;
@@ -65,12 +91,13 @@ namespace Plugin
 		};
 
 		// without Light Placer: the record light its art's rows give it now (an automatic light while that setting is on), or
-		// its own when no row lights the art; ENB Light's spells keep its light while Illuminated steps aside for it
-		void ApplyRecordRoute(CastingTarget& a_t, bool a_autoOn, bool a_yield, bool a_log, CastingCounts& a_n)
+		// its own when no row lights the art; ENB Light's spells keep its light while Illuminated steps aside for it. With the Strange
+		// Runes switch on no casting light at all, as RELight: its own light is our pass-0 copy, and the rune is the hand's one light
+		void ApplyRecordRoute(CastingTarget& a_t, bool a_autoOn, bool a_yield, bool a_runes, bool a_log, CastingCounts& a_n)
 		{
 			RE::TESObjectLIGH* lit = a_t.autoLight ? (a_autoOn ? a_t.autoLight : nullptr) : RecordLightFor(a_t.model);
-			auto* const        record = a_t.enbLight && a_yield ? nullptr : lit;
-			auto* const        want = record ? record : a_t.own;
+			auto* const        record = (a_t.enbLight && a_yield) || a_runes ? nullptr : lit;
+			auto* const        want = record ? record : (a_runes ? nullptr : a_t.own);
 			if (a_t.effect->data.light != want) {
 				a_t.effect->data.light = want;
 				++(record ? a_n.recorded : a_n.restored);
@@ -80,12 +107,12 @@ namespace Plugin
 			}
 		}
 
-		// with Light Placer: a lit art's casting light comes off; it is given back when no setting lights the art
+		// with Light Placer: a lit art's casting light becomes its follow light; its own is given back when no setting lights the art
 		void ApplyLightPlacerRoute(CastingTarget& a_t, bool a_log, CastingCounts& a_n)
 		{
 			const bool lit = gCastingCoverage && gCastingCoverage->ModelLit(a_t.model);
-			if (lit && a_t.effect->data.light) {
-				a_t.effect->data.light = nullptr;
+			if (lit && a_t.effect->data.light != a_t.follow) {
+				a_t.effect->data.light = a_t.follow;
 				++a_n.nulled;
 				if (a_log) {
 					SKSE::log::info("[CAST-NULLED] {} | {}", Label(a_t.effect), a_t.model);
@@ -107,9 +134,10 @@ namespace Plugin
 		const bool record = RecordRoute();
 		const bool autoOn = SettingValue(kAutoSetting, 1) != 0 && !LightsOff();
 		const bool yield = record && YieldToENBLight();
+		const bool runes = record && StrangeRunesHands();
 		for (auto& t : gCastingTargets) {
 			if (record) {
-				ApplyRecordRoute(t, autoOn, yield, a_log, n);
+				ApplyRecordRoute(t, autoOn, yield, runes, a_log, n);
 			} else {
 				ApplyLightPlacerRoute(t, a_log, n);
 			}
@@ -153,7 +181,9 @@ namespace Plugin
 				const auto best = std::ranges::max_element(it->second, {}, [](const auto& kv) { return kv.second; })->first;
 				return RE::Color(static_cast<std::uint8_t>(best >> 16), static_cast<std::uint8_t>(best >> 8), static_cast<std::uint8_t>(best), 0);
 			};
-			std::size_t own = 0, projectile = 0, art = 0, group = 0, noColor = 0, dark = 0;
+			std::size_t own = 0, projectile = 0, art = 0, group = 0, noColor = 0, dark = 0, creature = 0;
+			// a spell only creatures cast is Creatures' to light (the paired drop): it gets no automatic light here
+			const auto creatures = CreatureSpells::CreatureOnlyEffects();
 			for (auto* effect : LightKit::FormsOf<RE::EffectSetting>()) {
 				if (!effect || !effect->data.castingArt) {
 					continue;
@@ -169,6 +199,11 @@ namespace Plugin
 					effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight || SkippedPrefix(EditorID(effect)) ||
 					CounterEffectCount(effect) > kMaxCounterEffects || effect->data.primaryAV == RE::ActorValue::kWardPower ||
 					model.contains("wardinhandfx")) {
+					continue;
+				}
+				if (creatures.contains(effect)) {
+					++creature;
+					SKSE::log::info("[CAST-CREATURE] {} | {} | only creatures cast it: left to Creatures", Label(effect), model);
 					continue;
 				}
 				std::optional<RE::Color> color;
@@ -209,6 +244,7 @@ namespace Plugin
 				"automatic lights: {} spell(s) no config lights - {} in their own light's color, {} in their projectile's, {} in their "
 				"art's, {} in their resistance group's, {} left as they are (no color to read), {} left dark (a black color); {} light(s) made",
 				own + projectile + art + group + noColor, own, projectile, art, group, noColor, dark, AutoLightCount());
+			SKSE::log::info("automatic lights: {} spell(s) only creatures cast, left to Creatures", creature);
 		}
 	}
 
@@ -250,18 +286,15 @@ namespace Plugin
 				continue;
 			}
 			if (!effect->data.light) {
+				// followed too: without Light Placer its art's record light is the first casting light it ever had, with Light Placer
+				// its follow light is
 				++clean;
-				if (!RecordRoute()) {
-					SKSE::log::info("[CAST-CLEAN] {} | {}", Label(effect), model);
-					continue;
-				}
-				// without Light Placer it is followed too: its art's record light is the first casting light it ever had
 			}
 			if (CounterEffectCount(effect) > kMaxCounterEffects) {
 				++bloated;
 				continue;
 			}
-			gCastingTargets.push_back({ effect, effect->data.light, model });
+			gCastingTargets.push_back({ effect, effect->data.light, model, nullptr, RecordRoute() ? nullptr : FollowLight(effect->data.light) });
 		}
 		SKSE::log::info(
 			"casting lights: {} lit effects seen; {} followed ({} of them Light spells), {} had none of their own, skipped: {} "

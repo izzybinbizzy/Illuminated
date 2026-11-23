@@ -135,6 +135,8 @@ namespace StreamRows
 		constexpr std::uint32_t kCloudTries = 600;  // about ten seconds of frames: a cone's cast and its cloud's life
 
 		std::atomic<bool> gAwake{ true };
+		// a 3D of ours was released: the parked projectiles are pruned on the next awake frame, not on every one
+		std::atomic<bool> gReleased{ false };
 
 		// ------------------------------------------------------------------ forgetting one live projectile
 		// gLiveLock is held by every caller; the main thread's (the scene node is touched)
@@ -646,11 +648,16 @@ namespace StreamRows
 			static void thunk(T* a_this)
 			{
 				const auto* base = a_this ? a_this->GetBaseObject() : nullptr;
-				if (base && gRows.contains(base->GetFormID())) {
+				const bool  ours = base && gRows.contains(base->GetFormID());
+				if (ours) {
 					LightKit::Guarded("stream row (3D release)", [a_this]() { DropFor(a_this); });
 					gAwake.store(true, std::memory_order_relaxed);
 				}
 				original(a_this);
+				// noted after the game's release, so the next frame's prune already reads this projectile as ended
+				if (ours) {
+					gReleased.store(true, std::memory_order_relaxed);
+				}
 			}
 
 			static inline REL::Relocation<decltype(thunk)> original;
@@ -728,8 +735,11 @@ namespace StreamRows
 				letGo.swap(gLetGo);
 			}
 		}
-		// a projectile parked by its switch that has ended is let go on the next awake frame, not held until the switches move (the lock is free)
-		gParked.Prune(Ended);
+		// a projectile parked by its switch that has ended is let go on the awake frame after its release, not held until the switches
+		// move (the lock is free); a frame with no release looks at none of them
+		if (gReleased.exchange(false, std::memory_order_relaxed)) {
+			gParked.Prune(Ended);
+		}
 		// a row the light cap held back (or one a switch change woke): tried again while its projectile flies, let go when that ends
 		if (gParked.KeepsAwake()) {
 			bool room = false;

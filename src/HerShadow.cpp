@@ -68,6 +68,10 @@ namespace Plugin
 			return on;
 		}
 
+		// "A shadow from each hand" (his 646, on by default): two lit hands keep their lights where Light Placer put them, one
+		// shadow each, as two lights would; off = every hand light at one point between them (his 430)
+		[[nodiscard]] bool HandsApart() { return ShadowFromEachHand(); }
+
 		void OurLightsUnder(RE::NiAVObject* a_magic, std::vector<RE::NiPointLight*>& a_out)
 		{
 			if (!a_magic) {
@@ -246,9 +250,8 @@ namespace Plugin
 
 	void PlaceHerShadow()
 	{
-		if (!RecordRoute()) {
-			PlaceWeaponGlows();
-		}
+		// every lighting: Light Placer's weapon rows and the record route's weapon lights both hang inside WEAPON / SHIELD (his 654)
+		PlaceWeaponGlows();
 		if (!ShadowDownload() || RecordRoute() || REL::Module::IsVR()) {
 			return;
 		}
@@ -268,6 +271,9 @@ namespace Plugin
 		static std::vector<RE::NiPointLight*>                          lights;
 		between.clear();
 		for (const bool first : { false, true }) {
+			if (HandsApart()) {
+				break;  // nothing moves: every light already moved goes back below
+			}
 			auto* root = player->Get3D(first);
 			auto* left = root ? root->GetObjectByName(strings->npcLMagicNode) : nullptr;
 			auto* right = root ? root->GetObjectByName(strings->npcRMagicNode) : nullptr;

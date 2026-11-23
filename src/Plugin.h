@@ -152,6 +152,9 @@ namespace Plugin
 	[[nodiscard]] float                           KindStrength(LightKind a_kind);  // Configs > a kind's Strength: 1 = as made
 	[[nodiscard]] float                           StreamStrength();                // Configs > Streams' Strength: the rows and the clouds
 	[[nodiscard]] bool                            LightsOff();                     // Performance > all of Illuminated's lights off (his switch)
+	[[nodiscard]] bool                            StrangeRunesHands();             // Strange Runes loaded and its switch on: its runes light the hands
+	[[nodiscard]] bool                            ShadowFromEachHand();            // both hands lit: each casts its own shadow
+	[[nodiscard]] bool                            BurnEmBannersLightsItself();     // its switch on: Burn'em Banners' own banner light, not ours
 	[[nodiscard]] bool                            PulseRealistic();                // Dynamic Lighting is Realistic: hand lights and rows pulse in their kind's shape (Pulse.h)
 	[[nodiscard]] bool                            PerformanceMode();               // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
 	[[nodiscard]] std::size_t                     GlowLimit();                     // Performance > Limit glows on people: the most glows on people lit at once (no limit: the type's max)

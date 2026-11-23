@@ -526,8 +526,21 @@ namespace Plugin
 			}
 		}
 
+		// the game draws an art's 3D: neither it nor a node above it culled (a hand art the game hides while the hands are down
+		// would otherwise keep our light on her with nothing drawn)
+		[[nodiscard]] bool Drawn(const RE::NiAVObject* a_3d)
+		{
+			std::size_t depth = 0;
+			for (const auto* object = a_3d; object && depth < 64; object = object->parent, ++depth) {
+				if (object->GetAppCulled()) {
+					return false;
+				}
+			}
+			return true;
+		}
+
 		// one effect: its light kept while a row lights it now; true while it is to be visited again before the next walk (an art
-		// a row lights waits there for its 3D; a flesh shader - KeepFlesh)
+		// a row lights waits there for its 3D, or until the game draws it; a flesh shader - KeepFlesh)
 		bool Visit(RE::BSTempEffect* a_effect, RE::PlayerCharacter* a_player, RE::ShadowSceneNode* a_scene)
 		{
 			if (auto* art = a_effect ? netimmerse_cast<RE::ModelReferenceEffect*>(a_effect) : nullptr) {
@@ -540,7 +553,7 @@ namespace Plugin
 				if (!record) {
 					return false;
 				}
-				if (art->artObject3D) {
+				if (art->artObject3D && Drawn(art->artObject3D.get())) {
 					const RE::NiAVObject* hand = nullptr;
 					Keep(art, ArtNode(art, hand), record, a_scene, art->target.get().get() == a_player);
 					const auto  target = hand ? art->target.get() : RE::NiPointer<RE::TESObjectREFR>{};

@@ -537,11 +537,33 @@ namespace Plugin
 		// under Realistic a spell with a kind takes its shape in place of the flicker's keys, around the same mean fade (as RELight)
 		const bool left = a_caster->GetCastingSource() == RE::MagicSystem::CastingSource::kLeftHand;
 		const auto kind = PulseRealistic() ? LightKit::PulseKindOfHand(a_caster->GetCasterAsActor(), left) : Pulse::Kind::kNone;
+		// another mod's dimmer on this light (Baked Goods fades the casting light out and back to its record's fade): ours keeps its
+		// share, so the ground twin that copies this light dims with it. A casting light another mod made dark at its birth (Baked
+		// Goods: fade 0, no dimmer) stays dark until a dimmer runs on it - each caster's light judged once, when it first comes here
+		struct Birth
+		{
+			const RE::BSLight* holder{ nullptr };
+			const RE::NiLight* light{ nullptr };
+			bool               dark{ false };
+		};
+		static std::unordered_map<const RE::ActorMagicCaster*, Birth> births;  // under the turn
+		if (births.size() > 512) {
+			births.clear();
+		}
+		auto&       birth = births[a_caster];
+		const auto* holder = a_caster->light.get();
+		if (birth.holder != holder || birth.light != light) {
+			birth = { holder, light, !light->controllers && !(data.fade > 0.0f) };
+		}
+		if (light->controllers) {
+			birth.dark = false;
+		}
+		const float share = birth.dark ? 0.0f : LightKit::ForeignDimShare(light);
 		if (kind != Pulse::Kind::kNone) {
 			const auto seed = static_cast<std::uint32_t>(std::hash<const void*>{}(light));
-			data.fade = record->fade * Pulse::Factor(kind, FlickerClock(), seed);
+			data.fade = record->fade * Pulse::Factor(kind, FlickerClock(), seed) * share;
 		} else {
-			data.fade = RecordFadeNow(record, light);
+			data.fade = RecordFadeNow(record, light) * share;
 		}
 		// on Community Shaders the cutoff the sliders gave the record reaches the lit hand too (LightKit.h's two words)
 		if (InverseSquare() && (record->data.flags.underlying() & LightKit::kRecordInverseSquare)) {

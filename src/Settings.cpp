@@ -14,6 +14,8 @@
 #include "Plugin.h"
 #include "StrangeRunes.h"
 
+#include <fstream>
+
 namespace Plugin
 {
 	namespace
@@ -44,6 +46,8 @@ namespace Plugin
 		// Strange Runes' switch (lagen.py strange_runes_switch): 1 = its runes light the casting hands and our hand rows wait on 0.
 		// Read as 0 while Strange Runes is not loaded, so no row waits on a mod that is not there
 		constexpr std::string_view kStrangeRunes = "IlluminatedStrangeRunesLight";
+		constexpr std::string_view kHandShadows = "IlluminatedHandShadows";
+		constexpr std::string_view kBurnEm = "IlluminatedBurnEmBannersLight";
 		const std::string          kStrangeClause = LightKit::Lower(kStrangeRunes);
 		// powerofthree's ENB Lights For Effect Shaders' switch (lagen.py enbl_shaders_switch): 1 = its lights glow on FEC's bodies and
 		// our rows there wait on 0 (EnbShaderLights.h gives its light back). Read as 0 while that DLL is not loaded
@@ -253,6 +257,21 @@ namespace Plugin
 			return out;
 		}
 
+		// his 668: the Bottled Shaders Shadows installer's pick - its marker carries OneShadow=1 for the one shadow from between
+		// the hands - is where a player who never saved "A shadow from each hand" starts
+		[[nodiscard]] bool ShadowInstallerPicksOne()
+		{
+			std::ifstream in("Data/SKSE/Plugins/Illuminated/Bottled Shaders Shadows.ini");
+			std::string   line;
+			while (std::getline(in, line)) {
+				std::erase_if(line, [](unsigned char a_c) { return std::isspace(a_c) != 0; });
+				if (Lower(line) == "oneshadow=1") {
+					return true;
+				}
+			}
+			return false;
+		}
+
 		// the saved picks onto the settings; a setting the INI does not name keeps its default
 		void ApplyIni()
 		{
@@ -293,6 +312,9 @@ namespace Plugin
 					if (met && (!fromIni || newlySeen)) {
 						v = 1;
 					}
+				}
+				if (!fromIni && Lower(s.id) == Lower(kHandShadows) && ShadowInstallerPicksOne()) {
+					v = 0;
 				}
 				s.value = AllowedValue(s, v);
 			}
@@ -650,6 +672,10 @@ namespace Plugin
 		const auto it = gIndex.find(std::string_view(low.data(), a_id.size()));
 		return it == gIndex.end() ? a_fallback : gSettings[it->second].value.load();
 	}
+
+	bool StrangeRunesHands() { return StrangeRunes::Loaded() && SettingValue(kStrangeRunes, 0) != 0; }
+	bool ShadowFromEachHand() { return SettingValue(kHandShadows, 1) != 0; }
+	bool BurnEmBannersLightsItself() { return SettingValue(kBurnEm, 0) != 0; }
 
 	bool LightsOff()
 	{
