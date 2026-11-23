@@ -325,7 +325,9 @@ namespace Plugin
 		std::unordered_map<std::string, std::vector<std::shared_ptr<const Tests>>> modelTests;
 		// forms a light's blackList takes out of its models (Light Placer's own exclusion): the record route leaves them too
 		std::set<RE::FormID> leftOut;
-		[[nodiscard]] bool   ModelLit(const std::string& a_model) const;
+		// per model: the forms every row that claims the model blacklists - their own light is kept (a row naming the model lights the rest)
+		std::map<std::string, std::set<RE::FormID>> blackByModel;
+		[[nodiscard]] bool                          ModelLit(const std::string& a_model) const;
 	};
 
 	[[nodiscard]] const Coverage& ReadCoverage();
@@ -381,6 +383,7 @@ namespace Plugin
 	void                                     PoisonRuneArt();                                               // PoisonRune.cpp
 	void                                     SprayLights();                                                 // SprayLights.cpp
 	void                                     ApplyCastingLights(bool a_log);                                // CastingLights.cpp: pass 1 again, for the settings as they are now
+	[[nodiscard]] bool                       NatureOff(std::string_view a_model);                           // CastingLights.cpp: a nature kind whose switch is off
 	void                                     ApplyEffectLights(bool a_log);                                 // EffectLights.cpp: pass 2 again
 	void                                     VaerSwirls();                                                  // VaerSwirls.cpp: pass 7, VAER Reborn's brighter strands and Thaumaturgy's copies
 	void                                     Wards();                                                       // Wards.cpp: one dome per ward, 360 Ward's sphere in the vanilla blue

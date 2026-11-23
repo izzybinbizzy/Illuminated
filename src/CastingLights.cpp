@@ -86,6 +86,13 @@ namespace Plugin
 		const Coverage*            gCastingCoverage = nullptr;
 	}
 
+	// a model of a nature kind whose switch is off (NatureKind.h, the same five as the rows' and RELight's): its spell stays unlit
+	bool NatureOff(std::string_view a_model)
+	{
+		const int i = NatureKind::IndexOf(NatureKind::KindOf(a_model));
+		return i >= 0 && SettingValue(std::string("Illuminated") + std::string(NatureKind::kSettingKeys[static_cast<std::size_t>(i)]), 1) == 0;
+	}
+
 	namespace
 	{
 		struct CastingCounts
@@ -96,20 +103,14 @@ namespace Plugin
 		// without Light Placer: the record light its art's rows give it now (an automatic light while that setting is on), or
 		// its own when no row lights the art; ENB Light's spells keep its light while Illuminated steps aside for it. With the Strange
 		// Runes switch on no casting light at all, as RELight: its own light is our pass-0 copy, and the rune is the hand's one light
-		// a casting art of a nature kind whose switch is off (NatureKind.h, the same five as the rows' and RELight's)
-		[[nodiscard]] bool NatureOff(std::string_view a_model)
-		{
-			const int i = NatureKind::IndexOf(NatureKind::KindOf(a_model));
-			return i >= 0 && SettingValue(std::string("Illuminated") + std::string(NatureKind::kSettingKeys[static_cast<std::size_t>(i)]), 1) == 0;
-		}
-
 		void ApplyRecordRoute(CastingTarget& a_t, bool a_autoOn, bool a_yield, bool a_runes, bool a_log, CastingCounts& a_n)
 		{
-			// an automatic light follows the nature switches too: the rows' conditions reach every other light here
-			const bool         autoOn = a_autoOn && !(a_t.autoLight && NatureOff(a_t.model));
+			// a switched-off nature kind is dark: no automatic light, no row light, and not its own light back either
+			const bool         dark = !LightsOff() && NatureOff(a_t.model);
+			const bool         autoOn = a_autoOn && !(a_t.autoLight && dark);
 			RE::TESObjectLIGH* lit = a_t.autoLight ? (autoOn ? a_t.autoLight : nullptr) : RecordLightFor(a_t.model);
 			auto* const        record = (a_t.enbLight && a_yield) || a_runes ? nullptr : lit;
-			auto* const        want = record ? record : (a_runes ? nullptr : a_t.own);
+			auto* const        want = record ? record : (a_runes || dark ? nullptr : a_t.own);
 			if (a_t.effect->data.light != want) {
 				a_t.effect->data.light = want;
 				++(record ? a_n.recorded : a_n.restored);
@@ -122,7 +123,8 @@ namespace Plugin
 		// with Light Placer: a lit art's casting light becomes its follow light; its own is given back when no setting lights the art
 		void ApplyLightPlacerRoute(CastingTarget& a_t, bool a_log, CastingCounts& a_n)
 		{
-			const bool lit = gCastingCoverage && gCastingCoverage->ModelLit(a_t.model);
+			// a switched-off nature kind keeps its follow light, which lights nothing, so the spell stays unlit
+			const bool lit = (gCastingCoverage && gCastingCoverage->ModelLit(a_t.model)) || (!LightsOff() && NatureOff(a_t.model));
 			if (lit && a_t.effect->data.light != a_t.follow) {
 				a_t.effect->data.light = a_t.follow;
 				++a_n.nulled;

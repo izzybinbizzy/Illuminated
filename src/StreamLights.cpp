@@ -784,17 +784,22 @@ namespace Plugin
 			HoldFlicker(own, FlickerOn());
 			HoldFlicker(copy->second, FlickerOn());
 			// the record's own color is vanilla's: a spell on the game's art wears a copy in its pick's color while Streams is on
-			auto* worn = own;
-			if (const auto tint = gOwnTint.find(formID); want && tint != gOwnTint.end()) {
+			// a switched-off nature kind (NatureKind.h): its spray wears no raised or tinted copy of ours
+			const bool natureOff = !LightsOff() && NatureOff(proj->GetModel() ? proj->GetModel() : "");
+			auto*      worn = own;
+			if (const auto tint = gOwnTint.find(formID); want && !natureOff && tint != gOwnTint.end()) {
 				if (const auto c = gStreamColor.find(formID); c != gStreamColor.end()) {
 					SetColor(tint->second, VanillaLook(ColorFor(c->second, sc)));
 				}
 				HoldFlicker(tint->second, FlickerOn());
 				worn = tint->second;
 			}
-			auto* wanted = want && !PerformanceMode() && !gRows.contains(formID) ? copy->second : worn;
-			if (!wanted && want && PerformanceMode()) {
+			auto* wanted = want && !natureOff && !PerformanceMode() && !gRows.contains(formID) ? copy->second : worn;
+			if (!wanted && want && !natureOff && PerformanceMode()) {
 				wanted = BorrowedLight(formID);
+			}
+			if (natureOff) {
+				wanted = nullptr;  // unlit, as the switch says
 			}
 			if (proj->data.light != wanted) {
 				proj->data.light = wanted;

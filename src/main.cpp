@@ -105,7 +105,7 @@ namespace
 		Fade::Tuning::Register("Ground Effects", "FireReach", 1.0f, 0.25f, 3.0f,
 			"How far fire left on the ground reaches, on top of GroundReach.", GroundElement::gTune.elementReach[1]);
 		Fade::Tuning::Register("Ground Effects", "FrostStrength", 1.0f, 0.0f, 3.0f,
-			"How bright frost left on the ground is (walls of frost, ice storms), on top of the Ground effects strength; 0 puts it out.", GroundElement::gTune.strength[2]);
+			"How bright frost left on the ground is (walls of frost), on top of the Ground effects strength; 0 puts it out.", GroundElement::gTune.strength[2]);
 		Fade::Tuning::Register("Ground Effects", "FrostReach", 1.0f, 0.25f, 3.0f,
 			"How far frost left on the ground reaches, on top of GroundReach.", GroundElement::gTune.elementReach[2]);
 		Fade::Tuning::Register("Ground Effects", "ShockStrength", 1.0f, 0.0f, 3.0f,

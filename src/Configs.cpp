@@ -153,7 +153,8 @@ namespace Plugin
 				// each light of the entry: the settings it waits on (and, for the game's own light records, the light itself)
 				std::vector<std::vector<std::vector<Clause>>> tests;
 				ConfigEntry                                   rows;
-				std::vector<std::string>                      artHands;  // the element hand art this entry claims
+				std::vector<std::string>                      artHands;    // the element hand art this entry claims
+				std::optional<std::set<RE::FormID>>           entryBlack;  // the forms every light of this entry blacklists
 				if (const auto* models = a_stream ? nullptr : entry.Get("models"); models && models->kind == Json::Kind::kArray) {
 					for (const auto& m : models->items) {
 						if (const auto low = NormalPath(m.text); IsArtHand(low)) {
@@ -174,12 +175,20 @@ namespace Plugin
 							}
 						}
 						tests.push_back(ParseConditions(conds));
+						std::set<RE::FormID> lightBlack;
 						if (const auto* black = a_stream ? nullptr : light.Get("blackList"); black && black->kind == Json::Kind::kArray) {
 							for (const auto& item : black->items) {
 								if (const auto id = item.kind == Json::Kind::kString ? FormOfToken(item.text) : std::nullopt) {
 									a_cov.leftOut.insert(*id);
+									lightBlack.insert(*id);
 								}
 							}
+						}
+						// a light with no blackList lights every form of the entry's models: the entry keeps only what all its lights leave out
+						if (!entryBlack) {
+							entryBlack = std::move(lightBlack);
+						} else {
+							std::erase_if(*entryBlack, [&lightBlack](RE::FormID a_id) { return !lightBlack.contains(a_id); });
 						}
 						if (const auto* data = a_name.empty() ? nullptr : light.Get("data")) {
 							if (const auto* l = data->Get("light"); l && l->kind == Json::Kind::kString) {
@@ -223,6 +232,11 @@ namespace Plugin
 						if (low.size() > 4 && low.ends_with(".nif")) {
 							a_cov.models.insert(low);
 							a_cov.modelTests[low].push_back(shared);
+							// another entry on this model that lights a form ends its "left out": only what every entry leaves out stays
+							const auto left = entryBlack.value_or(std::set<RE::FormID>{});
+							if (auto [black, added] = a_cov.blackByModel.try_emplace(low, left); !added) {
+								std::erase_if(black->second, [&left](RE::FormID a_id) { return !left.contains(a_id); });
+							}
 							if (sharedRows) {
 								gConfigLights[low].push_back(sharedRows);
 							}
