@@ -645,6 +645,8 @@ namespace StreamRows
 				if (const auto it = gLive.find(s.root); it != gLive.end()) {
 					gRowLights += made.size();
 					it->second.lights.insert(it->second.lights.end(), made.begin(), made.end());
+					// a light that could not be made or hung leaves the row short: tried again once there is room
+					gShort = gShort || made.size() < s.missing;
 					continue;
 				}
 				for (auto& bs : made) {
