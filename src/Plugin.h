@@ -179,6 +179,7 @@ namespace Plugin
 	void               NoteCutoffWrite(const RE::NiPointLight* a_light, float a_before, float a_after);  // LightCopies.cpp: the same for the cutoff (nothing to do here)
 	void               RegisterMenu();                                                                   // Menu.cpp
 	void               RegisterMenuTail();                                                               // Menu.cpp: the last page, after the fading module's pages
+	std::string        ShowTestPage(int a_page);                                                         // Menu.cpp, devbench only, never saved: a menu page in a window of its own (-1 closes)
 	void               OfferToDevBench();                                                                // DevBench.cpp: the settings and the light copies, for a test bench
 	void               RefreshLights();                                                                  // EffectLights.cpp: the sliders and passes 1, 2 and 6 again, for the settings as they are now
 

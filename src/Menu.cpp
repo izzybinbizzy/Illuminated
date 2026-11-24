@@ -12,6 +12,8 @@
 #ifndef NOMINMAX
 #	define NOMINMAX  // the build defines it too (xmake.lua)
 #endif
+#include <atomic>
+#include <string>
 #include <utility>
 
 #include "Fade.h"
@@ -567,6 +569,38 @@ namespace Plugin
 			DrawPage(gItemsAt);
 			Fade::Items::Render();
 		}
+
+		// devbench only, never saved: one page drawn in a window of its own, so a test draws (and the translator reads) its lines
+		// without the framework's own list (Dynamic Wards' menuPage way); -1 closed
+		std::atomic_int                            gTestPage{ -1 };
+		SKSEMenuFramework::Model::WindowInterface* gTestWindow = nullptr;
+
+		void __stdcall DrawTestWindow()
+		{
+			const auto page = gTestPage.load();
+			ImGuiMCP::SetNextWindowPos(ImGuiMCP::ImVec2(40.0f, 20.0f), ImGuiMCP::ImGuiCond_Always);
+			ImGuiMCP::SetNextWindowSize(ImGuiMCP::ImVec2(820.0f, 1040.0f), ImGuiMCP::ImGuiCond_Always);
+			if (ImGuiMCP::Begin("Illuminated (test)", nullptr, ImGuiMCP::ImGuiWindowFlags_NoCollapse) && page >= 0 &&
+				static_cast<std::size_t>(page) < gPages.size()) {
+				if (static_cast<std::size_t>(page) == gItemsAt) {
+					ItemsPage();
+				} else {
+					DrawPage(static_cast<std::size_t>(page));
+				}
+			}
+			ImGuiMCP::End();
+		}
+	}
+
+	std::string ShowTestPage(int a_page)
+	{
+		if (!gTestWindow) {
+			return {};
+		}
+		const bool open = a_page >= 0 && static_cast<std::size_t>(a_page) < gPages.size();
+		gTestPage = open ? a_page : -1;
+		gTestWindow->IsOpen = open;
+		return open ? gPages[static_cast<std::size_t>(a_page)] : std::string("closed");
 	}
 
 	void RegisterMenu()
@@ -637,6 +671,7 @@ namespace Plugin
 			}
 			SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
 		}
+		gTestWindow = SKSEMenuFramework::AddWindow(LightKit::GuardedDraw<DrawTestWindow>, false);
 		SKSE::log::info("menu: {} page(s) added to SKSE Menu Framework {}", gPages.size(), SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
 
