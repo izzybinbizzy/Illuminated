@@ -571,7 +571,7 @@ namespace Plugin
 
 	void RegisterMenu()
 	{
-		SKSE::log::info("{}", Translation::Load(OurFolder() / "Translation.json"));
+		SKSE::log::info("{}", Translation::Load("Illuminated"));
 		{
 			std::lock_guard lock(gPresetLock);
 			gPresets = ReadPresets();  // here on the main thread, once: the menu never reads a file on its own thread

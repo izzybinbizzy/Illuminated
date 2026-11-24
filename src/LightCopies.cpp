@@ -63,7 +63,7 @@ namespace Plugin
 		std::atomic<bool>  gRefresh{ false };  // a setting changed: the passes again (RefreshLights)
 		std::atomic<float> gBrightness{ 1.0f };
 		// Brightness x each kind's own strength, by LightKind: what a copy of that kind takes (ApplyLightStrength)
-		std::array<std::atomic<float>, kLightKinds> gKindScale{ 1.0f, 1.0f, 1.0f, 1.0f };
+		std::array<std::atomic<float>, kLightKinds> gKindScale{ 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		std::atomic<bool>                           gScaled{ false };  // one of them is not 1: Light Placer's flickering lights are scaled as drawn
 
 		[[nodiscard]] float KindScale(LightKind a_kind)
@@ -126,9 +126,10 @@ namespace Plugin
 		// what a lit light of a config's copy needs, by the copy's editor ID. Written at data load and on the main thread.
 		struct Lit
 		{
-			bool      flicker{ false };
-			float     cutoff{ 0.0f };             // 0: not an inverse-square light
-			LightKind kind{ LightKind::kOther };  // the strength beside Brightness its lights take
+			bool                   flicker{ false };
+			float                  cutoff{ 0.0f };             // 0: not an inverse-square light
+			LightKind              kind{ LightKind::kOther };  // the strength beside Brightness its lights take
+			GroundElement::Element element{};                  // a ground spell's element: its [Ground Effects] strength
 		};
 		Fade::StringMap<Lit> gLit;
 
@@ -139,6 +140,7 @@ namespace Plugin
 			RE::FormID                      owner{ 0 };                 // the reference it hangs on
 			const RE::TESObjectCELL*        cell{ nullptr };            // where that reference was when the light was found
 			LightKind                       kind{ LightKind::kOther };  // its copy's: the strength it is scaled by
+			GroundElement::Element          element{};                  // its copy's ground element
 			float                           written{ -1.0f };           // what the light held after our last write
 		};
 		std::unordered_map<const RE::NiPointLight*, Flicker> gFlickers;
@@ -210,7 +212,8 @@ namespace Plugin
 		{
 			auto& fade = a_flicker.light->GetLightRuntimeData().fade;
 			if (fade != a_flicker.written) {
-				fade *= KindScale(a_flicker.kind);  // this frame's own value from Light Placer
+				// this frame's own value from Light Placer; a ground spell's element strength too
+				fade *= KindScale(a_flicker.kind) * (a_flicker.kind == LightKind::kGround ? GroundElement::StrengthOf(a_flicker.element) : 1.0f);
 			}
 			a_flicker.written = fade;
 		}
@@ -261,7 +264,7 @@ namespace Plugin
 				if (const auto* lit = a_light ? LitOf(*a_light) : nullptr; lit && lit->flicker) {
 					auto [it, added] = gFlickers.try_emplace(a_light);
 					if (added) {
-						it->second = { RE::NiPointer<RE::NiPointLight>(a_light), a_owner->GetFormID(), a_owner->GetParentCell(), lit->kind };
+						it->second = { RE::NiPointer<RE::NiPointLight>(a_light), a_owner->GetFormID(), a_owner->GetParentCell(), lit->kind, lit->element };
 						Index(it->second);
 					}
 					Scale(it->second);
@@ -277,7 +280,15 @@ namespace Plugin
 			float             now{ 0.0f };
 			float             ratio{ 1.0f };
 		};
-		using KindRatios = std::array<float, kLightKinds>;  // each kind's scale now over before, by LightKind
+		// each kind's scale now over before, by LightKind and ground element (a ground light also takes its element's strength)
+		using KindRatios = std::array<std::array<float, GroundElement::kElements>, kLightKinds>;
+
+		// what a steady light of this kind and element is scaled by now, as ApplyLightStrength writes its copy's fade
+		[[nodiscard]] float ScaleOf(std::size_t a_kind, std::size_t a_element)
+		{
+			const float kind = gKindScale[a_kind].load(std::memory_order_relaxed);
+			return static_cast<LightKind>(a_kind) == LightKind::kGround ? kind * GroundElement::gTune.strength[a_element].load(std::memory_order_relaxed) : kind;
+		}
 
 		// the main thread's look at the scene's lights: new flickering lights are listed; on the frame a slider changed
 		// (each kind by its a_ratio) every lit light takes its copy's cutoff and a steady light's fade moves with it - those
@@ -298,13 +309,13 @@ namespace Plugin
 				if (!lit->flicker) {
 					// a light both lit and queued is scaled once (only on the frame a slider moved - a short list)
 					if (a_changed && std::ranges::find(a_moved, light, &Moved::light) == a_moved.end()) {
-						const float ratio = a_ratio[static_cast<std::size_t>(lit->kind)];
+						const float ratio = a_ratio[static_cast<std::size_t>(lit->kind)][static_cast<std::size_t>(lit->element)];
 						data.fade *= ratio;
 						a_moved.push_back({ light, data.fade, ratio });
 					}
 				} else if (auto [it, added] = gFlickers.try_emplace(light); added) {
 					const auto* owner = OwnerOf(light);
-					it->second = { RE::NiPointer<RE::NiPointLight>(light), owner ? owner->GetFormID() : 0, owner ? owner->GetParentCell() : nullptr, lit->kind };
+					it->second = { RE::NiPointer<RE::NiPointLight>(light), owner ? owner->GetFormID() : 0, owner ? owner->GetParentCell() : nullptr, lit->kind, lit->element };
 					Index(it->second);
 				}
 			}
@@ -467,7 +478,9 @@ namespace Plugin
 			const bool                 changed = gRefresh.exchange(false);
 			KindRatios                 before{};
 			for (std::size_t k = 0; k < before.size(); ++k) {
-				before[k] = gKindScale[k].load(std::memory_order_relaxed);
+				for (std::size_t e = 0; e < before[k].size(); ++e) {
+					before[k][e] = ScaleOf(k, e);
+				}
 			}
 			if (changed) {
 				RefreshLights();
@@ -482,7 +495,9 @@ namespace Plugin
 			const auto& lights = scene->GetRuntimeData();
 			KindRatios  ratio{};
 			for (std::size_t k = 0; k < ratio.size(); ++k) {
-				ratio[k] = before[k] > 0.0f ? gKindScale[k].load(std::memory_order_relaxed) / before[k] : 1.0f;
+				for (std::size_t e = 0; e < ratio[k].size(); ++e) {
+					ratio[k][e] = before[k][e] > 0.0f ? ScaleOf(k, e) / before[k][e] : 1.0f;
+				}
 			}
 			std::vector<Moved> moved;
 			// copied under the game's queue lock BEFORE the turn: inside a turn nothing waits on a game lock (LightKit.h)
@@ -584,8 +599,9 @@ namespace Plugin
 						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
 					}
 					Fade::UpdateHands(a_delta);
-					PlaceHerShadow();    // with the shadow download: her two hands' lights at one point (HerShadow.cpp)
-					TickGroundLights();  // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
+					PlaceHerShadow();      // with the shadow download: her two hands' lights at one point (HerShadow.cpp)
+					TickGroundLights();    // last: the hand lights' numbers of this frame are written (GroundLights.cpp)
+					TickBurningBanners();  // a banner the game said started or stopped burning (BurningBanners.cpp)
 					LightKit::Cost::FrameEnd();
 				});
 			}
@@ -633,9 +649,10 @@ namespace Plugin
 			static void thunk(T* a_this)
 			{
 				func(a_this);
-				// every effect in the loaded world comes through here. On the record route nothing rewrites a light in this call, so nothing
-				// to scale is the common case; on the Light Placer route it writes its lights here and they are scaled again below
-				if (RecordRoute() && !Fade::EffectsWanted()) {
+				// every effect in the loaded world comes through here, so the common case returns at once: nothing a slider moved, nothing
+				// the fading module wants and no flesh spell noted (Scaling is false on the record route, where nothing rewrites a light here)
+				constexpr bool shader = std::is_same_v<T, RE::ShaderReferenceEffect>;
+				if (!Scaling() && !Fade::EffectsWanted() && !(shader && !RecordRoute() && FleshNoted())) {
 					return;
 				}
 				LightKit::Guarded("effect update", [a_this]() {
@@ -646,7 +663,7 @@ namespace Plugin
 						owner = OwnerOf(a_this->Get3D());
 					}
 					ScaleOwned(owner);
-					if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
+					if constexpr (shader) {
 						if (!RecordRoute() && FleshNoted()) {
 							const auto      turn = LightKit::Turn();  // before gFlickerLock (LightKit.h's order)
 							std::lock_guard l{ gFlickerLock };        // the slider pass writes the same fade
@@ -715,6 +732,16 @@ namespace Plugin
 
 		[[nodiscard]] Family ExplosionFamily(const RE::BGSExplosion* a_expl)
 		{
+			// a record our rows blacklist is Creatures' (its death bursts): its light is never tinted by our art pick - unless a row on its
+			// own model still lights it (only what every row on the model leaves out stays out, as EffectLights.cpp reads it)
+			const auto& cov = LastCoverage();
+			const auto  id = a_expl->GetFormID();
+			if (cov.leftOut.contains(id)) {
+				const auto it = cov.blackByModel.find(NormalPath(a_expl->GetModel() ? a_expl->GetModel() : ""));
+				if (it == cov.blackByModel.end() || it->second.contains(id)) {
+					return Family::kNone;
+				}
+			}
 			return SpellExplosion(a_expl) ? ArtFamily(a_expl, a_expl->GetModel()) : Family::kNone;
 		}
 
@@ -924,8 +951,9 @@ namespace Plugin
 			static void thunk(RE::TESObjectCELL* a_cell)
 			{
 				func(a_cell);
-				// every loaded cell comes through here. On the record route nothing rewrites a light in this call, as in the effect update
-				if (RecordRoute() && !Fade::ReapplyWanted()) {
+				// every loaded cell comes through here: nothing a slider moved and nothing to reapply is the common case (Scaling is false on
+				// the record route, where nothing rewrites a light in this call)
+				if (!Scaling() && !Fade::ReapplyWanted()) {
 					return;
 				}
 				LightKit::Guarded("cell animations", [a_cell]() {
@@ -967,29 +995,6 @@ namespace Plugin
 		(void)HazardFamily(nullptr);  // builds the table now, not in the first hazard's update
 	}
 
-	// the configs find their lights by editor ID in the game's table, which only powerofthree's Tweaks fills for lights: without
-	// it (or with its Load EditorIDs off) the names our recorder kept go into that table once, as Tweaks would put them
-	namespace
-	{
-		void ShareLightNames()
-		{
-			if (Fade::TweaksKeepsEditorIDs()) {
-				return;
-			}
-			std::size_t shared = 0;
-			if (auto* data = RE::TESDataHandler::GetSingleton()) {
-				for (auto* form : data->GetFormArray(RE::FormType::Light)) {
-					if (auto* light = form ? form->As<RE::TESObjectLIGH>() : nullptr) {
-						if (const auto id = EditorID(light); !id.empty() && RegisterEditorID(light, id)) {
-							++shared;
-						}
-					}
-				}
-			}
-			SKSE::log::info("light names: {} given to the game's editor ID table (powerofthree's Tweaks keeps none)", shared);
-		}
-	}
-
 	// a portal-strict patcher (Portal Strict Lights Patcher Framework flags every light record a Light Placer row names, at its own
 	// data load, after ours) would make our copies strict again and her hand lights dark indoors. Light Placer adds each row's own
 	// PortalStrict on top of the record's, so the copies stay without it and every row decides for itself. Once, before a game loads
@@ -1016,9 +1021,9 @@ namespace Plugin
 		gPutOut.clear();
 	}
 
+	// the configs name their base lights by editor ID, found in the game's own table: powerofthree's Tweaks (required) fills it
 	void MakeLightCopies()
 	{
-		ShareLightNames();
 		std::size_t made = 0, flickers = 0, missing = 0, failed = 0, plained = 0;
 		for (auto& c : LightCopies()) {
 			if (c.form) {
@@ -1052,7 +1057,7 @@ namespace Plugin
 				copy->data.flags = static_cast<RE::TES_LIGHT_FLAGS>(copy->data.flags.underlying() & ~kInverseSquare);
 				++plained;
 			}
-			gLit[c.id] = { c.flicker, 0.0f, c.kind };
+			gLit[c.id] = { c.flicker, 0.0f, c.kind, c.element };
 			flickers += c.flicker;
 			++made;
 		}
@@ -1119,6 +1124,10 @@ namespace Plugin
 			gKindScale[k] = kindScale;
 			scaled = scaled || kindScale != 1.0f;
 		}
+		// a ground element's own strength (the Advanced Settings file's [Ground Effects]) scales Light Placer's flickering ground lights too
+		for (const auto& strength : GroundElement::gTune.strength) {
+			scaled = scaled || strength.load(std::memory_order_relaxed) != 1.0f;
+		}
 		gScaled = scaled;
 		const bool off = LightsOff();
 		// the look is put back only when "all lights off" turns: written on every strength step it undid HoldFlicker's steady
@@ -1141,11 +1150,14 @@ namespace Plugin
 					continue;
 				}
 			}
-			const float kindScale = KindScale(c.kind);
+			// a ground spell's light: its element's strength and reach on top ([Ground Effects], GroundElement.h)
+			const bool  ground = c.kind == LightKind::kGround;
+			const float kindScale = KindScale(c.kind) * (ground ? GroundElement::StrengthOf(c.element) : 1.0f);
+			const float reachHere = ground ? GroundElement::ReachOf(c.element) : 1.0f;
 			c.form->fade = c.flicker ? c.startFade : c.startFade * kindScale;  // a flicker's Brightness is applied as it is written
-			c.form->data.radius = static_cast<std::uint32_t>(std::lround(static_cast<double>(c.startRadius) * reach / 100.0));
+			c.form->data.radius = static_cast<std::uint32_t>(std::lround(static_cast<double>(c.startRadius) * reach / 100.0 * reachHere));
 			if (c.startCutoff > 0.0f) {
-				const float cutoff = std::clamp(c.startCutoff * LightKit::ReachCutoffFactor(kindScale, stretch, c.startFade, c.startCutoff, LightKit::LightPlacerSize(c.form->data.fov)), kLowestCutoff, kHighestCutoff);
+				const float cutoff = std::clamp(c.startCutoff * LightKit::ReachCutoffFactor(kindScale, stretch * reachHere, c.startFade, c.startCutoff, LightKit::LightPlacerSize(c.form->data.fov)), kLowestCutoff, kHighestCutoff);
 				c.form->data.fallofExponent = cutoff;
 				if (const auto it = gLit.find(c.id); it != gLit.end()) {
 					it->second.cutoff = cutoff;
@@ -1153,9 +1165,10 @@ namespace Plugin
 			}
 			++set;
 		}
+		RetuneBurningBanners();  // the burning banners' fire lights under the same sliders (BurningBanners.cpp)
 		if (!a_quiet) {
-			SKSE::log::info("light strength: brightness {}% = {:.2f} with the lighting's own strength, reach {}%, strengths: explosions {:.2f} glows {:.2f} enchanted {:.2f} streams {:.2f}, hand lights for {}, on {} light copies", brightness,
-				BrightnessNow(), reach, KindStrength(LightKind::kExplosion), KindStrength(LightKind::kGlow), KindStrength(LightKind::kEnchanted),
+			SKSE::log::info("light strength: brightness {}% = {:.2f} with the lighting's own strength, reach {}%, strengths: explosions {:.2f} glows {:.2f} enchanted {:.2f} ground {:.2f} streams {:.2f}, hand lights for {}, on {} light copies", brightness,
+				BrightnessNow(), reach, KindStrength(LightKind::kExplosion), KindStrength(LightKind::kGlow), KindStrength(LightKind::kEnchanted), KindStrength(LightKind::kGround),
 				StreamStrength(), gHandBudget.load(), set);
 		}
 		if (a_log) {

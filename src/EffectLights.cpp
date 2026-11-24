@@ -51,7 +51,8 @@ namespace Plugin
 			for (auto& t : gEffectTargets) {
 				auto* const        record = RecordLightFor(t.model);
 				RE::TESObjectLIGH* want = record;
-				if (!want && (!t.always || LightsOff())) {  // all lights off: an always-dark form gets its own light back too
+				// all lights off: an always-dark form gets its own light back too; a switched-off nature kind stays dark
+				if (!want && ((!t.always && !NatureOff(t.model)) || LightsOff())) {
 					want = t.own;
 				}
 				if (*t.slot == want) {
@@ -76,7 +77,8 @@ namespace Plugin
 		void ApplyEffectLightPlacerRoute(bool a_log, EffectCounts& a_n)
 		{
 			for (auto& t : gEffectTargets) {
-				const bool lit = (t.always && !LightsOff()) || (gEffectCoverage && gEffectCoverage->ModelLit(t.model));  // all off: its own light back too
+				// all off: its own light back too; a switched-off nature kind is dark like a named one
+				const bool lit = ((t.always || NatureOff(t.model)) && !LightsOff()) || (gEffectCoverage && gEffectCoverage->ModelLit(t.model));
 				if (lit && *t.slot) {
 					*t.slot = nullptr;
 					++a_n.nulled;
@@ -153,6 +155,11 @@ namespace Plugin
 			}
 			auto model = NormalPath(form->GetModel() ? form->GetModel() : "");
 			if (model.empty()) {
+				continue;
+			}
+			// every row on its model blacklists it (Creatures' records on a shared model): left as Light Placer leaves it, its own light kept
+			if (const auto black = a_cov.blackByModel.find(model); black != a_cov.blackByModel.end() && black->second.contains(form->GetFormID())) {
+				SKSE::log::info("[FX-LEFT-OUT] {} {} | every row on its model blacklists it", a_kind, Label(form));
 				continue;
 			}
 			const auto id = EditorID(form);

@@ -8,6 +8,7 @@
 #pragma once
 
 #include "ConfigText.h"
+#include "GroundElement.h"
 #include "LightKit.h"
 
 namespace Plugin
@@ -68,8 +69,8 @@ namespace Plugin
 	[[nodiscard]] bool        LightLimitFix();  // CommunityShaders.dll is loaded: a light of ours carries Light Limit Fix's words, inverse square or not
 	[[nodiscard]] std::string LightingReport();
 
-	// ------------------------------------------------------------------ EditorIDs.cpp: editor IDs, through the fading module's
-	// ONE recorder (Fade.h; main.cpp asks it for the form types the passes read)
+	// ------------------------------------------------------------------ EditorIDs.cpp: editor IDs, through the fading module
+	// (powerofthree's Tweaks, required; our own copies' names - Fade.h)
 	void                      RememberEditorID(const RE::TESForm* a_form, const char* a_id);
 	[[nodiscard]] std::string EditorID(const RE::TESForm* a_form);
 	[[nodiscard]] std::string Label(const RE::TESForm* a_form);
@@ -93,29 +94,31 @@ namespace Plugin
 		std::string page, group, label, text;
 	};
 
-	// the four strengths beside the two main sliders (his "All four"): which one a light copy answers to (lagen.row_kind)
+	// the strengths beside the two main sliders (his "All four", and Ground effects): which one a light copy answers to (lagen.row_kind)
 	enum class LightKind : std::uint8_t
 	{
 		kOther,  // Brightness alone
 		kExplosion,
 		kGlow,  // glows on people: cloaks, flesh spells, FEC's bodies
-		kEnchanted
+		kEnchanted,
+		kGround  // spells left on the ground: a row whose every model is a hazard's
 	};
-	inline constexpr std::size_t kLightKinds = 4;  // the arrays indexed by LightKind
+	inline constexpr std::size_t kLightKinds = 5;  // the arrays indexed by LightKind
 
 	// one in-memory copy of a light a config names; the sliders set its fade, radius and cutoff (LightCopies.cpp)
 	struct LightCopy
 	{
-		std::string        id, base;
-		float              fade{ 0.0f };               // the config's own fade, or 0: the base light's
-		int                radius{ 0 };                // the config's own radius, or 0: the base light's
-		float              cutoff{ 0.0f };             // the config's own inverse-square cutoff, or 0: the base light's
-		bool               flicker{ false };           // its lights flicker (a fadeController): Brightness is applied as they are drawn
-		LightKind          kind{ LightKind::kOther };  // the strength it answers to beside Brightness (Settings.cpp KindStrength)
-		RE::TESObjectLIGH* form{ nullptr };
-		float              startFade{ 0.0f };
-		std::uint32_t      startRadius{ 0 };
-		float              startCutoff{ 0.0f };  // 0: not an inverse-square light, its falloff is left alone
+		std::string            id, base;
+		float                  fade{ 0.0f };               // the config's own fade, or 0: the base light's
+		int                    radius{ 0 };                // the config's own radius, or 0: the base light's
+		float                  cutoff{ 0.0f };             // the config's own inverse-square cutoff, or 0: the base light's
+		bool                   flicker{ false };           // its lights flicker (a fadeController): Brightness is applied as they are drawn
+		LightKind              kind{ LightKind::kOther };  // the strength it answers to beside Brightness (Settings.cpp KindStrength)
+		GroundElement::Element element{};                  // a ground spell's element (its kind= after "ground-"): [Ground Effects]
+		RE::TESObjectLIGH*     form{ nullptr };
+		float                  startFade{ 0.0f };
+		std::uint32_t          startRadius{ 0 };
+		float                  startCutoff{ 0.0f };  // 0: not an inverse-square light, its falloff is left alone
 		// pass 0's copy of a game magic light (LightSettings.cpp): the game's own light, and the look the copy was made with -
 		// with every Illuminated light off the copy wears the game's own look, and its made look again after
 		const RE::TESObjectLIGH* original{ nullptr };
@@ -149,6 +152,9 @@ namespace Plugin
 	[[nodiscard]] float                           KindStrength(LightKind a_kind);  // Configs > a kind's Strength: 1 = as made
 	[[nodiscard]] float                           StreamStrength();                // Configs > Streams' Strength: the rows and the clouds
 	[[nodiscard]] bool                            LightsOff();                     // Performance > all of Illuminated's lights off (his switch)
+	[[nodiscard]] bool                            StrangeRunesHands();             // Strange Runes loaded and its switch on: its runes light the hands
+	[[nodiscard]] bool                            ShadowFromEachHand();            // both hands lit: each casts its own shadow
+	[[nodiscard]] bool                            BurnEmBannersLightsItself();     // its switch on: Burn'em Banners' own banner light, not ours
 	[[nodiscard]] bool                            PulseRealistic();                // Dynamic Lighting is Realistic: hand lights and rows pulse in their kind's shape (Pulse.h)
 	[[nodiscard]] bool                            PerformanceMode();               // Performance > Quality is on Performance: the rows of lights go, hand lights for the player and followers
 	[[nodiscard]] std::size_t                     GlowLimit();                     // Performance > Limit glows on people: the most glows on people lit at once (no limit: the type's max)
@@ -156,6 +162,7 @@ namespace Plugin
 	[[nodiscard]] std::vector<LightCopy>&         LightCopies();
 	void                                          MakeLightCopies();         // LightCopies.cpp
 	void                                          KeepCopiesOutOfPortals();  // LightCopies.cpp: once, before a game loads
+	void                                          TakeEnbShaderLights();     // Settings.cpp: once, before a game loads - ENB Lights For Effect Shaders' light off our shaders
 	void                                          NoteSpellHazards();        // LightCopies.cpp: the hazard tint's tables, while editor IDs are kept
 	[[nodiscard]] float                           BrightnessNow();           // LightCopies.cpp: Brightness x Vanilla's strength, as the copies take it
 	// StreamLights.cpp: pass 6 - each spray, stream and bolt keeps its own light record and wears a row of small lights along it
@@ -249,7 +256,10 @@ namespace Plugin
 	void DropArtLights();  // a game loads, or a new one starts
 	// an art started somewhere, or the settings changed (any thread): TickArtLights walks every effect again
 	void NoteArtLook();
-	void NoteWeaponLook() noexcept;  // any thread: something changed what a drawn weapon wants (ArtLights.cpp)
+	void NoteWeaponLook() noexcept;        // any thread: something changed what a drawn weapon wants (ArtLights.cpp)
+	void WatchWeaponGlows();               // data load, Light Placer route: a weapon's draw or equip places its glow's light (HerShadow.cpp)
+	void NoteWeaponGlow(RE::FormID a_id);  // any thread: this actor's weapon lights are placed at the weapon's middle again (HerShadow.cpp)
+	void RenewAfterFailedLoad();           // a save that did not load: the lights kPreLoadGame let go made again (Events.cpp)
 	// Events.cpp: SKSE's weapon draw events - the actors with drawn hands, for the record route's per-actor passes
 	void                                         WatchDraws();                                   // data load, record route
 	void                                         WatchActors3D();                                // data load: each actor's 3D, in and out, and the loading screen
@@ -284,8 +294,13 @@ namespace Plugin
 	void                      RenewGroundLights();  // a loading screen ended: every twin let go, the next visit hangs a new one
 	[[nodiscard]] std::size_t GroundLightCount();
 	[[nodiscard]] std::size_t GroundLightsMade();
+	[[nodiscard]] std::size_t GroundLightsLeftHidden();  // GroundLights.cpp: casting lights the game holds hidden on a caster whose hands are down
 	// HerShadow.cpp: with the Bottled Shaders shadow download, both her hands' lights at one point between her hands (one shadow)
 	void               PlaceHerShadow();                                        // the player update, after every pass wrote its fades (main thread)
+	void               WatchBurningBanners();                                   // data load: Burn'em Banners on Vanilla - a burning banner's fire light (BurningBanners.cpp)
+	void               TickBurningBanners();                                    // the player update: the banners the game said started or stopped burning (main thread)
+	void               RetuneBurningBanners();                                  // a slider moved: the burning banners' lights under the new values (main thread)
+	void               DropBurningBanners();                                    // a load or a loading screen: every banner light let go (main thread)
 	void               DropHerShadow();                                         // a game loads, or a new one starts
 	[[nodiscard]] bool IsOurLightPlacerLight(const RE::NiPointLight& a_light);  // LightCopies.cpp: Light Placer's light of one of our copies
 	// automatic lights (his go-to pick): a light of ours in a_color, at the middle strength and reach of the tuned
@@ -309,7 +324,11 @@ namespace Plugin
 		// tests are kept once and shared by all of its models (never copied per model)
 		using Tests = std::vector<std::vector<std::vector<Clause>>>;  // one entry: each light's settings test
 		std::unordered_map<std::string, std::vector<std::shared_ptr<const Tests>>> modelTests;
-		[[nodiscard]] bool                                                         ModelLit(const std::string& a_model) const;
+		// forms a light's blackList takes out of its models (Light Placer's own exclusion): the record route leaves them too
+		std::set<RE::FormID> leftOut;
+		// per model: the forms every row that claims the model blacklists - their own light is kept (a row naming the model lights the rest)
+		std::map<std::string, std::set<RE::FormID>> blackByModel;
+		[[nodiscard]] bool                          ModelLit(const std::string& a_model) const;
 	};
 
 	[[nodiscard]] const Coverage& ReadCoverage();
@@ -365,6 +384,7 @@ namespace Plugin
 	void                                     PoisonRuneArt();                                               // PoisonRune.cpp
 	void                                     SprayLights();                                                 // SprayLights.cpp
 	void                                     ApplyCastingLights(bool a_log);                                // CastingLights.cpp: pass 1 again, for the settings as they are now
+	[[nodiscard]] bool                       NatureOff(std::string_view a_model);                           // CastingLights.cpp: a nature kind whose switch is off
 	void                                     ApplyEffectLights(bool a_log);                                 // EffectLights.cpp: pass 2 again
 	void                                     VaerSwirls();                                                  // VaerSwirls.cpp: pass 7, VAER Reborn's brighter strands and Thaumaturgy's copies
 	void                                     Wards();                                                       // Wards.cpp: one dome per ward, 360 Ward's sphere in the vanilla blue

@@ -66,13 +66,11 @@ namespace Plugin
 		// no node; or hidden on a tree that is no live body: its body was removed, and Light Placer, which keeps a light whose condition fails,
 		// hidden, never hears of it. A light on a live body - a reference up its tree, the tree in the world (the world's root on top) or on one
 		// of her own skeletons - stays: it comes back when its condition holds. A let-go body keeps its reference while its detached tree lives
-		bool LeftBehind(const RE::NiLight* a_light)
+		bool LeftBehind(const RE::NiLight* a_light, bool& a_detached)
 		{
+			a_detached = false;
 			if (!a_light->parent) {
 				return true;
-			}
-			if (!a_light->GetAppCulled()) {
-				return false;
 			}
 			bool                  referenced = false;
 			const RE::NiAVObject* top = a_light;
@@ -80,12 +78,16 @@ namespace Plugin
 				referenced = referenced || node->GetUserData() != nullptr;
 				top = node;
 			}
-			if (!referenced) {
-				return true;
-			}
 			auto*      player = RE::PlayerCharacter::GetSingleton();
 			const bool hers = player && (top == player->Get3D(false) || top == player->Get3D(true));
-			return top != RE::Main::WorldRootNode() && !hers;
+			const bool inWorld = top == RE::Main::WorldRootNode() || hers;
+			// a body disabled or deleted with its hands up: its tree is cut from the world with no reference, yet Light Placer keeps its
+			// casting lights listed and lit where they last stood
+			if (!a_light->GetAppCulled()) {
+				a_detached = !referenced && !inWorld;
+				return a_detached;
+			}
+			return !referenced || !inWorld;
 		}
 
 		void PutOutStrayLights(RE::ShadowSceneNode* a_scene)
@@ -96,9 +98,10 @@ namespace Plugin
 			const auto                              look = [&](const RE::BSLight* a_bs) {
 				auto*       light = a_bs ? a_bs->light.get() : nullptr;
 				const char* name = light ? light->name.c_str() : nullptr;
-				if (name && StrayLights::IsOurs(name) && LeftBehind(light)) {
+				bool        detached = false;
+				if (name && StrayLights::IsOurs(name) && LeftBehind(light, detached)) {
 					lights.emplace_back(light);
-					seen.push_back({ light, name, false, false });
+					seen.push_back({ light, name, false, false, detached });
 				}
 			};
 			for (const auto& bs : data.activeLights) {

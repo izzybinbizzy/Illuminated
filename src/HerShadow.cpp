@@ -1,14 +1,18 @@
 // HerShadow.cpp - the optional Bottled Shaders shadow download makes her own hand lights shadow casters, and two lit hands
 // throw two crossed shadows. While both hands are lit their lights sit at one point between her hands, so they throw one
 // shadow and light as much as before; with one hand lit that hand's lights go back where Light Placer put them.
+// A glowing weapon's lights sit at the middle of the weapon, not in the fist at its grip, on every lighting (PlaceWeaponGlows).
 
 #include "Plugin.h"
 #include "StrayLights.h"
 
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <mutex>
+#include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -64,6 +68,10 @@ namespace Plugin
 			return on;
 		}
 
+		// "A shadow from each hand" (his 646, on by default): two lit hands keep their lights where Light Placer put them, one
+		// shadow each, as two lights would; off = every hand light at one point between them (his 430)
+		[[nodiscard]] bool HandsApart() { return ShadowFromEachHand(); }
+
 		void OurLightsUnder(RE::NiAVObject* a_magic, std::vector<RE::NiPointLight*>& a_out)
 		{
 			if (!a_magic) {
@@ -83,10 +91,181 @@ namespace Plugin
 		{
 			return std::ranges::any_of(gMoved, [a_light](const Moved& a_m) { return a_m.light.get() == a_light; });
 		}
+
+		// Light Placer may attach a weapon glow's light some frames after the draw or equip that started its shader
+		constexpr int kGlowLooks = 60;
+
+		std::mutex              gGlowLock;
+		std::vector<RE::FormID> gGlowQueue;  // actors whose weapon changed, noted by the sinks
+		std::atomic<bool>       gGlowQueued{ false };
+		// main thread: each noted actor, the looks it has left, and which of its four places (two views x WEAPON / SHIELD) were placed
+		struct GlowWatch
+		{
+			RE::FormID   id{ 0 };
+			int          looks{ kGlowLooks };
+			std::uint8_t placed{ 0 };
+		};
+		constexpr std::uint8_t kAllPlaces = 0b1111;
+		std::vector<GlowWatch> gGlowWatch;
+
+		// a weapon drawn or equipped: only its actor's id is noted here (any thread); the player update places the light
+		class GlowSinks final :
+			public RE::BSTEventSink<SKSE::ActionEvent>,
+			public RE::BSTEventSink<RE::TESEquipEvent>
+		{
+		public:
+			RE::BSEventNotifyControl ProcessEvent(const SKSE::ActionEvent* a_event, RE::BSTEventSource<SKSE::ActionEvent>*) override
+			{
+				using T = SKSE::ActionEvent::Type;
+				if (a_event && a_event->actor && (a_event->type.get() == T::kBeginDraw || a_event->type.get() == T::kEndDraw)) {
+					Note(a_event->actor->GetFormID());
+				}
+				return RE::BSEventNotifyControl::kContinue;
+			}
+			RE::BSEventNotifyControl ProcessEvent(const RE::TESEquipEvent* a_event, RE::BSTEventSource<RE::TESEquipEvent>*) override
+			{
+				if (a_event && a_event->actor) {
+					Note(a_event->actor->GetFormID());
+				}
+				return RE::BSEventNotifyControl::kContinue;
+			}
+
+		private:
+			static void Note(RE::FormID a_id) { NoteWeaponGlow(a_id); }
+		};
+
+		// the weapon's own mesh under its hand node: the biggest visible triangle shape at its drawn size, never the swirls'
+		// particles or a hidden shape (a blood overlay, a swirl's emitter source scaled four times)
+		[[nodiscard]] const RE::BSGeometry* WeaponModel(RE::NiAVObject* a_hand)
+		{
+			const RE::BSGeometry* model = nullptr;
+			float                 biggest = 0.0f;
+			RE::BSVisit::TraverseScenegraphGeometries(a_hand, [a_hand, &model, &biggest](RE::BSGeometry* a_geometry) {
+				const auto type = a_geometry->GetType().get();
+				if (type != RE::BSGeometry::Type::kTriShape && type != RE::BSGeometry::Type::kDynamicTriShape) {
+					return RE::BSVisit::BSVisitControl::kContinue;
+				}
+				float radius = a_geometry->modelBound.radius;
+				for (const RE::NiAVObject* object = a_geometry; object && object != a_hand; object = object->parent) {
+					if (object->GetAppCulled()) {
+						return RE::BSVisit::BSVisitControl::kContinue;
+					}
+					radius *= object->local.scale;
+				}
+				if (radius > biggest) {
+					model = a_geometry;
+					biggest = radius;
+				}
+				return RE::BSVisit::BSVisitControl::kContinue;
+			});
+			return model;
+		}
+
+		// the mesh's own bound centre carried through its local transforms up to the hand node, then into the world: always valid,
+		// where a fresh model's world bound may not be updated yet
+		[[nodiscard]] RE::NiPoint3 CentreOf(const RE::BSGeometry& a_model, const RE::NiAVObject& a_hand)
+		{
+			RE::NiPoint3 point = a_model.modelBound.center;
+			for (const RE::NiAVObject* object = &a_model; object && object != &a_hand; object = object->parent) {
+				point = object->local * point;
+			}
+			return a_hand.world * point;
+		}
+
+		// our lights under a weapon go to the middle of the weapon: the glow comes from the blade, and a light in the fist at the grip
+		// throws the fingers' shadow across the floor. Light Placer's own node for the light moves when it has one (it rewrites a
+		// flickering light's place, never its node's). True when a light of ours was placed.
+		bool PlaceGlowsUnder(RE::NiAVObject* a_hand)
+		{
+			const auto* model = a_hand ? WeaponModel(a_hand) : nullptr;
+			if (!model || model->modelBound.radius <= 0.0f) {
+				return false;
+			}
+			const auto centre = CentreOf(*model, *a_hand);
+			bool       placed = false;
+			RE::BSVisit::TraverseScenegraphLights(a_hand, [&centre, &placed](RE::NiPointLight* a_light) {
+				const char* name = a_light->name.c_str();
+				// Light Placer's lights of our rows, and the record route's own weapon light (ArtLights.cpp, hung at the part's origin)
+				if (!a_light->parent || !name || (!StrayLights::IsOurs(name) && std::string_view(name) != "IlluminatedArtLight")) {
+					return RE::BSVisit::BSVisitControl::kContinue;
+				}
+				RE::NiAVObject* moved = a_light;
+				if (const char* holder = a_light->parent->name.c_str(); holder && std::string_view(holder).starts_with("LP_Node")) {
+					moved = a_light->parent;
+				}
+				if (moved->parent) {
+					moved->local.translate = moved->parent->world.Invert() * centre;
+					moved->world.translate = centre;
+					placed = true;
+				}
+				return RE::BSVisit::BSVisitControl::kContinue;
+			});
+			return placed;
+		}
+
+		// each actor whose weapon changed, both of his models, for a few frames or until every place has its light; a place already
+		// placed never ends the look for a light another place gets later. Armed by the game's draw and equip events, ending itself
+		void PlaceWeaponGlows()
+		{
+			if (gGlowQueued.exchange(false, std::memory_order_relaxed)) {
+				const std::lock_guard lock(gGlowLock);
+				for (const auto id : gGlowQueue) {
+					if (const auto it = std::ranges::find(gGlowWatch, id, &GlowWatch::id); it != gGlowWatch.end()) {
+						*it = GlowWatch{ .id = id, .looks = kGlowLooks, .placed = 0 };
+					} else {
+						gGlowWatch.push_back(GlowWatch{ .id = id, .looks = kGlowLooks, .placed = 0 });
+					}
+				}
+				gGlowQueue.clear();
+			}
+			if (gGlowWatch.empty()) {
+				return;
+			}
+			std::erase_if(gGlowWatch, [](GlowWatch& a_watch) {
+				auto*       actor = RE::TESForm::LookupByID<RE::Actor>(a_watch.id);
+				const auto* state = actor ? actor->AsActorState() : nullptr;
+				// a weapon put away hangs no glow on its hand nodes; its next draw notes it again
+				if (!state || state->GetWeaponState() == RE::WEAPON_STATE::kSheathed) {
+					return true;
+				}
+				std::uint8_t place = 1;
+				for (const bool first : { false, true }) {
+					auto* root = actor && actor->Is3DLoaded() ? actor->Get3D(first) : nullptr;
+					for (const char* node : { "WEAPON", "SHIELD" }) {
+						if (root && (a_watch.placed & place) == 0 && PlaceGlowsUnder(root->GetObjectByName(node))) {
+							a_watch.placed |= place;
+						}
+						place = static_cast<std::uint8_t>(place << 1);
+					}
+				}
+				return a_watch.placed == kAllPlaces || --a_watch.looks <= 0;
+			});
+		}
+	}
+
+	void WatchWeaponGlows()
+	{
+		static GlowSinks sinks;
+		if (auto* actions = SKSE::GetActionEventSource()) {
+			actions->AddEventSink(&sinks);
+		}
+		if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
+			events->AddEventSink<RE::TESEquipEvent>(&sinks);
+		}
+	}
+
+	void NoteWeaponGlow(RE::FormID a_id)
+	{
+		const std::lock_guard lock(gGlowLock);
+		gGlowQueue.push_back(a_id);
+		gGlowQueued.store(true, std::memory_order_relaxed);
 	}
 
 	void PlaceHerShadow()
 	{
+		// every lighting: Light Placer's weapon rows and the record route's weapon lights both hang inside WEAPON / SHIELD, and the
+		// draw / equip sinks (WatchWeaponGlows) note the actors on both routes
+		PlaceWeaponGlows();
 		if (!ShadowDownload() || RecordRoute() || REL::Module::IsVR()) {
 			return;
 		}
@@ -106,6 +285,9 @@ namespace Plugin
 		static std::vector<RE::NiPointLight*>                          lights;
 		between.clear();
 		for (const bool first : { false, true }) {
+			if (HandsApart()) {
+				break;  // nothing moves: every light already moved goes back below
+			}
 			auto* root = player->Get3D(first);
 			auto* left = root ? root->GetObjectByName(strings->npcLMagicNode) : nullptr;
 			auto* right = root ? root->GetObjectByName(strings->npcRMagicNode) : nullptr;

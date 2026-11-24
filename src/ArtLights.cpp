@@ -233,6 +233,14 @@ namespace Plugin
 			Follow(kept);
 		}
 
+		// the key a shader's config rows are kept under: its name's, or its id's where the configs claim it by id (a vanilla shader a
+		// mod renames, gen.RENAMED_BASE_FORMS - Configs.cpp keeps such rows under the id), as EffectLights.cpp asks for forms
+		[[nodiscard]] std::string RowKey(const RE::TESForm* a_form, std::string_view a_name)
+		{
+			auto key = a_name.empty() ? std::string() : FormKey(Lower(a_name));
+			return !key.empty() && LastCoverage().modelTests.contains(key) ? key : FormIdKey(a_form->GetFormID());
+		}
+
 		// the body shaders followed here and the key their config rows are kept under (Configs.cpp: "formid:" + the editor ID
 		// the configs claim): the five flesh shaders in this load order (LightKit::FleshFx::Resolved) and FEC's lit ones
 		// (FleshLights.cpp NoteFecShaders), both found at data load - built on the first frame
@@ -241,7 +249,7 @@ namespace Plugin
 			static const auto shaders = [] {
 				std::unordered_map<const RE::TESEffectShader*, std::string> out(FecShaders());
 				for (const auto& [shader, look] : LightKit::FleshFx::Resolved()) {
-					out.emplace(shader, FormKey(Lower(look->editorID)));
+					out.emplace(shader, RowKey(shader, look->editorID));
 				}
 				return out;
 			}();
@@ -518,8 +526,21 @@ namespace Plugin
 			}
 		}
 
+		// the game draws an art's 3D: neither it nor a node above it culled (a hand art the game hides while the hands are down
+		// would otherwise keep our light on her with nothing drawn)
+		[[nodiscard]] bool Drawn(const RE::NiAVObject* a_3d)
+		{
+			std::size_t depth = 0;
+			for (const auto* object = a_3d; object && depth < 64; object = object->parent, ++depth) {
+				if (object->GetAppCulled()) {
+					return false;
+				}
+			}
+			return true;
+		}
+
 		// one effect: its light kept while a row lights it now; true while it is to be visited again before the next walk (an art
-		// a row lights waits there for its 3D; a flesh shader - KeepFlesh)
+		// a row lights waits there for its 3D, or until the game draws it; a flesh shader - KeepFlesh)
 		bool Visit(RE::BSTempEffect* a_effect, RE::PlayerCharacter* a_player, RE::ShadowSceneNode* a_scene)
 		{
 			if (auto* art = a_effect ? netimmerse_cast<RE::ModelReferenceEffect*>(a_effect) : nullptr) {
@@ -532,7 +553,7 @@ namespace Plugin
 				if (!record) {
 					return false;
 				}
-				if (art->artObject3D) {
+				if (art->artObject3D && Drawn(art->artObject3D.get())) {
 					const RE::NiAVObject* hand = nullptr;
 					Keep(art, ArtNode(art, hand), record, a_scene, art->target.get().get() == a_player);
 					const auto  target = hand ? art->target.get() : RE::NiPointer<RE::TESObjectREFR>{};
@@ -567,9 +588,7 @@ namespace Plugin
 			if (!shader || gEnchShaderKey.contains(shader)) {
 				continue;
 			}
-			if (const auto id = EditorID(shader); !id.empty()) {
-				gEnchShaderKey.emplace(shader, FormKey(Lower(id)));
-			}
+			gEnchShaderKey.emplace(shader, RowKey(shader, EditorID(shader)));
 		}
 		SKSE::log::info("art lights: {} enchantment shader(s) noted for the drawn-weapon lights", gEnchShaderKey.size());
 	}
@@ -672,7 +691,12 @@ namespace Plugin
 				}
 			}
 			for (const auto& w : gWeaponWants) {
+				const auto made = gMade.load(std::memory_order_relaxed);
 				Keep(w.part.get(), w.node.get(), w.record, scene, w.hers);
+				// a light made anew (its model rebuilt) hangs at the part's origin: the glow watch puts it at the weapon's middle again
+				if (w.actor && gMade.load(std::memory_order_relaxed) != made) {
+					NoteWeaponGlow(w.actor->GetFormID());
+				}
 				if (w.firstPerson) {
 					gOnBody.push_back({ w.part.get(), w.actor, w.left });
 				}

@@ -38,6 +38,9 @@
 
 #include "Plugin.h"
 
+#include <atomic>
+#include <unordered_map>
+
 namespace Plugin
 {
 	namespace
@@ -122,6 +125,8 @@ namespace Plugin
 		{
 			const RE::TESObjectLIGH* record{ nullptr };
 			bool                     matched{ false };  // the live light still wears its color
+			const RE::TESObjectLIGH* wears{ nullptr };  // the light the spell's costliest effect wears now, ours or not
+			bool                     known{ false };    // the hand's spell was found
 		};
 
 		// the light record a caster's hand light was made from: one of the hand's spell's effects' lights, matched by color.
@@ -152,13 +157,75 @@ namespace Plugin
 				const auto* record = base ? base->data.light : nullptr;
 				if (record && gAllOurs.contains(record) && same(diffuse.red, record->data.color.red) &&
 					same(diffuse.green, record->data.color.green) && same(diffuse.blue, record->data.color.blue)) {
-					return { record, true };
+					return { record, true, record, true };
 				}
 			}
 			const auto* top = spell->GetCostliestEffectItem();
 			const auto* topBase = top ? top->baseEffect : nullptr;
 			const auto* now = topBase ? topBase->data.light : nullptr;
-			return { now && gAllOurs.contains(now) ? now : nullptr, false };
+			return { now && gAllOurs.contains(now) ? now : nullptr, false, now, true };
+		}
+
+		// the hand lights a record of ours dressed, by caster (under the turn): when a setting points the spell away from ours, the
+		// lit hand takes what it wears now at once instead of keeping our look until the spell is readied again
+		struct Dressed
+		{
+			const RE::NiLight* light{ nullptr };
+			double             seen{ 0.0 };  // FlickerClock when its caster's update last dressed it
+		};
+		std::unordered_map<const RE::ActorMagicCaster*, Dressed> gDressed;
+		std::atomic<std::size_t>                                 gDressedCount{ 0 };
+		// a dressed hand is noted every update of its caster, so one not noted for this long is gone: only those are let go
+		constexpr double kDressedGone = 5.0;
+
+		// the record's reach on a lit hand (the game set it once, when the spell was readied)
+		void TakeRadius(RE::NiLight& a_light, float a_radius)
+		{
+			auto& data = a_light.GetLightRuntimeData();
+			if (a_radius <= 0.0f || data.radius.x == a_radius) {
+				return;
+			}
+			data.radius = RE::NiPoint3{ a_radius, a_radius, data.radius.z };  // z is the light's size: the game's, kept
+			if (auto* point = InverseSquare() ? nullptr : netimmerse_cast<RE::NiPointLight*>(&a_light)) {
+				// the drawn reach too; the call writes the two words that are the ambient color off Community Shaders
+				const auto ambient = LightKit::Isl::Read(point);
+				point->SetLightAttenuation(a_radius);
+				LightKit::Isl::Write(point, ambient);
+			}
+		}
+
+		void NoteDressed(const RE::ActorMagicCaster& a_caster, const RE::NiLight& a_light)  // under the turn
+		{
+			const double now = FlickerClock();
+			if (gDressed.size() > 256) {
+				std::erase_if(gDressed, [now](const auto& a_entry) { return now - a_entry.second.seen > kDressedGone; });
+			}
+			gDressed[&a_caster] = { &a_light, now };
+			gDressedCount.store(gDressed.size(), std::memory_order_relaxed);
+		}
+
+		// a hand we dressed whose spell no longer wears a light of ours: its own light's look, or dark when it wears none
+		void LetGoOfHand(const RE::ActorMagicCaster& a_caster, RE::NiLight& a_light, const RE::TESObjectLIGH* a_wears)
+		{
+			if (gDressedCount.load(std::memory_order_relaxed) == 0) {
+				return;
+			}
+			const auto turn = LightKit::Turn();
+			const auto it = gDressed.find(&a_caster);
+			if (it == gDressed.end() || it->second.light != &a_light) {
+				return;
+			}
+			gDressed.erase(it);
+			gDressedCount.store(gDressed.size(), std::memory_order_relaxed);
+			auto& data = a_light.GetLightRuntimeData();
+			if (!a_wears) {
+				data.fade = 0.0f;
+				return;
+			}
+			const auto& c = a_wears->data.color;
+			data.diffuse = { c.red / 255.0f, c.green / 255.0f, c.blue / 255.0f };
+			TakeRadius(a_light, static_cast<float>(a_wears->data.radius));
+			data.fade = a_wears->fade;
 		}
 
 		[[nodiscard]] float Strength(const LightCopy& a_copy)
@@ -509,10 +576,14 @@ namespace Plugin
 		const auto  hand = RecordOf(*a_caster, *light);
 		const auto* record = hand.record;
 		if (!record) {
+			if (hand.known) {
+				LetGoOfHand(*a_caster, *light, hand.wears);
+			}
 			return;
 		}
 		const auto turn = LightKit::Turn();
-		auto&      data = light->GetLightRuntimeData();
+		NoteDressed(*a_caster, *light);
+		auto& data = light->GetLightRuntimeData();
 		if (!hand.matched) {
 			// a setting pointed the effect at another light since this one was lit: the hand takes its look now (his report
 			// "configs for spell art don't change until unequip/re equip, needs to be live")
@@ -522,26 +593,41 @@ namespace Plugin
 		// HIS REPORT on Vanilla, "reach still doesn't work": the game set the radius once, when the spell
 		// was readied, and Reach only changed the record - so a lit hand takes its record's radius too (GroundLights.cpp's
 		// twin copies it and re-attenuates when it moves)
-		const float radius = static_cast<float>(record->data.radius);
-		if (radius > 0.0f && data.radius.x != radius) {
-			data.radius = RE::NiPoint3{ radius, radius, data.radius.z };  // z is the light's size: the game's, kept
-			if (auto* point = InverseSquare() ? nullptr : netimmerse_cast<RE::NiPointLight*>(light)) {
-				// the drawn reach too, ground twin or not; the call writes the two words that are the ambient color off Community Shaders
-				const auto ambient = LightKit::Isl::Read(point);
-				point->SetLightAttenuation(radius);
-				LightKit::Isl::Write(point, ambient);
-			}
-		}
+		TakeRadius(*light, static_cast<float>(record->data.radius));
 		// a steady one takes its record's fade too, so Brightness reaches a hand already lit (run 9,
 		// the game set it once, when the spell was readied, and it never moved after); a flicker plays its keys
 		// under Realistic a spell with a kind takes its shape in place of the flicker's keys, around the same mean fade (as RELight)
 		const bool left = a_caster->GetCastingSource() == RE::MagicSystem::CastingSource::kLeftHand;
 		const auto kind = PulseRealistic() ? LightKit::PulseKindOfHand(a_caster->GetCasterAsActor(), left) : Pulse::Kind::kNone;
+		// another mod's dimmer on this light (Baked Goods fades the casting light out and back to its record's fade): ours keeps its
+		// share, so the ground twin that copies this light dims with it. A casting light another mod made dark at its birth (Baked
+		// Goods: fade 0, no dimmer) stays dark until a dimmer runs on it - each caster's light judged once, when it first comes here
+		struct Birth
+		{
+			const RE::BSLight* holder{ nullptr };
+			const RE::NiLight* light{ nullptr };
+			bool               dark{ false };
+		};
+		static std::unordered_map<const RE::ActorMagicCaster*, Birth> births;  // under the turn
+		// only the lit verdicts are let go when the list is full: a dark one is the state itself, and judged again from our own
+		// write of 0 it would read the same, while a lit one judged again reads the light as it stands
+		if (births.size() > 512) {
+			std::erase_if(births, [](const auto& a_entry) { return !a_entry.second.dark; });
+		}
+		auto&       birth = births[a_caster];
+		const auto* holder = a_caster->light.get();
+		if (birth.holder != holder || birth.light != light) {
+			birth = { holder, light, !light->controllers && !(data.fade > 0.0f) };
+		}
+		if (light->controllers) {
+			birth.dark = false;
+		}
+		const float share = birth.dark ? 0.0f : LightKit::ForeignDimShare(light);
 		if (kind != Pulse::Kind::kNone) {
 			const auto seed = static_cast<std::uint32_t>(std::hash<const void*>{}(light));
-			data.fade = record->fade * Pulse::Factor(kind, FlickerClock(), seed);
+			data.fade = record->fade * Pulse::Factor(kind, FlickerClock(), seed) * share;
 		} else {
-			data.fade = RecordFadeNow(record, light);
+			data.fade = RecordFadeNow(record, light) * share;
 		}
 		// on Community Shaders the cutoff the sliders gave the record reaches the lit hand too (LightKit.h's two words)
 		if (InverseSquare() && (record->data.flags.underlying() & LightKit::kRecordInverseSquare)) {

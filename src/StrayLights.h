@@ -24,6 +24,8 @@ namespace StrayLights
 	inline constexpr std::string_view kOurs = "LP_Light[Illuminated\\";
 	// looks in a row a light must stand without a node before it goes: Light Placer detaches one a moment before the scene removes it
 	inline constexpr int kLooks = 2;
+	// a lit light on a tree cut from the world waits longer: a body the game has not stored yet looks the same for a frame or two
+	inline constexpr int kDetachedLooks = 4;
 
 	// without case: Light Placer names the folder as the mod manager merged it, "illuminated" as well as "Illuminated"
 	[[nodiscard]] inline bool IsOurs(std::string_view a_name) noexcept { return LightKit::SameText(a_name.substr(0, kOurs.size()), kOurs); }
@@ -34,6 +36,7 @@ namespace StrayLights
 		std::string_view name;
 		bool             hasParent{ true };
 		bool             removalQueued{ false };  // Light Placer or the scene is taking it out already
+		bool             detached{ false };       // lit, on a tree with no reference that does not reach the world
 	};
 
 	class Watch
@@ -56,7 +59,7 @@ namespace StrayLights
 						break;
 					}
 				}
-				if (looks >= kLooks) {
+				if (looks >= (s.detached ? kDetachedLooks : kLooks)) {
 					out.push_back(i);
 				} else {
 					next.emplace_back(s.key, looks);
