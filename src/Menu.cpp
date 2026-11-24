@@ -582,11 +582,14 @@ namespace Plugin
 			ImGuiMCP::SetNextWindowSize(ImGuiMCP::ImVec2(820.0f, 1040.0f), ImGuiMCP::ImGuiCond_Always);
 			if (ImGuiMCP::Begin("Illuminated (test)", nullptr, ImGuiMCP::ImGuiWindowFlags_NoCollapse) && page >= 0 &&
 				static_cast<std::size_t>(page) < gPages.size()) {
-				if (static_cast<std::size_t>(page) == gItemsAt) {
-					ItemsPage();
-				} else {
-					DrawPage(static_cast<std::size_t>(page));
-				}
+				// guarded inside Begin / End, so a throw never leaves the window open on ImGui's stack
+				LightKit::Guarded("menu: test window", [page] {
+					if (static_cast<std::size_t>(page) == gItemsAt) {
+						ItemsPage();
+					} else {
+						DrawPage(static_cast<std::size_t>(page));
+					}
+				});
 			}
 			ImGuiMCP::End();
 		}
