@@ -51,6 +51,10 @@
 #include "Plugin.h"
 #include "Fade.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+
 namespace Plugin
 {
 	namespace
@@ -590,6 +594,7 @@ namespace Plugin
 					// each pass times itself after its own early return (LightKit::Cost::Pass)
 					Frame();
 					TickSwapped(a_delta);  // the Dynamic Lighting swap's lights back to Light Placer's own verdict
+					TakeBodyNotes();       // the bodies that came or went on the game's loader threads (Events.cpp)
 					if (RecordRoute()) {
 						RefreshDrawn();
 					}
@@ -745,6 +750,12 @@ namespace Plugin
 			return SpellExplosion(a_expl) ? ArtFamily(a_expl, a_expl->GetModel()) : Family::kNone;
 		}
 
+		[[nodiscard]] RE::Color ByteColor(const RE::NiColor& a_c)
+		{
+			const auto byte = [](float a_v) { return static_cast<std::uint8_t>(std::lround(std::clamp(a_v, 0.0f, 1.0f) * 255.0f)); };
+			return RE::Color(byte(a_c.red), byte(a_c.green), byte(a_c.blue), 255);
+		}
+
 		// every light under a_root in a_color; how many
 		std::size_t PaintLightsUnder(RE::NiAVObject* a_root, const RE::Color& a_color)
 		{
@@ -782,6 +793,11 @@ namespace Plugin
 					it->second = ExplosionFamily(expl);
 				}
 				family = it->second;
+			}
+			// Radiant Bow's Hallowed Bolt burst wears its Sky impact pick (RadiantBowColors.cpp)
+			if (const auto pick = RadiantBowSkyColor(expl->GetModel() ? expl->GetModel() : "", false)) {
+				PaintLightsUnder(root, ByteColor(*pick));
+				return;
 			}
 			const auto                  color = family == Family::kNone ? std::nullopt : ArtHandLook(family);
 			[[maybe_unused]] const auto tinted = color ? PaintLightsUnder(root, *color) : 0;
@@ -836,7 +852,16 @@ namespace Plugin
 		{
 			const auto* base = a_hazard->GetBaseObject();
 			const auto* form = base ? base->As<RE::BGSHazard>() : nullptr;
-			const auto  family = form ? HazardFamily(form) : Family::kNone;
+			// Radiant Bow's Sky Rune flames wear its Sky impact pick (RadiantBowColors.cpp)
+			if (const auto pick = form && !LightsOff() ? RadiantBowSkyColor(form->GetModel() ? form->GetModel() : "", true) : std::nullopt) {
+				if (auto* own = netimmerse_cast<RE::NiPointLight*>(a_hazard->GetHazardRuntimeData().light.get())) {
+					const auto turn = LightKit::Turn();
+					own->GetLightRuntimeData().diffuse = *pick;
+				}
+				PaintLightsUnder(a_hazard->Get3D(), ByteColor(*pick));
+				return;
+			}
+			const auto family = form ? HazardFamily(form) : Family::kNone;
 			if (family == Family::kNone) {
 				return;
 			}

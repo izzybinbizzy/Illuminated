@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "CreatureSpells.h"
 #include "Plugin.h"
 
 namespace Plugin::Ground
@@ -32,12 +33,14 @@ namespace Plugin::Ground
 	// anyone besides the player with hands out (Events.cpp's list holds the player first)
 	[[nodiscard]] inline bool OthersDrawn() { return DrawnActors().size() > 1; }
 
-	// the player first, then every actor with drawn hands (Events.cpp)
+	// the player first, then every actor with drawn hands (Events.cpp); a creature's lights are Creatures', so it gets no ground light
 	template <class F>
 	void ForEachDrawn(F&& a_visit)
 	{
 		for (auto* actor : DrawnActors()) {
-			a_visit(actor);
+			if (!CreatureSpells::IsCreature(actor)) {
+				a_visit(actor);
+			}
 		}
 	}
 }

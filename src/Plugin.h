@@ -264,6 +264,7 @@ namespace Plugin
 	// Events.cpp: SKSE's weapon draw events - the actors with drawn hands, for the record route's per-actor passes
 	void                                         WatchDraws();                                   // data load, record route
 	void                                         WatchActors3D();                                // data load: each actor's 3D, in and out, and the loading screen
+	void                                         TakeBodyNotes();                                // main thread, once a frame: what the 3D slots noted
 	void                                         RefreshDrawn();                                 // main thread, once a frame before the art lights
 	[[nodiscard]] const std::vector<RE::Actor*>& DrawnActors();                                  // this frame's: the player first, then every actor with drawn hands
 	void                                         ForgetDrawn();                                  // a game loads, or a new one starts
@@ -297,13 +298,16 @@ namespace Plugin
 	[[nodiscard]] std::size_t GroundLightsMade();
 	[[nodiscard]] std::size_t GroundLightsLeftHidden();  // GroundLights.cpp: casting lights the game holds hidden on a caster whose hands are down
 	// HerShadow.cpp: with the Bottled Shaders shadow download, both her hands' lights at one point between her hands (one shadow)
-	void               PlaceHerShadow();                                        // the player update, after every pass wrote its fades (main thread)
-	void               WatchBurningBanners();                                   // data load: Burn'em Banners on Vanilla - a burning banner's fire light (BurningBanners.cpp)
-	void               TickBurningBanners();                                    // the player update: the banners the game said started or stopped burning (main thread)
-	void               RetuneBurningBanners();                                  // a slider moved: the burning banners' lights under the new values (main thread)
-	void               DropBurningBanners();                                    // a load or a loading screen: every banner light let go (main thread)
-	void               DropHerShadow();                                         // a game loads, or a new one starts
-	[[nodiscard]] bool IsOurLightPlacerLight(const RE::NiPointLight& a_light);  // LightCopies.cpp: Light Placer's light of one of our copies
+	void                                     PlaceHerShadow();                                             // the player update, after every pass wrote its fades (main thread)
+	void                                     WatchBurningBanners();                                        // data load: Burn'em Banners on Vanilla - a burning banner's fire light (BurningBanners.cpp)
+	void                                     WatchRadiantBow();                                            // data load: our Radiant Bow lights follow its color picks (RadiantBowColors.cpp)
+	[[nodiscard]] std::uint32_t              RadiantBowGeneration();                                       // moves on with each read of its picks
+	[[nodiscard]] std::optional<RE::NiColor> RadiantBowSkyColor(std::string_view a_model, bool a_hazard);  // its Sky impact pick on our light, or none
+	void                                     TickBurningBanners();                                         // the player update: the banners the game said started or stopped burning (main thread)
+	void                                     RetuneBurningBanners();                                       // a slider moved: the burning banners' lights under the new values (main thread)
+	void                                     DropBurningBanners();                                         // a load or a loading screen: every banner light let go (main thread)
+	void                                     DropHerShadow();                                              // a game loads, or a new one starts
+	[[nodiscard]] bool                       IsOurLightPlacerLight(const RE::NiPointLight& a_light);       // LightCopies.cpp: Light Placer's light of one of our copies
 	// automatic lights (his go-to pick): a light of ours in a_color, at the middle strength and reach of the tuned
 	// hand lights a_tuned (made once per color, at data load; follows the sliders)
 	[[nodiscard]] RE::TESObjectLIGH* AutoLight(RE::Color a_color, const std::vector<const RE::TESObjectLIGH*>& a_tuned);

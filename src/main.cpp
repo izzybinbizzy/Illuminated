@@ -142,6 +142,7 @@ namespace
 		}
 		WatchWeaponGlows();     // a glowing weapon's light at the weapon's middle on every route (HerShadow.cpp)
 		WatchBurningBanners();  // Burn'em Banners: a burning banner's fire light where that mod gives none (Vanilla)
+		WatchRadiantBow();      // Radiant Bow: our lights on its bow and Sky Rune follow its color picks
 		if (cov.files == 0) {
 			SKSE::log::warn(
 				"no Illuminated configs were found under Data\\LightPlacer: passes 1 to 4 skipped (pass 0, VAER, the wards and "

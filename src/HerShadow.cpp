@@ -1,6 +1,7 @@
 // HerShadow.cpp - the optional Bottled Shaders shadow download makes her own hand lights shadow casters, and two lit hands
 // throw two crossed shadows. While both hands are lit their lights sit at one point between her hands, so they throw one
-// shadow and light as much as before; with one hand lit that hand's lights go back where Light Placer put them.
+// shadow and light as much as before; with one hand lit that hand's lights go back where Light Placer put them. With "A shadow
+// from each hand" each hand's lights stay at the hand, pushed out of her torso when an animation holds the hand against it.
 // A glowing weapon's lights sit at the middle of the weapon, not in the fist at its grip, on every lighting (PlaceWeaponGlows).
 
 #include "Plugin.h"
@@ -90,6 +91,17 @@ namespace Plugin
 		[[nodiscard]] bool WasMoved(const RE::NiPointLight* a_light)
 		{
 			return std::ranges::any_of(gMoved, [a_light](const Moved& a_m) { return a_m.light.get() == a_light; });
+		}
+
+		// where Light Placer put a light, in the world: a light already moved by us answers with its kept place
+		[[nodiscard]] RE::NiPoint3 OwnPlace(const RE::NiPointLight* a_light)
+		{
+			for (const auto& m : gMoved) {
+				if (m.light.get() == a_light && a_light->parent == m.parent) {
+					return a_light->parent->world * m.placed;
+				}
+			}
+			return a_light->parent->world * a_light->local.translate;
 		}
 
 		// Light Placer may attach a weapon glow's light some frames after the draw or equip that started its shader
@@ -284,13 +296,26 @@ namespace Plugin
 		static std::vector<std::pair<RE::NiPointLight*, RE::NiPoint3>> between;  // this frame: a light and the world point it goes to
 		static std::vector<RE::NiPointLight*>                          lights;
 		between.clear();
+		const bool apart = HandsApart();
+		auto*      body = player->Get3D(false);
 		for (const bool first : { false, true }) {
-			if (HandsApart()) {
-				break;  // nothing moves: every light already moved goes back below
-			}
 			auto* root = player->Get3D(first);
 			auto* left = root ? root->GetObjectByName(strings->npcLMagicNode) : nullptr;
 			auto* right = root ? root->GetObjectByName(strings->npcRMagicNode) : nullptr;
+			if (apart) {
+				// each hand's lights stay at their hand, out of her torso; a light moved before and clear of it now goes back below
+				lights.clear();
+				OurLightsUnder(left, lights);
+				OurLightsUnder(right, lights);
+				for (auto* light : lights) {
+					const auto own = OwnPlace(light);
+					const auto out = LightKit::OutOfBody(body, own);
+					if (out.GetDistance(own) > 0.01f) {
+						between.emplace_back(light, out);
+					}
+				}
+				continue;
+			}
 			lights.clear();
 			OurLightsUnder(left, lights);
 			const std::size_t leftCount = lights.size();

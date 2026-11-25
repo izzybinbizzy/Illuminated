@@ -393,7 +393,7 @@ namespace Plugin
 			// gone a second time - CLAUDE.md); every light keeps its own color
 			const Preset presets[] = {
 				{ T("Subtle"), T("Softer lights that stay close to the spell."), 75, 80, 1, -1, -1 },
-				{ T("Default"), T("My lights as I made them."), 100, 100, 1, 0, 1 },
+				{ T("Default"), T("Every light as it was made."), 100, 100, 1, 0, 1 },
 				{ T("Cinematic"), T("Brighter lights that reach further."), 150, 120, 1, -1, -1 },
 			};
 			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Presets"));
