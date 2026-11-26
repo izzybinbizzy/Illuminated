@@ -282,13 +282,16 @@ namespace Plugin
 
 	void TakeBodyNotes()
 	{
-		if (!gBodiesMoved.exchange(false, std::memory_order_acquire)) {
+		// each word taken on its own: a load's plain store may be the one gBodiesMoved shows, and it carries no gBodyLeft with it
+		const bool moved = gBodiesMoved.exchange(false, std::memory_order_acquire);
+		const bool left = gBodyLeft.load(std::memory_order_relaxed) && gBodyLeft.exchange(false, std::memory_order_acquire);
+		if (!moved && !left) {
 			return;
 		}
 		// on the main thread what the 3D slots once did on the game's loader threads: the fading hands look once, a body that went may
 		// have left a light behind, and the record route lists who now has hands out
 		Fade::WakeHands();
-		if (gBodyLeft.exchange(false, std::memory_order_relaxed)) {
+		if (left) {
 			NoteStrayLook(StrayWhy::kBodyGone);
 		}
 		if (gDrawsWatched.load(std::memory_order_relaxed)) {
