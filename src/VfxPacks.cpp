@@ -2,8 +2,7 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// THE VFX SWITCHER (his order 2026-10-19: "i want spell mods to be selectable and changable", and his yes to the design the same
-// day: "yes add the vfx switcher"). A spell VFX pack copied by `vfx pack convert.py` sits under paths of its own
+// THE VFX SWITCHER: installed spell VFX packs, selectable in game. A spell VFX pack copied by `vfx pack convert.py` sits under paths of its own
 // (meshes\VFX Packs\<pack>\...) with a list beside it, Data\SKSE\Plugins\VFX Packs\<pack>.json: its element, a word of the art
 // pick it belongs to, and each original model -> its copy. At data load every spell form wearing one of those originals is noted
 // with its own model; the art pick of its element (Fire / Frost / Shock / Healing Art) then decides which model it wears - the

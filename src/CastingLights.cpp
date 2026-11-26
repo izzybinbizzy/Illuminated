@@ -8,8 +8,7 @@
 // its light, and an effect that had no casting light gets one.
 // AUTOMATIC LIGHTS (his go-to pick, "do all of them"), without Light Placer: a spell whose casting
 // art no config lights - another mod's spell Illuminated has no patch for - gets a light of ours too, behind the setting
-// "Spells without a patch", at the middle strength and reach of the tuned hand lights. Its color, in his order of 2026-10-18
-// ("i want it for all spells ... the fact that we provide a way for them to change and save their colors should suffice"):
+// "Spells without a patch", at the middle strength and reach of the tuned hand lights. Its color, for every spell:
 // its own casting light's, else the light of the projectile it fires, else its art's (the emissive colors of the art's
 // effect shaders, read once at load), else the color most of the tuned spells of its resistance group wear (every group).
 // A spell with none of them keeps what it has: no color is guessed.
@@ -289,8 +288,8 @@ namespace Plugin
 			// A Light-archetype spell (Candlelight, Magelight) summons its orb through the archetype's association; its own light
 			// slot is the HAND's casting light like any spell's (read 2026-10-12: Candlelight's casting light is
 			// MAG_LightSpellHand01, reach 32, its orb ODN_Alt_Light_Light_MagicalLight). Skipped, it kept that 32-unit light on
-			// Vanilla / ENB and its ground light lit nothing (his "i think candlelight hand light isn't working", measured: ground
-			// +0 where every other spell lifted +125 .. +700). So on the record route it is followed like any spell; with Light
+			// Vanilla / ENB and its ground light lit nothing (measured: ground +0 where every other spell lifted
+			// +125 .. +700). So on the record route it is followed like any spell; with Light
 			// Placer it stays skipped as before.
 			if (effect->data.archetype == RE::EffectArchetypes::ArchetypeID::kLight && !RecordRoute()) {
 				++archetype;

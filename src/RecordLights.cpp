@@ -20,7 +20,7 @@
 //   - Pulse / Flicker + amplitude set on the record: the hands read one fade in 380 samples, while every placed lamp round
 //   her moved). So a flicker row's keys stay with its record light, and right after each caster's update (LightCopies.cpp's
 //   one wrapper) the caster's own hand light takes the fade those keys give now, x the record's fade (the sliders) / the
-// mean - HIS ORDER: "build flicker in our dll you can use relight code if you want". The keyframe maths is
+// mean. The keyframe maths is
 //   Truman's (RE::Light's controller.h, GPL-3.0; his permission for RELight's code, credited), each light starting at its
 //   own place in the loop as RE::Light's random start does. Nothing walks the scene: each caster writes the one light it
 //   holds, on the thread the game updates it on. Not in VR (the caster's layout there is not proven; VR is never played here).
@@ -254,7 +254,7 @@ namespace Plugin
 		}
 	}
 
-	// HIS ANSWER 2026-10-13 (the cloud audit's Q7, "yes to all your picks"): on Vanilla and ENB Illuminated always lights
+	// On Vanilla and ENB Illuminated always lights
 	// its own way, even when Light Placer is installed for another mod - Light Placer is the Community Shaders route only.
 	// One download serves all three lightings and Light Placer reads every file under Data\LightPlacer when it loads, so our
 	// configs stay where they are and every light row in them waits first on one more global, IlluminatedLightPlacerRoute
