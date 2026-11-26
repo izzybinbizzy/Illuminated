@@ -147,7 +147,7 @@ namespace Plugin
 		{
 			const std::vector<const char*> items{ T("Off"), T("Regular"), T("Cinematic") };
 			const std::vector<const char*> tips{ T("Steady lights, no pulse or flicker."),
-				T("Lights pulse as they always have: fire crackles, absorb spells beat, the rest breathe gently."),
+				T("Lights pulse the classic way: fire crackles, absorb spells beat, the rest breathe gently."),
 				T("Each kind of spell pulses its own way (fire flickers, shock snaps); with Light Placer it pulses like Regular.") };
 			int                            v = a_s.value.load() == 0 ? 0 : SettingValue(kPulseShapesId, 0) != 0 ? 2 :
 			                                                                                                      1;
@@ -282,7 +282,7 @@ namespace Plugin
 		void WritePresets(const PresetList& a_all)
 		{
 			std::ostringstream text;
-			text << "; " << kOurFolder << " - the presets you saved in the menu, one set per lighting. Written by the menu.\n";
+			text << "; " << kOurFolder << " - the presets saved in the menu, one set per lighting. Written by the menu.\n";
 			for (const auto& [lighting, p] : a_all) {
 				text << "\n[" << lighting << "|" << p.name << "]\n";
 				for (const auto& [k, v] : p.values) {
@@ -393,7 +393,7 @@ namespace Plugin
 			// gone a second time - CLAUDE.md); every light keeps its own color
 			const Preset presets[] = {
 				{ T("Subtle"), T("Softer lights that stay close to the spell."), 75, 80, 1, -1, -1 },
-				{ T("Default"), T("My lights as I made them."), 100, 100, 1, 0, 1 },
+				{ T("Default"), T("Every light as it was made."), 100, 100, 1, 0, 1 },
 				{ T("Cinematic"), T("Brighter lights that reach further."), 150, 120, 1, -1, -1 },
 			};
 			MenuStyle::Header(MenuStyle::Icon::kBulb, T("Presets"));
@@ -488,7 +488,7 @@ namespace Plugin
 				if (!gCSLight.empty()) {
 					ImGuiMCP::TextColored(kWarn, T("%s is loaded."), gCSLight.c_str());
 					MenuStyle::Tip(T(
-						"You don't need CS Light; if you keep it, untick its Magic FX, Mysticism, Bound Weapons, Praedy Staves and Misc Effects options."));
+						"CS Light is not needed. With it installed, untick its Magic FX, Mysticism, Bound Weapons, Praedy Staves and Misc Effects options."));
 				}
 			};
 			std::string group;
@@ -613,8 +613,9 @@ namespace Plugin
 			std::lock_guard lock(gPresetLock);
 			gPresets = ReadPresets();  // here on the main thread, once: the menu never reads a file on its own thread
 		}
-		if (!SKSEMenuFramework::IsInstalled()) {
-			SKSE::log::warn("SKSE Menu Framework is not installed, so there is no settings page - the settings INI still applies");
+		// its file on the drive is not enough: a framework that did not load takes every page and shows none
+		if (!SKSEMenuFramework::IsInstalled() || !GetMenuFrameworkModule()) {
+			SKSE::log::warn("SKSE Menu Framework is not installed or did not load, so there is no settings page - the settings INI still applies");
 			return;
 		}
 		for (const auto name : { "CS Light.esp", "CS Light.esl" }) {
@@ -651,7 +652,7 @@ namespace Plugin
 		MenuStyle::gTheme = MenuStyle::MakeTheme(0xFFC94D);  // candle gold
 		// the framework may keep the pointer: the text lives for the whole session (a temporary's c_str() would dangle)
 		static const std::string kSection(kOurFolder);
-		SKSEMenuFramework::SetSection(T(kSection.c_str()));
+		SKSEMenuFramework::SetSection(Translation::MenuName(kSection.c_str()));
 		// Praedy's Staves only with Praedy's Staves AIO loaded (its settings file ships in the main download since the merge, so
 		// only its plugin says it is installed: "Praedy's StavesAIO..." - read off his install, the Legacy of the Dragonborn
 		// version -, or a Patch Hub patch, "Praedystaves..." / "PraedyStaves...", which needs it as a master - his "yes, fix it"
@@ -662,7 +663,7 @@ namespace Plugin
 			if (gPages[i] == kItemsPage) {
 				gItemsAt = i;
 				// his order: "an entirely new main menu ... search for the weapon/spell and change it's lights" (FadeItems.cpp)
-				SKSEMenuFramework::AddSectionItem(T(kItemsPage.data()), LightKit::GuardedDraw<ItemsPage>);
+				SKSEMenuFramework::AddSectionItem(Translation::MenuName(kItemsPage.data()), LightKit::GuardedDraw<ItemsPage>);
 				continue;
 			}
 			if (gPages[i] == kPerformancePage) {
@@ -672,7 +673,7 @@ namespace Plugin
 				SKSE::log::info("menu: no Praedy's Staves AIO plugin loaded - its page is left out");
 				continue;
 			}
-			SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
+			SKSEMenuFramework::AddSectionItem(Translation::MenuName(gPages[i].c_str()), kPageFunctions[i]);
 		}
 		gTestWindow = SKSEMenuFramework::AddWindow(LightKit::GuardedDraw<DrawTestWindow>, false);
 		SKSE::log::info("menu: {} page(s) added to SKSE Menu Framework {}", gPages.size(), SKSEMenuFramework::GetMenuFrameworkVersion());
@@ -681,19 +682,19 @@ namespace Plugin
 	// after the fading module's pages (HUD, Fading): Performance, the last page
 	void RegisterMenuTail()
 	{
-		if (!SKSEMenuFramework::IsInstalled()) {
+		if (!SKSEMenuFramework::IsInstalled() || !GetMenuFrameworkModule()) {
 			return;
 		}
 		static const std::string kSection(kOurFolder);
-		SKSEMenuFramework::SetSection(T(kSection.c_str()));
+		SKSEMenuFramework::SetSection(Translation::MenuName(kSection.c_str()));
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
 			if (gPages[i] == kPerformancePage) {
-				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
+				SKSEMenuFramework::AddSectionItem(Translation::MenuName(gPages[i].c_str()), kPageFunctions[i]);
 			}
 		}
 #ifdef FADE_DEBUG_PAGE
-		SKSEMenuFramework::SetSection(T(kSection.c_str()));
-		SKSEMenuFramework::AddSectionItem(T("Diagnostics"), LightKit::GuardedDraw<RenderDiagnostics>);
+		SKSEMenuFramework::SetSection(Translation::MenuName(kSection.c_str()));
+		SKSEMenuFramework::AddSectionItem(Translation::MenuName("Diagnostics"), LightKit::GuardedDraw<RenderDiagnostics>);
 #endif
 	}
 }

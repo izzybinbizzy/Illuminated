@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "CreatureSpells.h"
 #include "Plugin.h"
 
 namespace Plugin::Ground
@@ -29,15 +30,20 @@ namespace Plugin::Ground
 	// a casting light left hidden was let go: nothing to tell here (RELight's Keep.cpp sweeps)
 	inline void LetGo() {}
 
-	// anyone besides the player with hands out (Events.cpp's list holds the player first)
-	[[nodiscard]] inline bool OthersDrawn() { return DrawnActors().size() > 1; }
+	// anyone besides the player with hands out who gets a ground light (not a creature: ForEachDrawn skips those)
+	[[nodiscard]] inline bool OthersDrawn()
+	{
+		return std::ranges::any_of(DrawnActors(), [](RE::Actor* a_actor) { return a_actor && !a_actor->IsPlayerRef() && !CreatureSpells::IsCreature(a_actor); });
+	}
 
-	// the player first, then every actor with drawn hands (Events.cpp)
+	// the player first, then every actor with drawn hands (Events.cpp); a creature's lights are Creatures', so it gets no ground light
 	template <class F>
 	void ForEachDrawn(F&& a_visit)
 	{
 		for (auto* actor : DrawnActors()) {
-			a_visit(actor);
+			if (!CreatureSpells::IsCreature(actor)) {
+				a_visit(actor);
+			}
 		}
 	}
 }

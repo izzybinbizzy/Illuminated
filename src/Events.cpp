@@ -15,10 +15,12 @@ namespace Plugin
 {
 	namespace
 	{
-		std::mutex                               gDrawLock;
-		std::vector<RE::FormID>                  gDrawQueue;              // gDrawLock
-		std::vector<std::pair<RE::FormID, bool>> gLoadedQueue;            // gDrawLock
-		std::atomic<bool>                        gDrawsWatched{ false };  // the record route's: only it reads the queues
+		std::mutex              gDrawLock;
+		std::vector<RE::FormID> gDrawQueue;              // gDrawLock
+		std::atomic<bool>       gDrawsWatched{ false };  // the record route's: only it reads the queues
+		// an actor's body came or went (any thread, often a loader thread): only these two words are written there
+		std::atomic<bool> gBodiesMoved{ false };
+		std::atomic<bool> gBodyLeft{ false };
 		// a drawn actor whose body the game has not stored yet (a queued load) stays listed this many passes, as ArtLights' weapon waits
 		constexpr int                       kNo3DPasses = 300;
 		std::unordered_map<RE::FormID, int> gNo3D;      // the main thread's: passes waited for each one's body
@@ -97,24 +99,10 @@ namespace Plugin
 			}
 		};
 
-		// a_hadBody: the body this call let go was there - a load clears thousands of empty slots, which leave nothing behind
-		void Note3D(RE::Actor* a_actor, bool a_in, bool a_hadBody = false)
-		{
-			Fade::NoteActor3D(a_actor);
-			if (!a_in && a_hadBody) {
-				NoteStrayLook(StrayWhy::kBodyGone);  // a light of its body may be left behind with no node
-			}
-			if (gDrawsWatched.load(std::memory_order_relaxed)) {
-				NoteWeaponLook();
-				std::lock_guard lock(gDrawLock);
-				gLoadedQueue.emplace_back(a_actor->GetFormID(), a_in);
-				gDrawWork.store(true, std::memory_order_relaxed);
-			}
-		}
-
 		// An actor's 3D in and out, at its own two slots: the game's load event names only a reference with a script or in an alias (read in
 		// the 1.6.1170 exe). A queued load returns its body at the first on a loader thread and the game stores it later; a null at the
-		// second is the body let go. Any thread: only noted
+		// second is the body let go. These run on the game's loader and job threads inside its own 3D chain, so they only set a word: no
+		// lock, no allocation, one null test of its body. The main thread takes the words once a frame (TakeBodyNotes)
 		template <class T>
 		struct Actor3D
 		{
@@ -122,7 +110,7 @@ namespace Plugin
 			{
 				auto* root = load(a_this, a_backgroundLoading);
 				if (root) {
-					LightKit::Guarded("actor 3D in", [a_this]() { Note3D(a_this, true); });
+					gBodiesMoved.store(true, std::memory_order_relaxed);
 				}
 				return root;
 			}
@@ -134,7 +122,11 @@ namespace Plugin
 				if (!a_object && !hadBody) {
 					return;
 				}
-				LightKit::Guarded("actor 3D set", [a_this, a_object, hadBody]() { Note3D(a_this, a_object != nullptr, hadBody); });
+				if (!a_object) {
+					gBodyLeft.store(true, std::memory_order_relaxed);
+				}
+				// release: the main thread that takes this sees gBodyLeft too
+				gBodiesMoved.store(true, std::memory_order_release);
 			}
 			static inline REL::Relocation<decltype(LoadThunk)> load;
 			static inline REL::Relocation<decltype(SetThunk)>  set;
@@ -237,34 +229,23 @@ namespace Plugin
 			return;
 		}
 		const LightKit::Cost::Pass pass{ 17, "drawn hands (the record route's actors)" };
+		// a body came or went (TakeBodyNotes): every near actor with hands out is listed; one that went is dropped below
 		if (std::exchange(gLookAround, false)) {
 			if (auto* lists = RE::ProcessLists::GetSingleton()) {
-				for (auto& handle : lists->highActorHandles) {
-					if (const auto actor = handle.get(); HandsDrawn(actor.get())) {
-						gDrawnIds.insert(actor->GetFormID());
+				for (auto* handles : { &lists->highActorHandles, &lists->middleHighActorHandles, &lists->middleLowActorHandles }) {
+					for (auto& handle : *handles) {
+						if (const auto actor = handle.get(); HandsDrawn(actor.get())) {
+							gDrawnIds.insert(actor->GetFormID());
+						}
 					}
 				}
 			}
 		}
 		{
-			static std::vector<std::pair<RE::FormID, bool>> loads;  // kept so the pass allocates nothing once it has grown
-			loads.clear();
-			{
-				std::lock_guard lock(gDrawLock);
-				gDrawWork.store(false, std::memory_order_relaxed);
-				gDrawnIds.insert(gDrawQueue.begin(), gDrawQueue.end());
-				gDrawQueue.clear();
-				loads.swap(gLoadedQueue);
-			}
-			// outside the lock: a cell's load is thousands of these, and the sinks wait on it
-			for (const auto& [id, loaded] : loads) {
-				if (!loaded) {
-					gDrawnIds.erase(id);
-					gNo3D.erase(id);
-				} else if (HandsDrawn(RE::TESForm::LookupByID<RE::Actor>(id))) {
-					gDrawnIds.insert(id);
-				}
-			}
+			std::lock_guard lock(gDrawLock);
+			gDrawWork.store(false, std::memory_order_relaxed);
+			gDrawnIds.insert(gDrawQueue.begin(), gDrawQueue.end());
+			gDrawQueue.clear();
 		}
 		gDrawn.clear();
 		auto* player = RE::PlayerCharacter::GetSingleton();
@@ -273,7 +254,7 @@ namespace Plugin
 		}
 		std::erase_if(gDrawnIds, [&](RE::FormID a_id) {
 			auto* actor = RE::TESForm::LookupByID<RE::Actor>(a_id);
-			// put away, gone or not an actor: looked at again when it draws or its body loads with the hands out (Note3D). She needs no
+			// put away, gone or not an actor: looked at again when it draws or its body loads with the hands out (TakeBodyNotes). She needs no
 			// place here: she is always on the list. Hands still coming out stay listed until they are drawn
 			if (actor == player || (!HandsDrawn(actor) && !HandsComing(actor))) {
 				gNo3D.erase(a_id);
@@ -299,12 +280,28 @@ namespace Plugin
 
 	const std::vector<RE::Actor*>& DrawnActors() { return gDrawn; }
 
+	void TakeBodyNotes()
+	{
+		// each word taken on its own: a load's plain store may be the one gBodiesMoved shows, and it carries no gBodyLeft with it
+		const bool moved = gBodiesMoved.exchange(false, std::memory_order_acquire);
+		const bool left = gBodyLeft.load(std::memory_order_relaxed) && gBodyLeft.exchange(false, std::memory_order_acquire);
+		if (!moved && !left) {
+			return;
+		}
+		// on the main thread what the 3D slots once did on the game's loader threads: the fading hands look once, and the record route
+		// lists who now has hands out
+		Fade::WakeHands();
+		if (gDrawsWatched.load(std::memory_order_relaxed)) {
+			NoteWeaponLook();
+			gLookAround = true;
+		}
+	}
+
 	void ForgetDrawn()
 	{
 		{
 			std::lock_guard lock(gDrawLock);
 			gDrawQueue.clear();
-			gLoadedQueue.clear();
 		}
 		gDrawnIds.clear();
 		gNo3D.clear();

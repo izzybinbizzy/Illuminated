@@ -51,6 +51,10 @@
 #include "Plugin.h"
 #include "Fade.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+
 namespace Plugin
 {
 	namespace
@@ -534,7 +538,6 @@ namespace Plugin
 			{
 				const bool started = func(a_this);
 				NoteArtLook();
-				NoteStrayLook(StrayWhy::kArtStart);
 				if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
 					NoteFleshStarted(a_this);
 				}
@@ -590,11 +593,11 @@ namespace Plugin
 					// each pass times itself after its own early return (LightKit::Cost::Pass)
 					Frame();
 					TickSwapped(a_delta);  // the Dynamic Lighting swap's lights back to Light Placer's own verdict
+					TakeBodyNotes();       // the bodies that came or went on the game's loader threads (Events.cpp)
 					if (RecordRoute()) {
 						RefreshDrawn();
 					}
-					TickArtLights();    // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
-					StrayLightLooks();  // a light of ours left in the scene with no node (LightPlacerQueue.cpp)
+					TickArtLights();  // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
 					if (!RecordRoute()) {
 						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
 					}
@@ -745,6 +748,12 @@ namespace Plugin
 			return SpellExplosion(a_expl) ? ArtFamily(a_expl, a_expl->GetModel()) : Family::kNone;
 		}
 
+		[[nodiscard]] RE::Color ByteColor(const RE::NiColor& a_c)
+		{
+			const auto byte = [](float a_v) { return static_cast<std::uint8_t>(std::lround(std::clamp(a_v, 0.0f, 1.0f) * 255.0f)); };
+			return RE::Color(byte(a_c.red), byte(a_c.green), byte(a_c.blue), 255);
+		}
+
 		// every light under a_root in a_color; how many
 		std::size_t PaintLightsUnder(RE::NiAVObject* a_root, const RE::Color& a_color)
 		{
@@ -782,6 +791,11 @@ namespace Plugin
 					it->second = ExplosionFamily(expl);
 				}
 				family = it->second;
+			}
+			// Radiant Bow's Hallowed Bolt burst wears its Sky impact pick (RadiantBowColors.cpp)
+			if (const auto pick = RadiantBowSkyColor(expl->GetModel() ? expl->GetModel() : "", false)) {
+				PaintLightsUnder(root, ByteColor(*pick));
+				return;
 			}
 			const auto                  color = family == Family::kNone ? std::nullopt : ArtHandLook(family);
 			[[maybe_unused]] const auto tinted = color ? PaintLightsUnder(root, *color) : 0;
@@ -836,7 +850,23 @@ namespace Plugin
 		{
 			const auto* base = a_hazard->GetBaseObject();
 			const auto* form = base ? base->As<RE::BGSHazard>() : nullptr;
-			const auto  family = form ? HazardFamily(form) : Family::kNone;
+			// Radiant Bow's Sky Rune flames wear its Sky impact pick (RadiantBowColors.cpp); with no pick, or all lights off, its own light
+			// back in its record's color, so a pick taken back while it burns leaves no stale tint
+			if (const char* model = form && form->GetModel() ? form->GetModel() : ""; form && RadiantBowSkyModel(model, true)) {
+				auto*      own = netimmerse_cast<RE::NiPointLight*>(a_hazard->GetHazardRuntimeData().light.get());
+				const auto pick = LightsOff() ? std::nullopt : RadiantBowSkyColor(model, true);
+				if (!pick && !form->data.light) {
+					return;
+				}
+				const RE::NiColor color = pick ? *pick : RE::NiColor{ form->data.light->data.color.red / 255.0f, form->data.light->data.color.green / 255.0f, form->data.light->data.color.blue / 255.0f };
+				if (own) {
+					const auto turn = LightKit::Turn();
+					own->GetLightRuntimeData().diffuse = color;
+				}
+				PaintLightsUnder(a_hazard->Get3D(), ByteColor(color));
+				return;
+			}
+			const auto family = form ? HazardFamily(form) : Family::kNone;
 			if (family == Family::kNone) {
 				return;
 			}
