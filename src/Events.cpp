@@ -288,12 +288,9 @@ namespace Plugin
 		if (!moved && !left) {
 			return;
 		}
-		// on the main thread what the 3D slots once did on the game's loader threads: the fading hands look once, a body that went may
-		// have left a light behind, and the record route lists who now has hands out
+		// on the main thread what the 3D slots once did on the game's loader threads: the fading hands look once, and the record route
+		// lists who now has hands out
 		Fade::WakeHands();
-		if (left) {
-			NoteStrayLook(StrayWhy::kBodyGone);
-		}
 		if (gDrawsWatched.load(std::memory_order_relaxed)) {
 			NoteWeaponLook();
 			gLookAround = true;

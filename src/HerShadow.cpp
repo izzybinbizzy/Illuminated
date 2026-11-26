@@ -2,7 +2,8 @@
 // throw two crossed shadows. While both hands are lit their lights sit at one point between her hands, so they throw one
 // shadow and light as much as before; with one hand lit that hand's lights go back where Light Placer put them. With "A shadow
 // from each hand" each hand's lights stay at the hand, pushed out of her torso when an animation holds the hand against it.
-// A glowing weapon's lights sit at the middle of the weapon, not in the fist at its grip, on every lighting (PlaceWeaponGlows).
+// A glowing weapon's light sits at the middle of the weapon, not in the fist at its grip: Light Placer 5.2.0 places our rows' lights
+// so itself (CenterOnBounds), and the record route's own light is moved here (PlaceWeaponGlows).
 
 #include "Plugin.h"
 #include "StrayLights.h"
@@ -184,9 +185,9 @@ namespace Plugin
 			return a_hand.world * point;
 		}
 
-		// our lights under a weapon go to the middle of the weapon: the glow comes from the blade, and a light in the fist at the grip
-		// throws the fingers' shadow across the floor. Light Placer's own node for the light moves when it has one (it rewrites a
-		// flickering light's place, never its node's). True when a light of ours was placed.
+		// the record route's weapon light goes to the middle of the weapon: the glow comes from the blade, and a light in the fist at the
+		// grip throws the fingers' shadow across the floor. Light Placer 5.2.0 places our rows' lights there itself (CenterOnBounds,
+		// lagen.center_switch). True when a light of ours was placed.
 		bool PlaceGlowsUnder(RE::NiAVObject* a_hand)
 		{
 			const auto* model = a_hand ? WeaponModel(a_hand) : nullptr;
@@ -196,20 +197,14 @@ namespace Plugin
 			const auto centre = CentreOf(*model, *a_hand);
 			bool       placed = false;
 			RE::BSVisit::TraverseScenegraphLights(a_hand, [&centre, &placed](RE::NiPointLight* a_light) {
+				// the record route's own weapon light (ArtLights.cpp, hung at the part's origin)
 				const char* name = a_light->name.c_str();
-				// Light Placer's lights of our rows, and the record route's own weapon light (ArtLights.cpp, hung at the part's origin)
-				if (!a_light->parent || !name || (!StrayLights::IsOurs(name) && std::string_view(name) != "IlluminatedArtLight")) {
+				if (!a_light->parent || !name || std::string_view(name) != "IlluminatedArtLight") {
 					return RE::BSVisit::BSVisitControl::kContinue;
 				}
-				RE::NiAVObject* moved = a_light;
-				if (const char* holder = a_light->parent->name.c_str(); holder && std::string_view(holder).starts_with("LP_Node")) {
-					moved = a_light->parent;
-				}
-				if (moved->parent) {
-					moved->local.translate = moved->parent->world.Invert() * centre;
-					moved->world.translate = centre;
-					placed = true;
-				}
+				a_light->local.translate = a_light->parent->world.Invert() * centre;
+				a_light->world.translate = centre;
+				placed = true;
 				return RE::BSVisit::BSVisitControl::kContinue;
 			});
 			return placed;
@@ -275,9 +270,14 @@ namespace Plugin
 
 	void PlaceHerShadow()
 	{
-		// every lighting: Light Placer's weapon rows and the record route's weapon lights both hang inside WEAPON / SHIELD, and the
-		// draw / equip sinks (WatchWeaponGlows) note the actors on both routes
-		PlaceWeaponGlows();
+		// the record route's weapon lights hang inside WEAPON / SHIELD at the part's origin; on Light Placer's route its own
+		// CenterOnBounds places ours, so the noted actors are let go there
+		if (RecordRoute()) {
+			PlaceWeaponGlows();
+		} else if (gGlowQueued.exchange(false, std::memory_order_relaxed)) {
+			const std::lock_guard lock(gGlowLock);
+			gGlowQueue.clear();
+		}
 		if (!ShadowDownload() || RecordRoute() || REL::Module::IsVR()) {
 			return;
 		}

@@ -538,7 +538,6 @@ namespace Plugin
 			{
 				const bool started = func(a_this);
 				NoteArtLook();
-				NoteStrayLook(StrayWhy::kArtStart);
 				if constexpr (std::is_same_v<T, RE::ShaderReferenceEffect>) {
 					NoteFleshStarted(a_this);
 				}
@@ -598,8 +597,7 @@ namespace Plugin
 					if (RecordRoute()) {
 						RefreshDrawn();
 					}
-					TickArtLights();    // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
-					StrayLightLooks();  // a light of ours left in the scene with no node (LightPlacerQueue.cpp)
+					TickArtLights();  // before the fading module, which finds and fades them on the weapons (ArtLights.cpp)
 					if (!RecordRoute()) {
 						NoteFleshRoots();  // for the flesh spells' Light Placer lights, recolored on the worker threads (FleshLights.cpp)
 					}

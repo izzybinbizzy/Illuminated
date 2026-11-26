@@ -613,8 +613,9 @@ namespace Plugin
 			std::lock_guard lock(gPresetLock);
 			gPresets = ReadPresets();  // here on the main thread, once: the menu never reads a file on its own thread
 		}
-		if (!SKSEMenuFramework::IsInstalled()) {
-			SKSE::log::warn("SKSE Menu Framework is not installed, so there is no settings page - the settings INI still applies");
+		// its file on the drive is not enough: a framework that did not load takes every page and shows none
+		if (!SKSEMenuFramework::IsInstalled() || !GetMenuFrameworkModule()) {
+			SKSE::log::warn("SKSE Menu Framework is not installed or did not load, so there is no settings page - the settings INI still applies");
 			return;
 		}
 		for (const auto name : { "CS Light.esp", "CS Light.esl" }) {
@@ -651,7 +652,7 @@ namespace Plugin
 		MenuStyle::gTheme = MenuStyle::MakeTheme(0xFFC94D);  // candle gold
 		// the framework may keep the pointer: the text lives for the whole session (a temporary's c_str() would dangle)
 		static const std::string kSection(kOurFolder);
-		SKSEMenuFramework::SetSection(T(kSection.c_str()));
+		SKSEMenuFramework::SetSection(Translation::MenuName(kSection.c_str()));
 		// Praedy's Staves only with Praedy's Staves AIO loaded (its settings file ships in the main download since the merge, so
 		// only its plugin says it is installed: "Praedy's StavesAIO..." - read off his install, the Legacy of the Dragonborn
 		// version -, or a Patch Hub patch, "Praedystaves..." / "PraedyStaves...", which needs it as a master - his "yes, fix it"
@@ -662,7 +663,7 @@ namespace Plugin
 			if (gPages[i] == kItemsPage) {
 				gItemsAt = i;
 				// his order: "an entirely new main menu ... search for the weapon/spell and change it's lights" (FadeItems.cpp)
-				SKSEMenuFramework::AddSectionItem(T(kItemsPage.data()), LightKit::GuardedDraw<ItemsPage>);
+				SKSEMenuFramework::AddSectionItem(Translation::MenuName(kItemsPage.data()), LightKit::GuardedDraw<ItemsPage>);
 				continue;
 			}
 			if (gPages[i] == kPerformancePage) {
@@ -672,7 +673,7 @@ namespace Plugin
 				SKSE::log::info("menu: no Praedy's Staves AIO plugin loaded - its page is left out");
 				continue;
 			}
-			SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
+			SKSEMenuFramework::AddSectionItem(Translation::MenuName(gPages[i].c_str()), kPageFunctions[i]);
 		}
 		gTestWindow = SKSEMenuFramework::AddWindow(LightKit::GuardedDraw<DrawTestWindow>, false);
 		SKSE::log::info("menu: {} page(s) added to SKSE Menu Framework {}", gPages.size(), SKSEMenuFramework::GetMenuFrameworkVersion());
@@ -681,19 +682,19 @@ namespace Plugin
 	// after the fading module's pages (HUD, Fading): Performance, the last page
 	void RegisterMenuTail()
 	{
-		if (!SKSEMenuFramework::IsInstalled()) {
+		if (!SKSEMenuFramework::IsInstalled() || !GetMenuFrameworkModule()) {
 			return;
 		}
 		static const std::string kSection(kOurFolder);
-		SKSEMenuFramework::SetSection(T(kSection.c_str()));
+		SKSEMenuFramework::SetSection(Translation::MenuName(kSection.c_str()));
 		for (std::size_t i = 0; i < gPages.size(); ++i) {
 			if (gPages[i] == kPerformancePage) {
-				SKSEMenuFramework::AddSectionItem(T(gPages[i].c_str()), kPageFunctions[i]);
+				SKSEMenuFramework::AddSectionItem(Translation::MenuName(gPages[i].c_str()), kPageFunctions[i]);
 			}
 		}
 #ifdef FADE_DEBUG_PAGE
-		SKSEMenuFramework::SetSection(T(kSection.c_str()));
-		SKSEMenuFramework::AddSectionItem(T("Diagnostics"), LightKit::GuardedDraw<RenderDiagnostics>);
+		SKSEMenuFramework::SetSection(Translation::MenuName(kSection.c_str()));
+		SKSEMenuFramework::AddSectionItem(Translation::MenuName("Diagnostics"), LightKit::GuardedDraw<RenderDiagnostics>);
 #endif
 	}
 }
