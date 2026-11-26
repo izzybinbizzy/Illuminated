@@ -852,13 +852,20 @@ namespace Plugin
 		{
 			const auto* base = a_hazard->GetBaseObject();
 			const auto* form = base ? base->As<RE::BGSHazard>() : nullptr;
-			// Radiant Bow's Sky Rune flames wear its Sky impact pick (RadiantBowColors.cpp)
-			if (const auto pick = form && !LightsOff() ? RadiantBowSkyColor(form->GetModel() ? form->GetModel() : "", true) : std::nullopt) {
-				if (auto* own = netimmerse_cast<RE::NiPointLight*>(a_hazard->GetHazardRuntimeData().light.get())) {
-					const auto turn = LightKit::Turn();
-					own->GetLightRuntimeData().diffuse = *pick;
+			// Radiant Bow's Sky Rune flames wear its Sky impact pick (RadiantBowColors.cpp); with no pick, or all lights off, its own light
+			// back in its record's color, so a pick taken back while it burns leaves no stale tint
+			if (const char* model = form && form->GetModel() ? form->GetModel() : ""; form && RadiantBowSkyModel(model, true)) {
+				auto*      own = netimmerse_cast<RE::NiPointLight*>(a_hazard->GetHazardRuntimeData().light.get());
+				const auto pick = LightsOff() ? std::nullopt : RadiantBowSkyColor(model, true);
+				if (!pick && !form->data.light) {
+					return;
 				}
-				PaintLightsUnder(a_hazard->Get3D(), ByteColor(*pick));
+				const RE::NiColor color = pick ? *pick : RE::NiColor{ form->data.light->data.color.red / 255.0f, form->data.light->data.color.green / 255.0f, form->data.light->data.color.blue / 255.0f };
+				if (own) {
+					const auto turn = LightKit::Turn();
+					own->GetLightRuntimeData().diffuse = color;
+				}
+				PaintLightsUnder(a_hazard->Get3D(), ByteColor(color));
 				return;
 			}
 			const auto family = form ? HazardFamily(form) : Family::kNone;

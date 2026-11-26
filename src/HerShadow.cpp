@@ -303,6 +303,10 @@ namespace Plugin
 			auto* left = root ? root->GetObjectByName(strings->npcLMagicNode) : nullptr;
 			auto* right = root ? root->GetObjectByName(strings->npcRMagicNode) : nullptr;
 			if (apart) {
+				// the first-person arms are not where her third-person torso is: only that view's lights are kept out of it
+				if (first) {
+					continue;
+				}
 				// each hand's lights stay at their hand, out of her torso; a light moved before and clear of it now goes back below
 				lights.clear();
 				OurLightsUnder(left, lights);

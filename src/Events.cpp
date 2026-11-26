@@ -231,7 +231,7 @@ namespace Plugin
 		// a body came or went (TakeBodyNotes): every near actor with hands out is listed; one that went is dropped below
 		if (std::exchange(gLookAround, false)) {
 			if (auto* lists = RE::ProcessLists::GetSingleton()) {
-				for (auto* handles : { &lists->highActorHandles, &lists->middleHighActorHandles }) {
+				for (auto* handles : { &lists->highActorHandles, &lists->middleHighActorHandles, &lists->middleLowActorHandles }) {
 					for (auto& handle : *handles) {
 						if (const auto actor = handle.get(); HandsDrawn(actor.get())) {
 							gDrawnIds.insert(actor->GetFormID());
