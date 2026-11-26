@@ -28,9 +28,20 @@ namespace Plugin
 
 	void CheckLightPlacer()
 	{
-		// only a line in the log: SKSE packs the number differently on 1.5.97, where it reads lower
-		if (const auto* info = SKSE::GetPluginInfo("Light Placer"); info && REL::Version::unpack(info->version) < REL::Version{ 5, 2, 0 }) {
-			SKSE::log::warn("light placer: Illuminated needs 5.2.0 or newer, this one reads as {}", REL::Version::unpack(info->version).string());
+		const auto* info = SKSE::GetPluginInfo("Light Placer");
+		if (!info || REL::Version::unpack(info->version) >= REL::Version{ 5, 2, 0 }) {
+			return;
+		}
+		const auto have = REL::Version::unpack(info->version).string();
+		SKSE::log::error("light placer: Illuminated needs 5.2.0 or newer, this one reads as {}", have);
+		// one box at data load, Po3Tweaks' way: an older Light Placer skips every file of ours holding CenterOnBounds, spells included.
+		// Not on 1.5.97, where SKSE packs the number differently and it reads lower
+		if (REL::Module::get().version() >= REL::Version{ 1, 6, 0, 0 }) {
+			const auto text = std::format(
+				"Illuminated needs Light Placer 5.2.0 or newer; the one installed is {}, and it skips part of "
+				"Illuminated's light files. Update Light Placer from Nexus (mod 127557).",
+				have);
+			RE::DebugMessageBox(text.c_str());
 		}
 	}
 }
