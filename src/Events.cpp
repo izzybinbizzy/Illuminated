@@ -125,7 +125,8 @@ namespace Plugin
 				if (!a_object) {
 					gBodyLeft.store(true, std::memory_order_relaxed);
 				}
-				gBodiesMoved.store(true, std::memory_order_relaxed);
+				// release: the main thread that takes this sees gBodyLeft too
+				gBodiesMoved.store(true, std::memory_order_release);
 			}
 			static inline REL::Relocation<decltype(LoadThunk)> load;
 			static inline REL::Relocation<decltype(SetThunk)>  set;
@@ -281,7 +282,7 @@ namespace Plugin
 
 	void TakeBodyNotes()
 	{
-		if (!gBodiesMoved.exchange(false, std::memory_order_relaxed)) {
+		if (!gBodiesMoved.exchange(false, std::memory_order_acquire)) {
 			return;
 		}
 		// on the main thread what the 3D slots once did on the game's loader threads: the fading hands look once, a body that went may
